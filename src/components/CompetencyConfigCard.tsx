@@ -52,7 +52,7 @@ export function CompetencyConfigCard({
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-xs font-black text-white ring-1 ring-white/30">
             {index + 1}
           </span>
-          <h4 className="truncate text-sm font-bold text-white drop-shadow-md" title={competency.name}>
+          <h4 className="truncate text-sm font-bold text-ink" title={competency.name}>
             {competency.name}
           </h4>
         </div>
@@ -60,7 +60,7 @@ export function CompetencyConfigCard({
           type="button"
           aria-label={`Quitar ${competency.name}`}
           onClick={() => onRemove(competency.uid)}
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/10 text-slate-200 ring-1 ring-white/20 transition-all duration-300 hover:bg-rose-500/80 hover:text-white active:scale-90"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:bg-rose-500/80 hover:text-white active:scale-90"
         >
           <X className="h-4 w-4" />
         </button>
@@ -69,7 +69,7 @@ export function CompetencyConfigCard({
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Valor Esperado — with static ≥ prefix inside the wrapper */}
         <label className="block">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-200/70">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-soft">
             Valor Esperado
           </span>
           <div className="glass flex items-center gap-1.5 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-cyan-300/70">
@@ -86,14 +86,14 @@ export function CompetencyConfigCard({
                 onChange(competency.uid, { esperadoText: e.target.value })
               }
               placeholder="Introduzca el valor"
-              className="w-full bg-transparent text-sm text-white placeholder:text-slate-400 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
           </div>
         </label>
 
         {/* Valor Obtenido */}
         <label className="block">
-          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-200/70">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-soft">
             Valor Obtenido
           </span>
           <div className="glass flex items-center gap-1.5 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-cyan-300/70">
@@ -107,7 +107,7 @@ export function CompetencyConfigCard({
                 onChange(competency.uid, { obtenidoText: e.target.value })
               }
               placeholder="Introduzca el valor"
-              className="w-full bg-transparent text-sm text-white placeholder:text-slate-400 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
           </div>
         </label>
@@ -118,12 +118,12 @@ export function CompetencyConfigCard({
         <AjusteBadge ajuste={ajuste} />
         <span
           className={[
-            "rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ring-white/20",
+            "rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ring-[color:var(--hairline)]",
             brecha === null
-              ? "bg-slate-500/30 text-slate-300"
+              ? "fill-softer text-ink-soft"
               : brecha < 0
-                ? "bg-red-500/20 text-red-300"
-                : "bg-slate-500/30 text-slate-300",
+                ? "bg-rose-500/20 text-rose-500"
+                : "fill-softer text-ink-soft",
           ].join(" ")}
         >
           Brecha: {brecha === null ? "—" : brecha.toFixed(1)}

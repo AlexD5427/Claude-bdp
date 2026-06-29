@@ -57,27 +57,27 @@ export function Tablero() {
       >
         <div className="mb-4 flex items-center gap-2">
           <Trophy className="h-5 w-5 text-amber-300" />
-          <h3 className="text-base font-bold text-white drop-shadow-md">
+          <h3 className="text-base font-bold text-ink">
             Top postulantes por competencias
           </h3>
         </div>
         <ul className="space-y-3">
           {topCandidates.map(({ c, nota }, idx) => (
             <li key={c.id} className="flex items-center gap-3">
-              <span className="w-5 shrink-0 text-center text-sm font-black text-slate-400">
+              <span className="w-5 shrink-0 text-center text-sm font-black text-ink-faint">
                 {idx + 1}
               </span>
               <Avatar name={c.fullName} seed={c.id} size="sm" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-semibold text-white">
+                  <span className="truncate text-sm font-semibold text-ink">
                     {c.fullName}
                   </span>
                   <span className="shrink-0 text-sm font-black text-cyan-300">
                     {nota}
                   </span>
                 </div>
-                <div className="mt-1 h-2 overflow-hidden rounded-full bg-white/5">
+                <div className="mt-1 h-2 overflow-hidden rounded-full fill-soft">
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: `${Math.min(nota, 100)}%` }}
@@ -101,7 +101,7 @@ export function Tablero() {
         >
           <div className="mb-3 flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-emerald-300" />
-            <h3 className="text-base font-bold text-white drop-shadow-md">
+            <h3 className="text-base font-bold text-ink">
               Confiabilidad
             </h3>
           </div>
@@ -127,7 +127,7 @@ export function Tablero() {
         >
           <div className="mb-3 flex items-center gap-2">
             <Activity className="h-5 w-5 text-cyan-300" />
-            <h3 className="text-base font-bold text-white drop-shadow-md">
+            <h3 className="text-base font-bold text-ink">
               Riesgo de robo
             </h3>
           </div>
@@ -154,10 +154,10 @@ function Bar({
   return (
     <div className="mb-2.5 last:mb-0">
       <div className="mb-1 flex items-center justify-between text-xs">
-        <span className="font-semibold text-slate-200/80">{label}</span>
-        <span className="font-black text-white">{value}</span>
+        <span className="font-semibold text-ink-soft">{label}</span>
+        <span className="font-black text-ink">{value}</span>
       </div>
-      <div className="h-2.5 overflow-hidden rounded-full bg-white/5">
+      <div className="h-2.5 overflow-hidden rounded-full fill-soft">
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${pct}%` }}

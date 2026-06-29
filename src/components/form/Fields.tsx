@@ -8,18 +8,18 @@ interface BaseProps {
 
 function Label({ label, required, hint }: BaseProps) {
   return (
-    <span className="mb-1.5 flex items-center justify-between">
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-200/70">
+    <span className="mb-1.5 flex items-center justify-between gap-2">
+      <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
         {label}
-        {required && <span className="ml-1 text-cyan-300">*</span>}
+        {required && <span className="ml-1 text-cyan-400">*</span>}
       </span>
-      {hint && <span className="text-[0.65rem] text-slate-400">{hint}</span>}
+      {hint && <span className="text-[0.65rem] text-ink-faint">{hint}</span>}
     </span>
   );
 }
 
 const fieldClass =
-  "glass w-full rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-slate-400 outline-none focus-within:ring-2 focus-within:ring-cyan-300/70";
+  "glass w-full rounded-xl px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none focus-within:ring-2 focus-within:ring-cyan-400/70";
 
 export function TextField({
   label,
@@ -49,6 +49,34 @@ export function TextField({
   );
 }
 
+export function TextAreaField({
+  label,
+  required,
+  hint,
+  value,
+  onChange,
+  placeholder,
+  rows = 3,
+}: BaseProps & {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  rows?: number;
+}) {
+  return (
+    <label className="block">
+      <Label label={label} required={required} hint={hint} />
+      <textarea
+        value={value}
+        rows={rows}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className={`${fieldClass} resize-y leading-relaxed`}
+      />
+    </label>
+  );
+}
+
 export function SelectField({
   label,
   required,
@@ -70,9 +98,9 @@ export function SelectField({
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`${fieldClass} appearance-none pr-9 ${value ? "" : "text-slate-400"}`}
+          className={`${fieldClass} appearance-none pr-9 ${value ? "" : "text-ink-faint"}`}
         >
-          <option value="" disabled className="bg-slate-900 text-slate-400">
+          <option value="" disabled>
             {placeholder}
           </option>
           {options.map((opt) => (
@@ -81,11 +109,55 @@ export function SelectField({
             </option>
           ))}
         </select>
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-300">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-soft">
           ▾
         </span>
       </div>
     </label>
+  );
+}
+
+/**
+ * A pill-style segmented control — friendlier than a dropdown for short option
+ * sets (e.g. risk levels, reliability). Highlights the active option with the
+ * corporate gradient.
+ */
+export function SegmentedField({
+  label,
+  required,
+  hint,
+  value,
+  onChange,
+  options,
+}: BaseProps & {
+  value: string;
+  onChange: (v: string) => void;
+  options: readonly string[];
+}) {
+  return (
+    <div>
+      <Label label={label} required={required} hint={hint} />
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((opt) => {
+          const active = value === opt;
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onChange(active ? "" : opt)}
+              className={[
+                "rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-all duration-300 ease-spring active:scale-95",
+                active
+                  ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/40 shadow-glow-cyan"
+                  : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft",
+              ].join(" ")}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -99,9 +171,7 @@ export function FormSection({
 }) {
   return (
     <fieldset className="space-y-3">
-      <legend className="mb-1 text-sm font-bold text-white drop-shadow-md">
-        {title}
-      </legend>
+      <legend className="mb-1 text-sm font-bold text-ink">{title}</legend>
       {children}
     </fieldset>
   );

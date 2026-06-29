@@ -68,6 +68,8 @@ export interface Candidate extends RawCandidate {
   competenciasList: CompetencyScore[];
   /** Parsed technical-knowledge entries. */
   conocimientosList: TechnicalKnowledge[];
+  /** Parsed tool-handling entries (Manejo de Herramientas u otros). */
+  herramientasList: TechnicalKnowledge[];
 }
 
 /** Combined payload returned by the GET endpoint. */
@@ -83,6 +85,15 @@ export type ModuleId =
   | "comparador"
   | "procesos"
   | "postulantes";
+
+/** A free-form list item used by the knowledge / tools builders. */
+export interface FormItem {
+  uid: string;
+  nombre: string;
+  nivel: string;
+  /** Optional free-text detail (only Conocimientos Técnicos uses it). */
+  detalle?: string;
+}
 
 /** A configured competency inside the registration form. */
 export interface FormCompetency {

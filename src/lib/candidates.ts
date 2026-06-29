@@ -30,27 +30,50 @@ export function buildFullName(c: RawCandidate): string {
   return full || "Postulante Sin Nombre";
 }
 
-/** Safely parse the JSON-encoded `conocimientos_tecnicos` column. */
-function parseConocimientos(raw: unknown): TechnicalKnowledge[] {
-  if (Array.isArray(raw)) return raw as TechnicalKnowledge[];
+/**
+ * Safely parse a JSON-encoded list column (`conocimientos_tecnicos`,
+ * `herramientas`). Accepts a JSON array of objects, a JSON array of strings,
+ * or a plain comma-separated string. Never throws — malformed data yields [].
+ */
+function parseItemList(raw: unknown): TechnicalKnowledge[] {
+  const fromObject = (e: Record<string, unknown>): TechnicalKnowledge => ({
+    nombre: String(e.nombre ?? e.name ?? ""),
+    nivel: e.nivel ? String(e.nivel) : undefined,
+    detalle: e.detalle ? String(e.detalle) : undefined,
+  });
+
+  if (Array.isArray(raw)) {
+    return raw
+      .map((e) =>
+        typeof e === "string"
+          ? { nombre: e.trim() }
+          : e && typeof e === "object"
+            ? fromObject(e as Record<string, unknown>)
+            : { nombre: "" },
+      )
+      .filter((e) => e.nombre);
+  }
   if (typeof raw !== "string" || raw.trim() === "") return [];
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((e) => e && typeof e === "object")
-      .map((e) => ({
-        nombre: String((e as Record<string, unknown>).nombre ?? ""),
-        nivel: (e as Record<string, unknown>).nivel
-          ? String((e as Record<string, unknown>).nivel)
-          : undefined,
-        detalle: (e as Record<string, unknown>).detalle
-          ? String((e as Record<string, unknown>).detalle)
-          : undefined,
-      }))
-      .filter((e) => e.nombre);
-  } catch {
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((e) =>
+          typeof e === "string"
+            ? { nombre: e.trim() }
+            : e && typeof e === "object"
+              ? fromObject(e as Record<string, unknown>)
+              : { nombre: "" },
+        )
+        .filter((e) => e.nombre);
+    }
     return [];
+  } catch {
+    // Not JSON — treat as a comma-separated list of plain names.
+    return raw
+      .split(",")
+      .map((s) => ({ nombre: s.trim() }))
+      .filter((e) => e.nombre);
   }
 }
 
@@ -88,7 +111,8 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
     id: ident || `cand-${index}`,
     fullName: buildFullName(c),
     competenciasList: parseCompetencias(c.competencias),
-    conocimientosList: parseConocimientos(c.conocimientos_tecnicos),
+    conocimientosList: parseItemList(c.conocimientos_tecnicos),
+    herramientasList: parseItemList(c.herramientas),
   };
 }
 

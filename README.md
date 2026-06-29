@@ -9,19 +9,28 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
 
 ## ✨ Características
 
+- **Tema dual claro/oscuro** ("Daylight" / "Midnight") conmutable desde el dock
+  y persistente, con todo el sistema de diseño impulsado por *CSS custom
+  properties* (sin parpadeo gracias a un script anti-FOUC).
+- **Efectos reactivos al cursor**: un foco de luz global sigue el puntero por
+  toda la página y las tarjetas tienen un *glow* que persigue al cursor.
 - **Liquid Glass** real: volumen, reflejos especulares y refracción fluida sobre
-  un fondo *mesh gradient* animado.
-- **Floating Dock** estilo iOS (solo iconos) con píldora activa que se desliza
-  con física de resorte y punto de estado de sincronización con la base de datos.
-- **Barra de KPIs** flotante con widgets de vidrio que entran en escena de forma
-  escalonada.
-- **Módulo 1 — Registro de Postulantes:** formulario inteligente con división de
-  nombre, identificador con placeholder `CI - Nro Proceso - Año`, *Estado Civil*
-  sin "Separado/a" y constructor de competencias 0/7 con cálculo en vivo de
-  **Brecha** y **Ajuste**.
-- **Módulo 2 — Nuevo Comparador:** cuadrícula de auditoría de talento con
-  encabezados *sticky* que colapsan en *lite chips* al hacer scroll y chips de
-  competencia de Liquid Glass en cada intersección.
+  un fondo *mesh gradient* animado (en ambos temas).
+- **Floating Dock** estilo iOS con píldora activa de física de resorte, switch de
+  tema y punto de estado de sincronización.
+- **Módulo — Registro de Postulantes:** "Cuestionario" completo en un modal
+  protegido con datos personales, **velocímetros analógicos** (arrastre o
+  ingreso manual 0–100 %), arquetipo **DISC**, constructores A1/A2/A3
+  (conocimientos, herramientas y competencias), escalas de confiabilidad y
+  observaciones por etiquetas. Incluye **autoguardado local**, **recuperación de
+  borrador** ante caídas y **confirmación de salida**.
+- **Módulo — Comparador:** búsqueda *type-ahead* en vivo (nombre + identificador)
+  para añadir columnas, encabezados congelados que no tiemblan y colapsan en una
+  barra compacta sólo cuando el encabezado grande sale de pantalla, y un informe
+  comparativo seccionado (Resultados, Competencias, Conocimientos, Herramientas,
+  Integridad y Observaciones).
+- **Impresión institucional** a Carta / Oficio en todos los módulos, con
+  banderola de reporte y aplanado de vidrio para máxima legibilidad.
 - Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1) y **Procesos**.
 
 ## 🧱 Stack
@@ -68,10 +77,12 @@ La paleta corporativa se construye con `#004a8f` (azul profundo), `#005baa`
 
 ```
 src/
-├── components/      # Dock, KPIs, chips, tarjetas, estados, formulario
-├── context/         # useTalentData (Context API)
-├── lib/             # cálculos de competencia y normalización de datos
+├── components/      # Dock, KPIs, chips, tarjetas, modal, diálogos, formulario
+│   └── form/        # Campos, velocímetro (GaugeInput), tags, list builders
+├── context/         # useTalentData + useTheme (Context API)
+├── hooks/           # usePointerGlow, useFormDraft (autosave/recuperación)
+├── lib/             # cálculos, normalización, niveles e impresión
 ├── modules/         # Tablero, Cara a Cara, Comparador, Procesos, Postulantes
 ├── App.tsx          # layout + enrutado de módulos
-└── index.css        # sistema de diseño Liquid Glass
+└── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 ```

@@ -31,24 +31,76 @@ export const DOCK_ITEMS: DockItem[] = [
   { id: "postulantes", label: "Lista de Postulantes", icon: ListChecks },
 ];
 
-/** Estado civil options — "Separado/a" is intentionally excluded. */
+/** Estado civil options. */
 export const ESTADO_CIVIL_OPTIONS = [
   "Soltero/a",
   "Casado/a",
+  "Conviviente / Unión Libre",
   "Divorciado/a",
   "Viudo/a",
-  "Unión libre",
 ] as const;
 
-/** Maximum competencies a candidate can be configured with in the form. */
-export const MAX_COMPETENCIAS = 7;
-
+/** Academic level options. */
 export const NIVEL_ACADEMICO_OPTIONS = [
   "Bachiller",
-  "Técnico",
-  "Egresado",
+  "Técnico Medio",
+  "Técnico Superior",
   "Licenciatura",
-  "Diplomado",
-  "Maestría",
-  "Doctorado",
+  "Carrera",
 ] as const;
+
+/** Departments of residence (Bolivia) — "N/A" leads the list. */
+export const DEPARTAMENTO_OPTIONS = [
+  "N/A",
+  "Beni",
+  "Chuquisaca",
+  "Cochabamba",
+  "La Paz",
+  "Oruro",
+  "Pando",
+  "Potosí",
+  "Santa Cruz",
+  "Tarija",
+] as const;
+
+/** DISC behavioural archetypes. */
+export const DISC_OPTIONS = [
+  "N/A",
+  "Director (D)",
+  "Orientador (Di)",
+  "Valiente (DI)",
+  "Carismático (Id)",
+  "Entusiasta (I)",
+  "Alentador (Is)",
+  "Conciliador (IS)",
+  "Colaborador (Si)",
+  "Servicial (S)",
+  "Organizador (Sc)",
+  "Ejecutador (SC)",
+  "Sistemático (Cs)",
+  "Analítico (C)",
+  "Confirmador (Cd)",
+  "Progresista (CD)",
+  "Táctico (SC')",
+  "Competitivo (DS)",
+  "Moderado (IC)",
+] as const;
+
+/** Reliability — "Confiabilidad e Integridad". */
+export const CONFIABILIDAD_OPTIONS = [
+  "N/A",
+  "Confiable",
+  "Confiabilidad Media",
+  "No Confiable",
+] as const;
+
+/** Generic three-step risk / integrity scale. */
+export const NIVEL_RIESGO_OPTIONS = ["N/A", "Bajo", "Medio", "Alto"] as const;
+
+/** Level scale used by the knowledge / tools list builders. */
+export const NIVEL_ITEM_OPTIONS = ["Bajo", "Medio", "Alto"] as const;
+
+/** Capacity limits for the form's list builders. */
+export const MAX_COMPETENCIAS = 7;
+export const MAX_CONOCIMIENTOS = 7;
+export const MAX_HERRAMIENTAS = 5;

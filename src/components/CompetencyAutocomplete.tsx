@@ -91,7 +91,7 @@ export function CompetencyAutocomplete({
   return (
     <div ref={wrapRef} className="relative">
       <div className="glass flex items-center gap-2 rounded-2xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-cyan-300/70">
-        <Search className="h-4 w-4 shrink-0 text-slate-300" />
+        <Search className="h-4 w-4 shrink-0 text-ink-soft" />
         <input
           type="text"
           value={query}
@@ -105,7 +105,7 @@ export function CompetencyAutocomplete({
           placeholder={
             disabled ? "Límite alcanzado (7/7)" : "Buscar competencia o habilidad…"
           }
-          className="w-full bg-transparent text-sm text-white placeholder:text-slate-400 outline-none disabled:cursor-not-allowed"
+          className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none disabled:cursor-not-allowed"
           role="combobox"
           aria-expanded={open}
           aria-controls="competency-listbox"
@@ -128,8 +128,8 @@ export function CompetencyAutocomplete({
                 className={[
                   "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors",
                   i === active
-                    ? "bg-gradient-to-br from-[#00b0d8]/40 to-[#005baa]/40 text-white"
-                    : "text-slate-200 hover:bg-white/10",
+                    ? "bg-gradient-to-br from-[#00b0d8]/40 to-[#005baa]/40 text-ink"
+                    : "text-ink-soft hover:fill-soft",
                 ].join(" ")}
               >
                 <span className="truncate">{opt}</span>

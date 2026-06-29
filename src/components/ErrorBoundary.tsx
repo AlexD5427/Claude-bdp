@@ -33,10 +33,10 @@ export class ErrorBoundary extends Component<Props, State> {
             <AlertTriangle className="h-7 w-7 text-white drop-shadow-md" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-white drop-shadow-md">
+            <h3 className="text-lg font-bold text-ink">
               Ocurrió un error inesperado
             </h3>
-            <p className="mt-1 text-sm text-slate-200/80">
+            <p className="mt-1 text-sm text-ink-soft">
               {this.state.error.message}
             </p>
           </div>

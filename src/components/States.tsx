@@ -6,7 +6,7 @@ export function LoadingState({ label = "Cargando datos…" }: { label?: string }
   return (
     <GlassCard className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-3xl px-8 py-12 text-center">
       <Loader2 className="h-10 w-10 animate-spin text-cyan-300" />
-      <p className="text-sm font-semibold text-slate-100">{label}</p>
+      <p className="text-sm font-semibold text-ink">{label}</p>
     </GlassCard>
   );
 }
@@ -25,10 +25,10 @@ export function ErrorState({
         <AlertTriangle className="h-7 w-7 text-white drop-shadow-md" />
       </div>
       <div>
-        <h3 className="text-lg font-bold text-white drop-shadow-md">
+        <h3 className="text-lg font-bold text-ink">
           No se pudieron cargar los datos
         </h3>
-        <p className="mt-1 text-sm text-slate-200/80">{message}</p>
+        <p className="mt-1 text-sm text-ink-soft">{message}</p>
       </div>
       <button
         type="button"
@@ -52,11 +52,11 @@ export function EmptyState({
 }) {
   return (
     <GlassCard className="mx-auto flex max-w-md flex-col items-center gap-3 rounded-3xl px-8 py-12 text-center">
-      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-white/10 ring-1 ring-white/20">
-        <Inbox className="h-7 w-7 text-slate-200" />
+      <div className="grid h-14 w-14 place-items-center rounded-2xl fill-softer ring-1 ring-[color:var(--hairline)]">
+        <Inbox className="h-7 w-7 text-ink-soft" />
       </div>
-      <h3 className="text-lg font-bold text-white drop-shadow-md">{title}</h3>
-      <p className="text-sm text-slate-200/80">{message}</p>
+      <h3 className="text-lg font-bold text-ink">{title}</h3>
+      <p className="text-sm text-ink-soft">{message}</p>
     </GlassCard>
   );
 }

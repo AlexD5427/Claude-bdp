@@ -73,7 +73,7 @@ export function CaraACara() {
           <div className="glass rounded-3xl p-5">
             <div className="mb-4 flex items-center gap-2">
               <Swords className="h-5 w-5 text-cyan-300" />
-              <h3 className="text-sm font-bold text-white drop-shadow-md">
+              <h3 className="text-sm font-bold text-ink">
                 Comparativa de notas
               </h3>
             </div>
@@ -107,14 +107,14 @@ function Picker({
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-200/70">
+      <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-soft">
         {label}
       </span>
       <div className="relative">
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="glass w-full appearance-none rounded-xl px-3.5 py-2.5 pr-9 text-sm text-white outline-none focus-within:ring-2 focus-within:ring-cyan-300/70"
+          className="glass w-full appearance-none rounded-xl px-3.5 py-2.5 pr-9 text-sm text-ink outline-none focus-within:ring-2 focus-within:ring-cyan-400/70"
         >
           {candidates.map((c) => (
             <option key={c.id} value={c.id} className="bg-slate-900 text-white">
@@ -122,7 +122,7 @@ function Picker({
             </option>
           ))}
         </select>
-        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-300">
+        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-soft">
           ▾
         </span>
       </div>
@@ -148,31 +148,31 @@ function MetricRow({
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between text-xs">
-        <span className={`font-black ${aLead ? "text-cyan-300" : "text-slate-300"}`}>
+        <span className={`font-black ${aLead ? "text-cyan-400" : "text-ink-soft"}`}>
           {va ?? "—"}
         </span>
-        <span className="font-semibold uppercase tracking-wide text-slate-200/70">
+        <span className="font-semibold uppercase tracking-wide text-ink-soft">
           {label}
         </span>
-        <span className={`font-black ${bLead ? "text-cyan-300" : "text-slate-300"}`}>
+        <span className={`font-black ${bLead ? "text-cyan-400" : "text-ink-soft"}`}>
           {vb ?? "—"}
         </span>
       </div>
       <div className="flex items-center gap-1.5">
-        <div className="flex h-2.5 flex-1 justify-end overflow-hidden rounded-full bg-white/5">
+        <div className="flex h-2.5 flex-1 justify-end overflow-hidden rounded-full fill-soft">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${(a / max) * 100}%` }}
             transition={{ type: "spring", stiffness: 120, damping: 20 }}
-            className={`h-full rounded-full ${aLead ? "bg-gradient-to-l from-[#00b0d8] to-[#005baa]" : "bg-white/25"}`}
+            className={`h-full rounded-full ${aLead ? "bg-gradient-to-l from-[#00b0d8] to-[#005baa]" : "bg-slate-400/50"}`}
           />
         </div>
-        <div className="flex h-2.5 flex-1 overflow-hidden rounded-full bg-white/5">
+        <div className="flex h-2.5 flex-1 overflow-hidden rounded-full fill-soft">
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${(b / max) * 100}%` }}
             transition={{ type: "spring", stiffness: 120, damping: 20 }}
-            className={`h-full rounded-full ${bLead ? "bg-gradient-to-r from-[#005baa] to-[#00b0d8]" : "bg-white/25"}`}
+            className={`h-full rounded-full ${bLead ? "bg-gradient-to-r from-[#005baa] to-[#00b0d8]" : "bg-slate-400/50"}`}
           />
         </div>
       </div>
