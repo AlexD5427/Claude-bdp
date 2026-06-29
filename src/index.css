@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =============================================================
+   LIQUID GLASS — DESIGN SYSTEM
+   Ultra-premium iOS-inspired glassmorphism with the illusion of
+   volume, specular highlights and fluid refraction.
+   ============================================================= */
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply font-sans text-slate-100 antialiased;
+    /* Deep navy base sits behind the animated mesh so the glass
+       always has rich colour to refract. */
+    background-color: #04122a;
+    background-image: radial-gradient(
+        120% 120% at 50% -10%,
+        rgba(0, 176, 216, 0.10) 0%,
+        rgba(0, 91, 170, 0.04) 35%,
+        transparent 70%
+      );
+    overflow-x: hidden;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Premium thin scrollbars */
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 176, 216, 0.45);
+    background-clip: padding-box;
+  }
+}
+
+@layer components {
+  /* ---------------------------------------------------------------
+     .glass — the Liquid Glass base utility.
+     Mirrors the requested utility string and layers on a specular
+     top highlight + inset volume so the surface reads as real glass.
+     --------------------------------------------------------------- */
+  .glass {
+    @apply relative isolate overflow-hidden;
+    @apply backdrop-blur-3xl bg-white/10 dark:bg-slate-900/20;
+    @apply border border-white/30 dark:border-white/10;
+    @apply shadow-glass ring-1 ring-white/20;
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.10),
+      inset 0 1px 1px rgba(255, 255, 255, 0.45),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.06);
+  }
+
+  /* Specular sheen — a soft highlight running across the top edge,
+     the hallmark of curved glass catching light. */
+  .glass::before {
+    content: "";
+    @apply pointer-events-none absolute inset-x-0 top-0 h-1/2;
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.05) 45%,
+      transparent 100%
+    );
+    opacity: 0.8;
+  }
+
+  /* .glass-heavy — the densest treatment for the floating dock,
+     adding more blur, saturation and a brighter rim. */
+  .glass-heavy {
+    @apply relative isolate overflow-hidden;
+    @apply bg-white/10 dark:bg-slate-900/30 border border-white/40 dark:border-white/15 ring-1 ring-white/25;
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    box-shadow:
+      0 16px 48px rgba(0, 0, 0, 0.35),
+      inset 0 1px 1px rgba(255, 255, 255, 0.55),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.15);
+  }
+  .glass-heavy::before {
+    content: "";
+    @apply pointer-events-none absolute inset-x-0 top-0 h-2/3;
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.04) 55%,
+      transparent 100%
+    );
+  }
+
+  /* Magnetic interaction — hardware-accelerated spring hover used by
+     every interactive surface. */
+  .magnetic {
+    @apply transform-gpu transition-all duration-500 ease-spring;
+  }
+  .magnetic:hover {
+    @apply -translate-y-1 scale-[1.02];
+  }
+  .magnetic:active {
+    @apply scale-95;
+  }
+
+  /* A moving diagonal light streak for premium hover refraction. */
+  .liquid-streak::after {
+    content: "";
+    @apply pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 skew-x-12;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.18),
+      transparent
+    );
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  .liquid-streak:hover::after {
+    opacity: 1;
+    animation: shimmer 1.1s ease-in-out;
+  }
+
+  /* Text that must stay legible on vibrant gradients / dark glass. */
+  .text-on-glass {
+    @apply text-white font-bold drop-shadow-md;
+  }
+}
+
+@layer utilities {
+  /* Honour reduced-motion preferences for accessibility. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
