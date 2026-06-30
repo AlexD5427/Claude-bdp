@@ -3,14 +3,94 @@
 @tailwind utilities;
 
 /* =============================================================
-   LIQUID GLASS — DESIGN SYSTEM
+   LIQUID GLASS — DESIGN SYSTEM (DUAL THEME)
    Ultra-premium iOS-inspired glassmorphism with the illusion of
-   volume, specular highlights and fluid refraction.
+   volume, specular highlights and fluid refraction. Every visual
+   token is driven by CSS custom properties so the whole surface
+   can flip between a deep "Midnight" dark theme and a bright
+   "Daylight" institutional light theme.
    ============================================================= */
 
 @layer base {
-  :root {
+  /* ---- DARK THEME (default · "Midnight") ------------------- */
+  :root,
+  .dark {
     color-scheme: dark;
+
+    /* Page canvas */
+    --app-base: #04122a;
+    --app-wash-1: rgba(0, 176, 216, 0.1);
+    --app-wash-2: rgba(0, 91, 170, 0.04);
+
+    /* Glass surfaces */
+    --glass-bg: rgba(255, 255, 255, 0.1);
+    --glass-bg-heavy: rgba(255, 255, 255, 0.1);
+    --glass-border: rgba(255, 255, 255, 0.3);
+    --glass-border-heavy: rgba(255, 255, 255, 0.4);
+    --glass-ring: rgba(255, 255, 255, 0.2);
+    --glass-sheen: rgba(255, 255, 255, 0.28);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    --glass-shadow-heavy: 0 16px 48px rgba(0, 0, 0, 0.35);
+    --glass-inset-top: rgba(255, 255, 255, 0.45);
+
+    /* Ink (text) */
+    --ink: #f8fafc;
+    --ink-soft: rgba(226, 232, 240, 0.72);
+    --ink-faint: rgba(226, 232, 240, 0.5);
+    --ink-shadow: rgba(2, 8, 23, 0.45);
+
+    /* Subtle fills used for inner pills / placeholders */
+    --fill-1: rgba(255, 255, 255, 0.05);
+    --fill-2: rgba(255, 255, 255, 0.1);
+    --hairline: rgba(255, 255, 255, 0.1);
+
+    /* Mesh blob colours */
+    --mesh-base: #04122a;
+    --mesh-1: rgba(0, 176, 216, 0.3);
+    --mesh-2: rgba(0, 91, 170, 0.35);
+    --mesh-3: rgba(0, 74, 143, 0.4);
+    --mesh-4: rgba(148, 163, 184, 0.1);
+    --grain-opacity: 0.035;
+
+    /* Cursor spotlight tint */
+    --spotlight: rgba(0, 176, 216, 0.16);
+  }
+
+  /* ---- LIGHT THEME ("Daylight" · institutional) ------------ */
+  .light {
+    color-scheme: light;
+
+    --app-base: #eaf1fb;
+    --app-wash-1: rgba(0, 91, 170, 0.12);
+    --app-wash-2: rgba(0, 176, 216, 0.08);
+
+    --glass-bg: rgba(255, 255, 255, 0.62);
+    --glass-bg-heavy: rgba(255, 255, 255, 0.78);
+    --glass-border: rgba(255, 255, 255, 0.85);
+    --glass-border-heavy: rgba(255, 255, 255, 0.95);
+    --glass-ring: rgba(12, 56, 110, 0.1);
+    --glass-sheen: rgba(255, 255, 255, 0.85);
+    --glass-shadow: 0 10px 30px rgba(8, 47, 95, 0.12);
+    --glass-shadow-heavy: 0 18px 48px rgba(8, 47, 95, 0.18);
+    --glass-inset-top: rgba(255, 255, 255, 0.95);
+
+    --ink: #0a2747;
+    --ink-soft: rgba(13, 47, 84, 0.72);
+    --ink-faint: rgba(13, 47, 84, 0.5);
+    --ink-shadow: rgba(255, 255, 255, 0.55);
+
+    --fill-1: rgba(8, 47, 95, 0.05);
+    --fill-2: rgba(8, 47, 95, 0.08);
+    --hairline: rgba(8, 47, 95, 0.12);
+
+    --mesh-base: #e8f0fb;
+    --mesh-1: rgba(0, 176, 216, 0.28);
+    --mesh-2: rgba(0, 91, 170, 0.22);
+    --mesh-3: rgba(56, 130, 220, 0.22);
+    --mesh-4: rgba(255, 255, 255, 0.5);
+    --grain-opacity: 0.02;
+
+    --spotlight: rgba(0, 91, 170, 0.12);
   }
 
   html,
@@ -20,19 +100,19 @@
   }
 
   body {
-    @apply font-sans text-slate-100 antialiased;
-    /* Deep navy base sits behind the animated mesh so the glass
-       always has rich colour to refract. */
-    background-color: #04122a;
+    @apply font-sans antialiased;
+    color: var(--ink);
+    background-color: var(--app-base);
     background-image: radial-gradient(
-        120% 120% at 50% -10%,
-        rgba(0, 176, 216, 0.10) 0%,
-        rgba(0, 91, 170, 0.04) 35%,
-        transparent 70%
-      );
+      120% 120% at 50% -10%,
+      var(--app-wash-1) 0%,
+      var(--app-wash-2) 35%,
+      transparent 70%
+    );
     overflow-x: hidden;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
+    transition: background-color 0.6s ease, color 0.6s ease;
   }
 
   /* Premium thin scrollbars */
@@ -44,7 +124,7 @@
     background: transparent;
   }
   *::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.14);
+    background: var(--glass-ring);
     border-radius: 9999px;
     border: 2px solid transparent;
     background-clip: padding-box;
@@ -58,59 +138,56 @@
 @layer components {
   /* ---------------------------------------------------------------
      .glass — the Liquid Glass base utility.
-     Mirrors the requested utility string and layers on a specular
-     top highlight + inset volume so the surface reads as real glass.
      --------------------------------------------------------------- */
   .glass {
-    @apply relative isolate overflow-hidden;
-    @apply backdrop-blur-3xl bg-white/10 dark:bg-slate-900/20;
-    @apply border border-white/30 dark:border-white/10;
-    @apply shadow-glass ring-1 ring-white/20;
+    @apply relative isolate overflow-hidden backdrop-blur-3xl;
+    background-color: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.10),
-      inset 0 1px 1px rgba(255, 255, 255, 0.45),
-      inset 0 -1px 1px rgba(255, 255, 255, 0.06);
+      var(--glass-shadow),
+      inset 0 1px 1px var(--glass-inset-top),
+      inset 0 -1px 1px rgba(255, 255, 255, 0.06),
+      0 0 0 1px var(--glass-ring);
   }
 
-  /* Specular sheen — a soft highlight running across the top edge,
-     the hallmark of curved glass catching light. */
+  /* Specular sheen — a soft highlight running across the top edge. */
   .glass::before {
     content: "";
     @apply pointer-events-none absolute inset-x-0 top-0 h-1/2;
     background: linear-gradient(
       to bottom,
-      rgba(255, 255, 255, 0.28) 0%,
+      var(--glass-sheen) 0%,
       rgba(255, 255, 255, 0.05) 45%,
       transparent 100%
     );
     opacity: 0.8;
   }
 
-  /* .glass-heavy — the densest treatment for the floating dock,
-     adding more blur, saturation and a brighter rim. */
+  /* .glass-heavy — the densest treatment for the floating dock. */
   .glass-heavy {
     @apply relative isolate overflow-hidden;
-    @apply bg-white/10 dark:bg-slate-900/30 border border-white/40 dark:border-white/15 ring-1 ring-white/25;
+    background-color: var(--glass-bg-heavy);
+    border: 1px solid var(--glass-border-heavy);
     backdrop-filter: blur(40px) saturate(180%);
     -webkit-backdrop-filter: blur(40px) saturate(180%);
     box-shadow:
-      0 16px 48px rgba(0, 0, 0, 0.35),
-      inset 0 1px 1px rgba(255, 255, 255, 0.55),
-      inset 0 -2px 4px rgba(0, 0, 0, 0.15);
+      var(--glass-shadow-heavy),
+      inset 0 1px 1px var(--glass-inset-top),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.12),
+      0 0 0 1px var(--glass-ring);
   }
   .glass-heavy::before {
     content: "";
     @apply pointer-events-none absolute inset-x-0 top-0 h-2/3;
     background: linear-gradient(
       to bottom,
-      rgba(255, 255, 255, 0.30) 0%,
+      var(--glass-sheen) 0%,
       rgba(255, 255, 255, 0.04) 55%,
       transparent 100%
     );
   }
 
-  /* Magnetic interaction — hardware-accelerated spring hover used by
-     every interactive surface. */
+  /* Magnetic interaction — hardware-accelerated spring hover. */
   .magnetic {
     @apply transform-gpu transition-all duration-500 ease-spring;
   }
@@ -119,6 +196,24 @@
   }
   .magnetic:active {
     @apply scale-95;
+  }
+
+  /* Per-surface cursor glow. A pointer-tracked radial light that lives
+     inside any element carrying the .glow class (vars set in JS). */
+  .glow::after {
+    content: "";
+    @apply pointer-events-none absolute -z-0 opacity-0;
+    inset: -1px;
+    border-radius: inherit;
+    background: radial-gradient(
+      18rem 18rem at var(--gx, 50%) var(--gy, 0%),
+      rgba(0, 176, 216, 0.22),
+      transparent 60%
+    );
+    transition: opacity 0.4s ease;
+  }
+  .glow:hover::after {
+    opacity: 1;
   }
 
   /* A moving diagonal light streak for premium hover refraction. */
@@ -139,9 +234,32 @@
     animation: shimmer 1.1s ease-in-out;
   }
 
+  /* Semantic ink utilities — theme-aware text colours. */
+  .text-ink {
+    color: var(--ink);
+    filter: drop-shadow(0 1px 1px var(--ink-shadow));
+  }
+  .text-ink-soft {
+    color: var(--ink-soft);
+  }
+  .text-ink-faint {
+    color: var(--ink-faint);
+  }
+
+  /* Theme-aware inner fills. */
+  .fill-soft {
+    background-color: var(--fill-1);
+  }
+  .fill-softer {
+    background-color: var(--fill-2);
+  }
+  .hairline {
+    border-color: var(--hairline);
+  }
+
   /* Text that must stay legible on vibrant gradients / dark glass. */
   .text-on-glass {
-    @apply text-white font-bold drop-shadow-md;
+    @apply font-bold text-white drop-shadow-md;
   }
 }
 
@@ -156,4 +274,104 @@
       transition-duration: 0.001ms !important;
     }
   }
+}
+
+/* =============================================================
+   PRINT — institutional report rendering.
+   Hides interactive chrome (dock, mesh, cursor effects, buttons),
+   flattens glass into clean bordered cards on white paper, and
+   forces dark ink for maximum legibility. Paper size is injected
+   at runtime (Letter / Legal) by the print controller.
+   ============================================================= */
+@media print {
+  :root,
+  .dark,
+  .light {
+    --glass-bg: #ffffff;
+    --glass-bg-heavy: #ffffff;
+    --glass-border: #c7d4e6;
+    --glass-border-heavy: #c7d4e6;
+    --glass-ring: rgba(8, 47, 95, 0.12);
+    --glass-sheen: transparent;
+    --ink: #0a2747;
+    --ink-soft: #33506f;
+    --ink-faint: #5b748f;
+    --ink-shadow: transparent;
+    --fill-1: #f1f5fb;
+    --fill-2: #e7eef8;
+    --hairline: #d3deeb;
+  }
+
+  body {
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .glass,
+  .glass-heavy {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: #ffffff !important;
+    border: 1px solid #c7d4e6 !important;
+    box-shadow: none !important;
+  }
+  .glass::before,
+  .glass-heavy::before,
+  .liquid-streak::after,
+  .glow::after {
+    display: none !important;
+  }
+
+  .text-ink,
+  .text-ink-soft {
+    filter: none !important;
+  }
+
+  .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Print-only report banner. */
+  .bdp-print-header {
+    display: block !important;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #004a8f;
+  }
+  .bdp-print-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .bdp-print-logo {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #00b0d8, #004a8f);
+    color: #fff;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+  }
+  .bdp-print-title {
+    font-size: 18px;
+    font-weight: 900;
+    color: #0a2747;
+  }
+  .bdp-print-sub {
+    font-size: 11px;
+    color: #5b748f;
+  }
+}
+
+/* The print banner is injected into the live DOM, so hide it on screen. */
+.bdp-print-header {
+  display: none;
 }

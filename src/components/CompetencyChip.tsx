@@ -14,29 +14,26 @@ export function CompetencyChip({ score }: { score: CompetencyScore }) {
 
   const brechaColor =
     brecha === null
-      ? "text-slate-300"
+      ? "text-ink-faint"
       : brecha < 0
-        ? "text-red-400"
-        : "text-slate-400";
+        ? "text-rose-500"
+        : "text-ink-faint";
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 260, damping: 22 }}
-      className="glass liquid-streak magnetic rounded-2xl p-3"
+      className="glass liquid-streak magnetic rounded-2xl p-3 print-avoid-break"
     >
-      <h4
-        className="truncate text-sm font-bold text-white drop-shadow-md"
-        title={name}
-      >
+      <h4 className="truncate text-sm font-bold text-ink" title={name}>
         {name}
       </h4>
 
-      <p className="mt-1 text-[0.7rem] font-medium text-slate-200/70">
-        Esperado: <span className="text-slate-100">{fmt(esperado)}</span>
-        <span className="mx-1 text-slate-400">|</span>
-        Obtenido: <span className="text-slate-100">{fmt(obtenido)}</span>
+      <p className="mt-1 text-[0.7rem] font-medium text-ink-soft">
+        Esperado: <span className="text-ink">{fmt(esperado)}</span>
+        <span className="mx-1 text-ink-faint">|</span>
+        Obtenido: <span className="text-ink">{fmt(obtenido)}</span>
       </p>
 
       <div className="mt-2 flex items-center justify-between gap-2">

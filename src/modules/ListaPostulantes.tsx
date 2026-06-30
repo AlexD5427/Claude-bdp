@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, UserPlus, ArrowLeft, ShieldCheck, ShieldAlert } from "lucide-react";
+import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { Avatar } from "../components/Avatar";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
 import { RegistrationForm } from "./RegistrationForm";
+import { usePointerGlow } from "../hooks/usePointerGlow";
+import { printModule } from "../lib/print";
 import { extractProceso } from "../lib/candidates";
 import type { Candidate } from "../types";
 
@@ -24,34 +26,26 @@ export function ListaPostulantes() {
     );
   }, [candidatos, query]);
 
-  if (showForm) {
-    return (
-      <div className="space-y-5">
-        <button
-          type="button"
-          onClick={() => setShowForm(false)}
-          className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-slate-100 ring-1 ring-white/20 transition-all duration-300 hover:bg-white/15 active:scale-95"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Volver a la lista
-        </button>
-        <RegistrationForm onSaved={() => setShowForm(false)} />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="glass flex min-w-[16rem] flex-1 items-center gap-2 rounded-2xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-cyan-300/70">
-          <Search className="h-4 w-4 text-slate-300" />
+      <div className="flex flex-wrap items-center justify-between gap-3 no-print">
+        <div className="glass flex min-w-[16rem] flex-1 items-center gap-2 rounded-2xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-cyan-400/70">
+          <Search className="h-4 w-4 text-ink-soft" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar por nombre, identificador o cargo…"
-            className="w-full bg-transparent text-sm text-white placeholder:text-slate-400 outline-none"
+            className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none"
           />
         </div>
+        <button
+          type="button"
+          onClick={() => printModule("Lista de Postulantes")}
+          className="inline-flex items-center gap-2 rounded-full fill-softer px-4 py-2.5 text-sm font-bold text-ink ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-95"
+        >
+          <Printer className="h-4 w-4" />
+          Imprimir
+        </button>
         <button
           type="button"
           onClick={() => setShowForm(true)}
@@ -75,6 +69,12 @@ export function ListaPostulantes() {
           ))}
         </div>
       )}
+
+      <RegistrationForm
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        onSaved={refetch}
+      />
     </div>
   );
 }
@@ -86,15 +86,18 @@ function CandidateCard({
   candidate: Candidate;
   index: number;
 }) {
-  const confiable = (candidate.nivel_general_confiabilidad ?? "")
-    .toLowerCase()
-    .includes("confiable")
-    && !(candidate.nivel_general_confiabilidad ?? "")
+  const { onMouseMove } = usePointerGlow();
+  const confiable =
+    (candidate.nivel_general_confiabilidad ?? "")
+      .toLowerCase()
+      .includes("confiable") &&
+    !(candidate.nivel_general_confiabilidad ?? "")
       .toLowerCase()
       .includes("no confiable");
 
   return (
     <motion.div
+      onMouseMove={onMouseMove}
       initial={{ opacity: 0, y: 18, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{
@@ -103,33 +106,33 @@ function CandidateCard({
         damping: 22,
         delay: Math.min(index * 0.04, 0.4),
       }}
-      className="glass liquid-streak magnetic rounded-3xl p-4"
+      className="glass glow liquid-streak magnetic rounded-3xl p-4 print-avoid-break"
     >
       <div className="flex items-center gap-3">
         <Avatar name={candidate.fullName} seed={candidate.id} size="md" />
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-bold text-white drop-shadow-md">
+          <h3 className="truncate text-base font-bold text-ink">
             {candidate.fullName}
           </h3>
-          <p className="truncate text-xs text-slate-200/70">
+          <p className="truncate text-xs text-ink-soft">
             {candidate.cargo_bdp || "Cargo no especificado"}
           </p>
         </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[0.7rem]">
-        <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-semibold text-slate-100 ring-1 ring-white/15">
+        <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           Proceso {extractProceso(candidate.identificador)}
         </span>
-        <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-semibold text-slate-100 ring-1 ring-white/15">
+        <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           {candidate.competenciasList.length} comp.
         </span>
         <span
           className={[
             "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-bold ring-1",
             confiable
-              ? "bg-emerald-500/15 text-emerald-200 ring-emerald-400/30"
-              : "bg-rose-500/15 text-rose-200 ring-rose-400/30",
+              ? "bg-emerald-500/15 text-emerald-500 ring-emerald-400/30"
+              : "bg-rose-500/15 text-rose-500 ring-rose-400/30",
           ].join(" ")}
         >
           {confiable ? (
@@ -152,11 +155,11 @@ function CandidateCard({
 
 function Stat({ label, value }: { label: string; value?: number | string }) {
   return (
-    <div className="rounded-xl bg-white/5 px-2 py-1.5 text-center ring-1 ring-white/10">
-      <div className="text-base font-black leading-none text-white drop-shadow-md">
+    <div className="rounded-xl fill-soft px-2 py-1.5 text-center ring-1 ring-[color:var(--hairline)]">
+      <div className="text-base font-black leading-none text-ink">
         {value ?? "—"}
       </div>
-      <div className="mt-0.5 text-[0.6rem] uppercase tracking-wide text-slate-300/70">
+      <div className="mt-0.5 text-[0.6rem] uppercase tracking-wide text-ink-faint">
         {label}
       </div>
     </div>

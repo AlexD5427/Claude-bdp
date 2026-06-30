@@ -41,10 +41,10 @@ export function Procesos() {
                 <Workflow className="h-5 w-5 text-white drop-shadow-md" />
               </div>
               <div>
-                <h3 className="text-lg font-black text-white drop-shadow-md">
+                <h3 className="text-lg font-black text-ink">
                   Proceso {g.proceso}
                 </h3>
-                <p className="inline-flex items-center gap-1 text-xs text-slate-200/70">
+                <p className="inline-flex items-center gap-1 text-xs text-ink-soft">
                   <Users className="h-3.5 w-3.5" />
                   {g.candidatos.length} postulante
                   {g.candidatos.length === 1 ? "" : "s"}
@@ -52,11 +52,11 @@ export function Procesos() {
               </div>
             </div>
             {g.avgCompetencias !== null && (
-              <div className="rounded-2xl bg-white/10 px-3 py-1.5 text-center ring-1 ring-white/20">
-                <div className="text-lg font-black leading-none text-white drop-shadow-md">
+              <div className="rounded-2xl fill-softer px-3 py-1.5 text-center ring-1 ring-[color:var(--hairline)]">
+                <div className="text-lg font-black leading-none text-ink">
                   {g.avgCompetencias}
                 </div>
-                <div className="text-[0.6rem] uppercase tracking-wide text-slate-300/70">
+                <div className="text-[0.6rem] uppercase tracking-wide text-ink-faint">
                   Prom. comp.
                 </div>
               </div>
@@ -67,13 +67,13 @@ export function Procesos() {
             {g.candidatos.map((c) => (
               <li
                 key={c.id}
-                className="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10"
+                className="flex items-center gap-3 rounded-2xl fill-soft px-3 py-2 ring-1 ring-[color:var(--hairline)]"
               >
                 <Avatar name={c.fullName} seed={c.id} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
                   {c.fullName}
                 </span>
-                <span className="shrink-0 text-xs text-slate-300">
+                <span className="shrink-0 text-xs text-ink-soft">
                   {c.cargo_bdp || "—"}
                 </span>
               </li>

@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Users, Workflow, Gauge, Layers } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
+import { usePointerGlow } from "../hooks/usePointerGlow";
 import { countActiveProcesos } from "../lib/candidates";
 import { parseDecimal } from "../lib/competency";
 
@@ -56,37 +57,37 @@ export function KpiBar() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-wrap items-stretch justify-center gap-3 sm:gap-4">
-      {kpis.map((kpi, i) => {
-        const Icon = kpi.icon;
-        return (
-          <motion.div
-            key={kpi.label}
-            initial={{ y: 24, opacity: 0, scale: 0.92 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            transition={{
-              type: "spring",
-              stiffness: 240,
-              damping: 20,
-              delay: 0.25 + i * 0.08,
-            }}
-            className="glass liquid-streak magnetic flex min-w-[9.5rem] flex-1 items-center gap-3 rounded-3xl px-4 py-3"
-          >
-            <div
-              className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${kpi.accent} shadow-glass ring-1 ring-white/30`}
-            >
-              <Icon className="h-5 w-5 text-white drop-shadow-md" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-2xl font-black leading-none tracking-tight text-white drop-shadow-md">
-                {kpi.value}
-              </div>
-              <div className="mt-1 truncate text-[0.7rem] font-medium uppercase tracking-wide text-slate-200/70">
-                {kpi.label}
-              </div>
-            </div>
-          </motion.div>
-        );
-      })}
+      {kpis.map((kpi, i) => (
+        <KpiWidget key={kpi.label} kpi={kpi} index={i} />
+      ))}
     </div>
+  );
+}
+
+function KpiWidget({ kpi, index }: { kpi: Kpi; index: number }) {
+  const Icon = kpi.icon;
+  const { onMouseMove } = usePointerGlow();
+  return (
+    <motion.div
+      onMouseMove={onMouseMove}
+      initial={{ y: 24, opacity: 0, scale: 0.92 }}
+      animate={{ y: 0, opacity: 1, scale: 1 }}
+      transition={{ type: "spring", stiffness: 240, damping: 20, delay: 0.25 + index * 0.08 }}
+      className="glass glow liquid-streak magnetic flex min-w-[9.5rem] flex-1 items-center gap-3 rounded-3xl px-4 py-3"
+    >
+      <div
+        className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${kpi.accent} shadow-glass ring-1 ring-white/30`}
+      >
+        <Icon className="h-5 w-5 text-white drop-shadow-md" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-2xl font-black leading-none tracking-tight text-ink">
+          {kpi.value}
+        </div>
+        <div className="mt-1 truncate text-[0.7rem] font-medium uppercase tracking-wide text-ink-soft">
+          {kpi.label}
+        </div>
+      </div>
+    </motion.div>
   );
 }
