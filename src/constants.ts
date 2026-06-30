@@ -21,13 +21,11 @@ export interface DockItem {
   id: ModuleId;
   label: string;
   icon: LucideIcon;
-  /** Marks the primary "home" entry (rendered as a filled blue circle). */
-  primary?: boolean;
 }
 
 /** Navigation modules — icon + short label, Dashboard leads as the home. */
 export const DOCK_ITEMS: DockItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, primary: true },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "tablero", label: "Tablero", icon: BarChart3 },
   { id: "cara-a-cara", label: "Cara a Cara", icon: Users },
   { id: "comparador", label: "Comparador", icon: GitCompareArrows },
