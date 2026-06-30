@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
@@ -7,6 +7,7 @@ import { LoadingState, ErrorState, EmptyState } from "../components/States";
 import { RegistrationForm } from "./RegistrationForm";
 import { usePointerGlow } from "../hooks/usePointerGlow";
 import { printModule } from "../lib/print";
+import { ensureSeen, setStatus, useHiring, HIRING_LABELS, type HiringStatus } from "../lib/hiringStore";
 import { extractProceso } from "../lib/candidates";
 import type { Candidate } from "../types";
 
@@ -14,6 +15,11 @@ export function ListaPostulantes() {
   const { candidatos, loading, error, refetch } = useTalentData();
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
+
+  // Make sure every visible candidate has a first-seen timestamp recorded.
+  useEffect(() => {
+    if (candidatos.length) ensureSeen(candidatos.map((c) => c.id));
+  }, [candidatos]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -149,7 +155,48 @@ function CandidateCard({
         <Stat label="Conocim." value={candidate.nota_conocimiento} />
         <Stat label="Compet." value={candidate.nota_competencias} />
       </div>
+
+      <HiringControl id={candidate.id} />
     </motion.div>
+  );
+}
+
+const STATUS_TONE: Record<HiringStatus, string> = {
+  en_proceso: "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/40",
+  contratado: "bg-gradient-to-br from-emerald-500 to-green-600 text-white ring-white/40",
+  baja: "bg-gradient-to-br from-rose-500 to-red-600 text-white ring-white/40",
+};
+
+/** Manual hiring-status switch — drives Tiempo de Contratación & Tasa de Rotación. */
+function HiringControl({ id }: { id: string }) {
+  const hiring = useHiring();
+  const current = hiring[id]?.status ?? "en_proceso";
+  return (
+    <div className="mt-3 no-print">
+      <span className="mb-1 block text-[0.6rem] font-semibold uppercase tracking-wide text-ink-faint">
+        Estado de contratación
+      </span>
+      <div className="flex gap-1.5">
+        {(Object.keys(HIRING_LABELS) as HiringStatus[]).map((s) => {
+          const active = current === s;
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setStatus(id, s)}
+              className={[
+                "flex-1 rounded-full px-2 py-1 text-[0.7rem] font-bold ring-1 transition-all duration-300 active:scale-95",
+                active
+                  ? STATUS_TONE[s]
+                  : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft",
+              ].join(" ")}
+            >
+              {HIRING_LABELS[s]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

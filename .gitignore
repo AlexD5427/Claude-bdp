@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Tooling artifacts (not part of the app)
+.claude/
+skills-lock.json

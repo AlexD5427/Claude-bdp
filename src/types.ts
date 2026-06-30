@@ -78,8 +78,9 @@ export interface TalentPayload {
   competencias: string[];
 }
 
-/** The five navigable modules surfaced in the floating dock. */
+/** The navigable modules surfaced in the floating dock. */
 export type ModuleId =
+  | "dashboard"
   | "tablero"
   | "cara-a-cara"
   | "comparador"
