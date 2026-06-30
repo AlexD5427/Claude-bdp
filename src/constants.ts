@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  BarChart3,
   Users,
   GitCompareArrows,
   Workflow,
@@ -20,15 +21,18 @@ export interface DockItem {
   id: ModuleId;
   label: string;
   icon: LucideIcon;
+  /** Marks the primary "home" entry (rendered as a filled blue circle). */
+  primary?: boolean;
 }
 
-/** Navigation modules — icons only, labels surface as tooltips. */
+/** Navigation modules — icon + short label, Dashboard leads as the home. */
 export const DOCK_ITEMS: DockItem[] = [
-  { id: "tablero", label: "Tablero", icon: LayoutDashboard },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, primary: true },
+  { id: "tablero", label: "Tablero", icon: BarChart3 },
   { id: "cara-a-cara", label: "Cara a Cara", icon: Users },
-  { id: "comparador", label: "Nuevo Comparador", icon: GitCompareArrows },
+  { id: "comparador", label: "Comparador", icon: GitCompareArrows },
   { id: "procesos", label: "Procesos", icon: Workflow },
-  { id: "postulantes", label: "Lista de Postulantes", icon: ListChecks },
+  { id: "postulantes", label: "Postulantes", icon: ListChecks },
 ];
 
 /** Estado civil options. */
