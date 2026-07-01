@@ -1,5 +1,12 @@
 # Backend de KPIs — pestaña «Dashboard y KPIs»
 
+> **Novedad (módulo Documentación + DISC):** el archivo
+> [`Documentacion.gs`](./Documentacion.gs) es un **reemplazo directo** del script
+> del Web App actual. Es retrocompatible (mismo `GET`/`POST` de postulantes) y
+> agrega: `arquetipos_disc` al `GET`, la persistencia de expedientes de
+> documentación y el **envío automático de recordatorios cada 3 días**. Ver la
+> sección [«Módulo Documentación y DISC»](#módulo-documentación-y-disc) más abajo.
+
 Este documento describe el modelo de datos y el despliegue del backend que
 respalda el módulo **Dashboard** y los KPIs por módulo. El frontend ya está
 preparado para consumirlo; mientras no se despliegue, el dashboard funciona con
@@ -119,3 +126,64 @@ Competencias Promedio.
 > Todos los KPIs (de todos los módulos) se vuelcan al mismo formato largo de la
 > hoja «Dashboard y KPIs» con su `modulo`, de modo que cada tarjeta del frontend
 > puede desplegar su histórico mensual desde una única fuente.
+
+---
+
+## Módulo Documentación y DISC
+
+El script [`Documentacion.gs`](./Documentacion.gs) amplía el Web App. Pegue su
+contenido en el editor de Apps Script del libro (reemplazando el script actual) y
+vuelva a implementar (**Implementar → Administrar implementaciones → Editar →
+Nueva versión**, "Cualquiera con el enlace").
+
+### 1 · `GET` ampliado (retrocompatible)
+
+```jsonc
+{
+  "candidatos":      [ /* … igual que hoy (primera pestaña) … */ ],
+  "competencias":    [ "…" ],           // hoja "Auxiliar", columna A
+  "arquetipos_disc": [                    // hoja "Auxiliar", columna "arquetipo_disc"
+    "Director (D), Directo, decidido y orientado a resultados…",
+    "Analítico (C), Preciso, prudente y orientado a la calidad…"
+  ]
+}
+```
+
+- **`arquetipos_disc`**: en la hoja **Auxiliar**, cree una columna cuyo
+  encabezado (fila 1) sea exactamente `arquetipo_disc`. Cada celda usa el formato
+  `Nombre (Código), Descripción…`. El texto **antes** de la primera coma alimenta
+  el desplegable de Arquetipo DISC; el texto **después** de la coma es lo que se
+  muestra en el pop-up de información (icono «!»). Mientras la columna no exista,
+  el frontend usa un catálogo de respaldo integrado.
+- Igual ocurre con **`carrera`**: agregue esa columna (encabezado `carrera`) a la
+  hoja de postulantes para que el nuevo campo del cuestionario se guarde y lea.
+
+### 2 · `POST` del módulo Documentación
+
+| Cuerpo | Acción |
+| --- | --- |
+| `{ type:"documentacion", action:"upsert", dossier:{…} }` | Reescribe todas las filas del expediente en la hoja «Documentación». |
+| `{ type:"documentacion", action:"delete", identificador }` | Elimina el expediente. |
+| `{ type:"documentacion_email", identificador, to, cc, subject, kind, missingCount }` | Registra el aviso en «Avisos Documentación». |
+
+Hoja **«Documentación»** (formato largo, una fila por documento):
+
+| identificador | nombre | cargo | agencia | gerencia | correo | fecha_ingreso | grupo | documento_id | documento | estado | paginas | observacion | prorroga | actualizado_en |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+
+`estado ∈ { pendiente, presentado, observado, no_aplica }`.
+
+### 3 · Recordatorios automáticos por correo
+
+`enviarRecordatoriosDocumentacion()` recorre la hoja «Documentación», agrupa por
+persona y, cuando los días desde `fecha_ingreso` son múltiplo de
+`CONFIG_DOC.INTERVALO_DIAS` (por defecto **3**), envía un correo con la lista de
+documentos faltantes y copia (CC) al `CONFIG_DOC.CC_AUXILIAR`. Configure el CC y,
+si desea, el asunto/plantilla en el objeto `CONFIG_DOC` al inicio del archivo.
+
+Instale el disparador **una sola vez** ejecutando
+`instalarTriggersDocumentacion()` (autorice los permisos de correo). Crea un
+trigger diario ~08:00 que revisa y envía los recordatorios que correspondan ese
+día. El panel del frontend permite además revisar, editar y enviar avisos
+manualmente (o disparar el envío automático con vista previa y confirmación,
+según la configuración).
