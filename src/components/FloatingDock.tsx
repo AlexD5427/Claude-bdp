@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Moon, Sun } from "lucide-react";
 import { DOCK_ITEMS } from "../constants";
 import { useTheme } from "../context/ThemeContext";
+import { DrawIcon } from "./DrawIcon";
 import type { ModuleId } from "../types";
 
 interface FloatingDockProps {
@@ -13,10 +14,12 @@ interface FloatingDockProps {
 
 /**
  * iOS-style floating dock. Each module shows its icon with a short label
- * underneath. The active module is marked by a glowing "liquid pill" that
- * springs between items via a shared `layoutId`. The primary "Dashboard" entry
- * is always wrapped in a filled blue circle to read as the home. A theme switch
- * and the DB-sync dot live on the right.
+ * underneath. The active module is marked by a glowing "liquid pill" plate plus
+ * a filled blue "orb" behind its icon — both spring between items via shared
+ * `layoutId`s, so the spotlight glides to whatever module is selected (it is no
+ * longer pinned to Dashboard). When a module is picked its icon re-draws itself
+ * in a contrasting white stroke, and a quick cyan burst flags the change. A
+ * theme switch and the DB-sync dot live on the right.
  */
 export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
   const { theme, toggle } = useTheme();
@@ -56,22 +59,34 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
                     className="absolute inset-0 rounded-2xl bg-[color:var(--fill-2)] ring-1 ring-[color:var(--hairline)]"
                   />
                 )}
-                <span
-                  className={[
-                    "relative grid h-8 w-8 place-items-center rounded-full transition-all duration-300",
-                    item.primary
-                      ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
-                      : "",
-                  ].join(" ")}
-                >
-                  <Icon
+                <span className="relative grid h-9 w-9 place-items-center">
+                  {isActive && (
+                    <>
+                      {/* The glowing orb — springs between items so the circle
+                          + glow follows the selection instead of staying on
+                          Dashboard. */}
+                      <motion.span
+                        layoutId="dock-active-orb"
+                        transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                        className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+                      />
+                      {/* One-shot burst that replays on every selection. */}
+                      <motion.span
+                        key={`burst-${active}`}
+                        aria-hidden
+                        initial={{ opacity: 0.55, scale: 0.45 }}
+                        animate={{ opacity: 0, scale: 1.75 }}
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                        className="pointer-events-none absolute inset-0 rounded-full bg-cyan-300/70 blur-[2px]"
+                      />
+                    </>
+                  )}
+                  <DrawIcon
+                    icon={Icon}
+                    active={isActive}
                     className={[
-                      "h-5 w-5 transition-colors duration-300",
-                      item.primary
-                        ? "text-white drop-shadow-md"
-                        : isActive
-                          ? "text-cyan-400"
-                          : "text-ink-soft",
+                      "relative h-5 w-5 transition-colors duration-300",
+                      isActive ? "text-white drop-shadow-md" : "text-ink-soft",
                     ].join(" ")}
                     strokeWidth={isActive ? 2.4 : 2}
                   />
