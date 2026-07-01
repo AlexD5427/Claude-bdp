@@ -10,6 +10,11 @@ import {
 } from "react";
 import { SCRIPT_URL } from "../constants";
 import { normaliseCandidate } from "../lib/candidates";
+import {
+  FALLBACK_DISC,
+  parseDiscArchetypes,
+  type DiscArchetype,
+} from "../lib/disc";
 import type { Candidate, RawCandidate, TalentPayload } from "../types";
 
 export type DataStatus = "idle" | "loading" | "success" | "error";
@@ -17,6 +22,8 @@ export type DataStatus = "idle" | "loading" | "success" | "error";
 export interface TalentDataValue {
   candidatos: Candidate[];
   competencias: string[];
+  /** DISC archetype catalogue (from the "Auxiliar" sheet, or the fallback). */
+  arquetipos: DiscArchetype[];
   status: DataStatus;
   loading: boolean;
   error: string | null;
@@ -48,6 +55,9 @@ async function fetchPayload(
     return {
       candidatos: Array.isArray(data.candidatos) ? data.candidatos : [],
       competencias: Array.isArray(data.competencias) ? data.competencias : [],
+      arquetipos_disc: Array.isArray(data.arquetipos_disc)
+        ? data.arquetipos_disc
+        : [],
     };
   } catch (err) {
     if (signal.aborted) throw err;
@@ -63,6 +73,7 @@ async function fetchPayload(
 export function TalentDataProvider({ children }: { children: ReactNode }) {
   const [raw, setRaw] = useState<RawCandidate[]>([]);
   const [competencias, setCompetencias] = useState<string[]>([]);
+  const [arquetiposRaw, setArquetiposRaw] = useState<string[]>([]);
   const [status, setStatus] = useState<DataStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
@@ -79,6 +90,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
         if (controller.signal.aborted) return;
         setRaw(payload.candidatos);
         setCompetencias(payload.competencias);
+        setArquetiposRaw(payload.arquetipos_disc ?? []);
         setStatus("success");
       })
       .catch((err: unknown) => {
@@ -129,17 +141,23 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [raw],
   );
 
+  const arquetipos = useMemo<DiscArchetype[]>(() => {
+    const parsed = parseDiscArchetypes(arquetiposRaw);
+    return parsed.length ? parsed : FALLBACK_DISC;
+  }, [arquetiposRaw]);
+
   const value = useMemo<TalentDataValue>(
     () => ({
       candidatos,
       competencias,
+      arquetipos,
       status,
       loading: status === "loading" || status === "idle",
       error,
       refetch: load,
       submitCandidate,
     }),
-    [candidatos, competencias, status, error, load, submitCandidate],
+    [candidatos, competencias, arquetipos, status, error, load, submitCandidate],
   );
 
   return (

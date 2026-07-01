@@ -375,3 +375,35 @@
 .bdp-print-header {
   display: none;
 }
+
+/* =============================================================
+   COMPARADOR — modo compacto ("Compacto").
+   Densifica la cuadrícula para que todos los candidatos entren
+   al 100 % (especialmente al imprimir en horizontal). Se define
+   fuera de las capas de Tailwind para ganar en orden/especificidad
+   a las utilidades de padding/tamaño de los componentes internos.
+   ============================================================= */
+.cmp-dense {
+  font-size: 0.82rem;
+}
+.cmp-dense .glass,
+.cmp-dense .glass-heavy {
+  padding: 0.45rem !important;
+}
+.cmp-dense .text-2xl {
+  font-size: 1.1rem;
+  line-height: 1.15;
+}
+.cmp-dense .text-sm {
+  font-size: 0.74rem;
+}
+.cmp-dense .text-xs {
+  font-size: 0.66rem;
+}
+.cmp-dense .min-h-\[64px\] {
+  min-height: 44px;
+}
+/* Slightly tighten the big profile header cards too. */
+.cmp-dense .rounded-3xl {
+  border-radius: 1rem;
+}

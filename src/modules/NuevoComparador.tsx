@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Printer, FileText, Award, Wrench, BrainCircuit, ShieldCheck, Flag } from "lucide-react";
+import {
+  Printer,
+  FileText,
+  Award,
+  Wrench,
+  BrainCircuit,
+  ShieldCheck,
+  Flag,
+  RectangleHorizontal,
+  RectangleVertical,
+  Minimize2,
+} from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
 import { CandidateProfileCard } from "../components/CandidateProfileCard";
@@ -8,6 +19,9 @@ import { CandidateSearchSelect } from "../components/CandidateSearchSelect";
 import { CompetencyChip } from "../components/CompetencyChip";
 import { LevelBadge } from "../components/LevelBadge";
 import { Avatar } from "../components/Avatar";
+import { DiscInfoButton } from "../components/DiscInfoButton";
+import { discAccent } from "../lib/discAccent";
+import { extractDiscCode } from "../lib/disc";
 import { parseDecimal, ajusteBand } from "../lib/competency";
 import {
   integrityTone,
@@ -16,7 +30,7 @@ import {
   riskTone,
   type Tone,
 } from "../lib/levels";
-import { printModule, type PaperSize } from "../lib/print";
+import { printModule, type PaperSize, type PaperOrientation } from "../lib/print";
 import type { Candidate, CompetencyScore, TechnicalKnowledge } from "../types";
 
 const MAX_COLUMNS = 5;
@@ -64,17 +78,22 @@ export function NuevoComparador() {
   const { candidatos, loading, error, refetch } = useTalentData();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [paper, setPaper] = useState<PaperSize>("Letter");
+  const [orientation, setOrientation] = useState<PaperOrientation>("portrait");
+  const [dense, setDense] = useState(false);
 
-  // Seed with the first candidates that actually carry competencies.
+  // Seed with the first few candidates *once*, as a convenience. We guard with a
+  // ref so that once the operator clears the grid it stays empty — they asked to
+  // be able to start the comparison from zero and add candidates one by one.
+  const seededRef = useRef(false);
   useEffect(() => {
-    if (selectedIds.length === 0 && candidatos.length > 0) {
-      const seed = candidatos
-        .filter((c) => c.competenciasList.length > 0)
-        .slice(0, 3)
-        .map((c) => c.id);
-      if (seed.length) setSelectedIds(seed);
-    }
-  }, [candidatos, selectedIds.length]);
+    if (seededRef.current || candidatos.length === 0) return;
+    seededRef.current = true;
+    const seed = candidatos
+      .filter((c) => c.competenciasList.length > 0)
+      .slice(0, 3)
+      .map((c) => c.id);
+    if (seed.length) setSelectedIds(seed);
+  }, [candidatos]);
 
   const selected = useMemo(
     () =>
@@ -103,13 +122,13 @@ export function NuevoComparador() {
   // --- frozen-header logic: show the compact bar only once the big headers
   //     have scrolled completely past the dock line (no trembling). ---
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const [compact, setCompact] = useState(false);
+  const [stuck, setStuck] = useState(false);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
     const obs = new IntersectionObserver(
       ([entry]) => {
-        setCompact(!entry.isIntersecting && entry.boundingClientRect.top < STICKY_TOP);
+        setStuck(!entry.isIntersecting && entry.boundingClientRect.top < STICKY_TOP);
       },
       { rootMargin: `-${STICKY_TOP}px 0px 0px 0px`, threshold: 0 },
     );
@@ -132,13 +151,66 @@ export function NuevoComparador() {
     return <EmptyState message="Aún no hay postulantes en la base de datos." />;
   }
 
-  const columns = `minmax(190px, 0.85fr) repeat(${selected.length}, minmax(210px, 1fr))`;
+  const columns = dense
+    ? `minmax(122px, 0.6fr) repeat(${selected.length}, minmax(128px, 1fr))`
+    : `minmax(190px, 0.85fr) repeat(${selected.length}, minmax(210px, 1fr))`;
 
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 no-print">
+      <div className="flex flex-wrap items-center gap-2.5 no-print">
         <div className="flex-1" />
+
+        {/* Compact toggle — densifies the grid so every candidate fits at 100%. */}
+        <button
+          type="button"
+          onClick={() => setDense((d) => !d)}
+          aria-pressed={dense}
+          title="Compactar la información para ajustar todos los candidatos"
+          className={[
+            "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold ring-1 transition-all active:scale-95",
+            dense
+              ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/30 shadow-glow-cyan"
+              : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft",
+          ].join(" ")}
+        >
+          <Minimize2 className="h-4 w-4" />
+          Compacto
+        </button>
+
+        {/* Orientation — vertical / horizontal printing. */}
+        <div className="glass flex items-center gap-1 rounded-full p-1 text-xs font-semibold text-ink-soft">
+          <button
+            type="button"
+            onClick={() => setOrientation("portrait")}
+            title="Vertical"
+            className={[
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all",
+              orientation === "portrait"
+                ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glow-cyan"
+                : "hover:fill-soft",
+            ].join(" ")}
+          >
+            <RectangleVertical className="h-3.5 w-3.5" />
+            Vertical
+          </button>
+          <button
+            type="button"
+            onClick={() => setOrientation("landscape")}
+            title="Horizontal"
+            className={[
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all",
+              orientation === "landscape"
+                ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glow-cyan"
+                : "hover:fill-soft",
+            ].join(" ")}
+          >
+            <RectangleHorizontal className="h-3.5 w-3.5" />
+            Horizontal
+          </button>
+        </div>
+
+        {/* Paper size. */}
         <div className="glass flex items-center gap-1 rounded-full p-1 text-xs font-semibold text-ink-soft">
           {(["Letter", "Legal"] as PaperSize[]).map((p) => (
             <button
@@ -159,7 +231,7 @@ export function NuevoComparador() {
         <button
           type="button"
           disabled={selected.length === 0}
-          onClick={() => printModule("Comparativa de Postulantes", paper)}
+          onClick={() => printModule("Comparativa de Postulantes", paper, orientation)}
           className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-500 ease-spring hover:-translate-y-1 hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Printer className="h-4 w-4" />
@@ -184,13 +256,13 @@ export function NuevoComparador() {
           message="Busque y agregue al menos un postulante para iniciar la auditoría comparativa."
         />
       ) : (
-        <div className="relative">
+        <div className={`relative ${dense ? "cmp-dense" : ""}`}>
           {/* Compact frozen bar — fades in only when the big headers are gone */}
           <div
-            aria-hidden={!compact}
+            aria-hidden={!stuck}
             className={[
               "no-print sticky z-[80] grid gap-3 transition-all duration-300",
-              compact
+              stuck
                 ? "pointer-events-auto opacity-100"
                 : "pointer-events-none -translate-y-2 opacity-0",
             ].join(" ")}
@@ -213,7 +285,7 @@ export function NuevoComparador() {
           </div>
 
           <div
-            className="grid gap-3"
+            className={dense ? "grid gap-1.5" : "grid gap-3"}
             style={{ gridTemplateColumns: columns }}
             role="table"
             aria-label="Cuadrícula de auditoría de talento"
@@ -451,10 +523,16 @@ function PctValue({ value }: { value: number | null }) {
 
 function DiscValue({ value }: { value: string }) {
   if (!value || value === "N/A") return <Dash />;
+  const accent = discAccent(extractDiscCode(value));
   return (
-    <div className="glass flex min-h-[64px] items-center rounded-2xl p-3 print-avoid-break">
-      <span className="rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-3 py-1 text-xs font-bold text-white ring-1 ring-white/30">
+    <div className="glass flex min-h-[64px] items-center gap-1.5 rounded-2xl p-3 print-avoid-break">
+      <span
+        className={`rounded-full px-3 py-1 text-xs font-bold ring-1 shadow-glass bg-gradient-to-br ${accent.gradient} text-white ring-white/30`}
+      >
         {value}
+      </span>
+      <span className="no-print">
+        <DiscInfoButton perfil={value} size="sm" />
       </span>
     </div>
   );
