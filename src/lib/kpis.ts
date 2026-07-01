@@ -268,6 +268,13 @@ export function getModuleKpis(
         { key: "pct_riesgo_robo_alto", label: "% Riesgo Robo Alto", value: fmt(v.pct_riesgo_robo_alto, "%"), unit: "%", accent: A(2), goodWhenUp: false, help: "Porcentaje con Riesgo de Robo 'Alto' (menos es mejor)." },
         { key: "prom_competencias", label: "Competencias Promedio", value: fmt(v.prom_competencias, "%"), unit: "%", accent: A(3), goodWhenUp: true, help: "Media de la Nota Competencias." },
       ];
+    case "documentacion":
+      return [
+        { key: "doc_personas", label: "Personas en Trámite", value: fmt(v.doc_personas), accent: A(0), goodWhenUp: true, help: "Personas contratadas con un expediente de documentación abierto." },
+        { key: "doc_avance", label: "Avance Promedio", value: fmt(v.doc_avance, "%"), unit: "%", accent: A(1), goodWhenUp: true, help: "Porcentaje promedio de documentación entregada entre todos los expedientes." },
+        { key: "doc_pendientes", label: "Documentos Pendientes", value: fmt(v.doc_pendientes), accent: A(2), goodWhenUp: false, help: "Total de documentos aún no presentados en todos los expedientes (menos es mejor)." },
+        { key: "doc_alertas", label: "Alertas Activas", value: fmt(v.doc_alertas), accent: A(3), goodWhenUp: false, help: "Expedientes atrasados o con prórrogas vencidas que requieren gestión (menos es mejor)." },
+      ];
     default:
       return [];
   }

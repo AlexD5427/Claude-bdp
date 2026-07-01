@@ -117,6 +117,30 @@ export function SelectField({
   );
 }
 
+/** A native date picker styled to match the glass fields. */
+export function DateField({
+  label,
+  required,
+  hint,
+  value,
+  onChange,
+}: BaseProps & {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block">
+      <Label label={label} required={required} hint={hint} />
+      <input
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`${fieldClass} [color-scheme:light] dark:[color-scheme:dark]`}
+      />
+    </label>
+  );
+}
+
 /**
  * A pill-style segmented control — friendlier than a dropdown for short option
  * sets (e.g. risk levels, reliability). Highlights the active option with the

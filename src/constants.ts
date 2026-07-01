@@ -5,6 +5,7 @@ import {
   GitCompareArrows,
   Workflow,
   ListChecks,
+  FolderCheck,
   type LucideIcon,
 } from "lucide-react";
 import type { ModuleId } from "./types";
@@ -31,6 +32,7 @@ export const DOCK_ITEMS: DockItem[] = [
   { id: "comparador", label: "Comparador", icon: GitCompareArrows },
   { id: "procesos", label: "Procesos", icon: Workflow },
   { id: "postulantes", label: "Postulantes", icon: ListChecks },
+  { id: "documentacion", label: "Documentación", icon: FolderCheck },
 ];
 
 /** Estado civil options. */

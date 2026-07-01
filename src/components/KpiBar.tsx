@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import { Maximize2 } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { useHiring } from "../lib/hiringStore";
+import { useDocStore } from "../lib/docStore";
+import { computeDocKpis } from "../lib/docReport";
 import { usePointerGlow } from "../hooks/usePointerGlow";
 import { computeAllKpiValues, getModuleKpis, type KpiSpec } from "../lib/kpis";
 import { deltaVsPrev, history, useKpiRecorder } from "../lib/kpiHistory";
@@ -20,6 +22,7 @@ import type { ModuleId } from "../types";
 export function KpiBar({ module }: { module: ModuleId }) {
   const { candidatos, competencias } = useTalentData();
   const hiring = useHiring();
+  const docState = useDocStore();
 
   const values = useMemo(
     () => computeAllKpiValues(candidatos, competencias, hiring),
@@ -27,14 +30,28 @@ export function KpiBar({ module }: { module: ModuleId }) {
   );
   useKpiRecorder(values);
 
-  const specs = useMemo(() => getModuleKpis(module, values), [module, values]);
+  // The Documentación KPIs come from the (separate) documentation store; merge
+  // them in so getModuleKpis can surface them like any other metric.
+  const merged = useMemo(() => {
+    if (module !== "documentacion") return values;
+    const k = computeDocKpis(Object.values(docState.dossiers), docState.settings.intervalDays);
+    return {
+      ...values,
+      doc_personas: k.personas,
+      doc_avance: k.avance_promedio,
+      doc_pendientes: k.docs_pendientes,
+      doc_alertas: k.alertas,
+    };
+  }, [module, values, docState]);
+
+  const specs = useMemo(() => getModuleKpis(module, merged), [module, merged]);
 
   if (module === "dashboard" || specs.length === 0) return null;
 
   return (
     <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       {specs.map((spec, i) => (
-        <KpiWidget key={spec.key} spec={spec} raw={values[spec.key]} index={i} />
+        <KpiWidget key={spec.key} spec={spec} raw={merged[spec.key]} index={i} />
       ))}
     </div>
   );

@@ -14,6 +14,7 @@ import { CaraACara } from "./modules/CaraACara";
 import { NuevoComparador } from "./modules/NuevoComparador";
 import { Procesos } from "./modules/Procesos";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
+import { Documentacion } from "./modules/Documentacion";
 import { DOCK_ITEMS } from "./constants";
 import type { ModuleId } from "./types";
 
@@ -24,6 +25,7 @@ const SUBTITLES: Record<ModuleId, string> = {
   comparador: "Auditoría comparativa de competencias.",
   procesos: "Postulantes agrupados por proceso.",
   postulantes: "Listado y registro de postulantes.",
+  documentacion: "Expedientes de documentación de incorporación.",
 };
 
 function Shell() {
@@ -76,6 +78,7 @@ function Shell() {
               {active === "comparador" && <NuevoComparador />}
               {active === "procesos" && <Procesos />}
               {active === "postulantes" && <ListaPostulantes />}
+              {active === "documentacion" && <Documentacion />}
             </motion.section>
           </AnimatePresence>
         </ErrorBoundary>

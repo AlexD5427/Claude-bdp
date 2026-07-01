@@ -90,7 +90,8 @@ export type ModuleId =
   | "cara-a-cara"
   | "comparador"
   | "procesos"
-  | "postulantes";
+  | "postulantes"
+  | "documentacion";
 
 /** A free-form list item used by the knowledge / tools builders. */
 export interface FormItem {
