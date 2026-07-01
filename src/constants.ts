@@ -5,6 +5,7 @@ import {
   GitCompareArrows,
   Workflow,
   ListChecks,
+  FolderCheck,
   type LucideIcon,
 } from "lucide-react";
 import type { ModuleId } from "./types";
@@ -31,6 +32,7 @@ export const DOCK_ITEMS: DockItem[] = [
   { id: "comparador", label: "Comparador", icon: GitCompareArrows },
   { id: "procesos", label: "Procesos", icon: Workflow },
   { id: "postulantes", label: "Postulantes", icon: ListChecks },
+  { id: "documentacion", label: "Documentación", icon: FolderCheck },
 ];
 
 /** Estado civil options. */
@@ -65,28 +67,9 @@ export const DEPARTAMENTO_OPTIONS = [
   "Tarija",
 ] as const;
 
-/** DISC behavioural archetypes. */
-export const DISC_OPTIONS = [
-  "N/A",
-  "Director (D)",
-  "Orientador (Di)",
-  "Valiente (DI)",
-  "Carismático (Id)",
-  "Entusiasta (I)",
-  "Alentador (Is)",
-  "Conciliador (IS)",
-  "Colaborador (Si)",
-  "Servicial (S)",
-  "Organizador (Sc)",
-  "Ejecutador (SC)",
-  "Sistemático (Cs)",
-  "Analítico (C)",
-  "Confirmador (Cd)",
-  "Progresista (CD)",
-  "Táctico (SC')",
-  "Competitivo (DS)",
-  "Moderado (IC)",
-] as const;
+/** DISC behavioural archetypes and their meanings now come from the backend
+ * ("Auxiliar" sheet, `arquetipo_disc` column), parsed in `lib/disc.ts` with a
+ * built-in fallback catalogue. See `DiscSelect` / `DiscInfoButton`. */
 
 /** Reliability — "Confiabilidad e Integridad". */
 export const CONFIABILIDAD_OPTIONS = [

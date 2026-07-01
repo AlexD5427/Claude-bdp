@@ -15,6 +15,7 @@ import {
 import { Modal } from "../components/Modal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { TextField, SelectField, SegmentedField } from "../components/form/Fields";
+import { DiscSelect } from "../components/DiscSelect";
 import { TagInput } from "../components/form/TagInput";
 import { GaugeInput } from "../components/form/GaugeInput";
 import { ItemListBuilder } from "../components/form/ItemListBuilder";
@@ -25,7 +26,6 @@ import { useFormDraft } from "../hooks/useFormDraft";
 import {
   CONFIABILIDAD_OPTIONS,
   DEPARTAMENTO_OPTIONS,
-  DISC_OPTIONS,
   ESTADO_CIVIL_OPTIONS,
   MAX_COMPETENCIAS,
   MAX_CONOCIMIENTOS,
@@ -55,6 +55,7 @@ interface FormState {
   localidad_residencia: string;
   estado_civil: string;
   nivel_academico: string;
+  carrera: string;
   trabaja_bdp: string;
   cargo_bdp: string;
   nota_cap: number | null;
@@ -82,13 +83,14 @@ const EMPTY: FormState = {
   localidad_residencia: "",
   estado_civil: "",
   nivel_academico: "",
+  carrera: "",
   trabaja_bdp: "",
   cargo_bdp: "",
   nota_cap: null,
   nota_curriculum: null,
   nota_conocimiento: null,
   nota_competencias: null,
-  perfil_disc: "",
+  perfil_disc: "N/A",
   conocimientos: [],
   herramientas: [],
   competencias: [],
@@ -114,9 +116,11 @@ function hasContent(s: FormState): boolean {
       s.localidad_residencia,
       s.estado_civil,
       s.nivel_academico,
+      s.carrera,
       s.trabaja_bdp,
       s.cargo_bdp,
-      s.perfil_disc,
+      // "N/A" is the default DISC value, so it doesn't count as content.
+      s.perfil_disc === "N/A" ? "" : s.perfil_disc,
       s.nivel_general_confiabilidad,
       s.nivel_integridad,
       s.riesgo_robo,
@@ -148,7 +152,7 @@ interface RegistrationFormProps {
  *   · Live local autosave + crash recovery, and an exit-confirmation guard.
  */
 export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormProps) {
-  const { competencias, submitCandidate } = useTalentData();
+  const { competencias, arquetipos, submitCandidate } = useTalentData();
   const [form, setForm] = useState<FormState>({ ...EMPTY });
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -281,6 +285,7 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
       localidad_residencia: form.localidad_residencia.trim(),
       estado_civil: form.estado_civil,
       nivel_academico: form.nivel_academico,
+      carrera: form.carrera.trim(),
       trabaja_bdp: form.trabaja_bdp,
       cargo_bdp: form.trabaja_bdp === "Sí" ? form.cargo_bdp.trim() : "",
       nota_cap: form.nota_cap ?? "",
@@ -399,12 +404,23 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                   onChange={(v) => setField("apellido_materno", v)}
                   placeholder="Apellido Materno"
                 />
-                <SelectField
-                  label="Nivel Académico"
-                  value={form.nivel_academico}
-                  onChange={(v) => setField("nivel_academico", v)}
-                  options={NIVEL_ACADEMICO_OPTIONS}
-                />
+                {/* Nivel Académico + Carrera share a paired cell so Carrera
+                    always sits immediately to the right of Nivel Académico. */}
+                <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
+                  <SelectField
+                    label="Nivel Académico"
+                    value={form.nivel_academico}
+                    onChange={(v) => setField("nivel_academico", v)}
+                    options={NIVEL_ACADEMICO_OPTIONS}
+                  />
+                  <TextField
+                    label="Carrera"
+                    hint="Formación / profesión"
+                    value={form.carrera}
+                    onChange={(v) => setField("carrera", v)}
+                    placeholder="Ej. Ingeniería Comercial"
+                  />
+                </div>
                 <SelectField
                   label="Departamento de Residencia"
                   value={form.departamento_residencia}
@@ -479,12 +495,12 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                 />
               </div>
               <div className="mt-4 max-w-md">
-                <SelectField
+                <DiscSelect
                   label="Arquetipo DISC"
+                  hint="Arquetipo de comportamiento"
                   value={form.perfil_disc}
                   onChange={(v) => setField("perfil_disc", v)}
-                  options={DISC_OPTIONS}
-                  placeholder="Seleccione el arquetipo de comportamiento…"
+                  archetypes={arquetipos}
                 />
               </div>
             </Section>

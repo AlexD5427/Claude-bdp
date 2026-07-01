@@ -25,10 +25,21 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   observaciones por etiquetas. Incluye **autoguardado local**, **recuperación de
   borrador** ante caídas y **confirmación de salida**.
 - **Módulo — Comparador:** búsqueda *type-ahead* en vivo (nombre + identificador)
-  para añadir columnas, encabezados congelados que no tiemblan y colapsan en una
-  barra compacta sólo cuando el encabezado grande sale de pantalla, y un informe
-  comparativo seccionado (Resultados, Competencias, Conocimientos, Herramientas,
-  Integridad y Observaciones).
+  para añadir columnas (**desde cero**, sin mínimo de 1), encabezados congelados
+  que no tiemblan y colapsan en una barra compacta sólo cuando el encabezado
+  grande sale de pantalla, un informe comparativo seccionado (Resultados,
+  Competencias, Conocimientos, Herramientas, Integridad y Observaciones) e
+  **impresión vertical/horizontal + modo compacto** para ajustar todos los
+  candidatos al 100 %.
+- **Módulo — Documentación:** expediente editable por persona contratada (ligado
+  al identificador), con **checklist de documentos** por estado (presentado /
+  pendiente / con observación / no aplica), páginas, observaciones y prórrogas;
+  **anillo de avance**, **análisis inteligente** y un **panel de avisos por
+  correo** (Gmail/Outlook) totalmente editable con **recordatorios automáticos
+  cada 3 días** y copia al auxiliar a cargo.
+- **Arquetipo DISC dinámico:** el desplegable y el pop-up de significado se
+  alimentan de la hoja «Auxiliar» (columna `arquetipo_disc`); un icono «!» junto
+  al arquetipo abre su descripción en todo el sistema (cuestionario y comparador).
 - **Impresión institucional** a Carta / Oficio en todos los módulos, con
   banderola de reporte y aplanado de vidrio para máxima legibilidad.
 - Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1) y **Procesos**.
@@ -56,7 +67,7 @@ El dashboard consume un único endpoint de Google Apps Script (definido en
 `src/constants.ts`):
 
 ```
-GET  →  { candidatos: [...], competencias: [...] }
+GET  →  { candidatos: [...], competencias: [...], arquetipos_disc: [...] }
 ```
 
 > [!IMPORTANT]
@@ -66,6 +77,13 @@ GET  →  { candidatos: [...], competencias: [...] }
 
 El hook global `useTalentData` (Context API) obtiene, normaliza y distribuye los
 datos, gestionando estados de carga y error con reintentos de *backoff*.
+
+> El módulo **Documentación** persiste sus expedientes en `localStorage` y los
+> sincroniza *best-effort* con el backend (`type: "documentacion"`). Para el
+> guardado real en Google Sheets, la lectura de `arquetipos_disc`/`carrera` y el
+> **envío automático de correos cada 3 días**, despliegue
+> [`docs/backend/Documentacion.gs`](docs/backend/Documentacion.gs) (ver
+> `docs/backend/README.md`).
 
 ## 🎨 Sistema de diseño
 
@@ -78,11 +96,12 @@ La paleta corporativa se construye con `#004a8f` (azul profundo), `#005baa`
 ```
 src/
 ├── components/      # Dock, KPIs, chips, tarjetas, modal, diálogos, formulario
+│   ├── doc/         # Módulo Documentación: alta, expediente, correo, ajustes
 │   └── form/        # Campos, velocímetro (GaugeInput), tags, list builders
 ├── context/         # useTalentData + useTheme (Context API)
 ├── hooks/           # usePointerGlow, useFormDraft (autosave/recuperación)
-├── lib/             # cálculos, normalización, niveles e impresión
-├── modules/         # Tablero, Cara a Cara, Comparador, Procesos, Postulantes
+├── lib/             # cálculos, normalización, niveles, impresión, DISC y docStore
+├── modules/         # Tablero, Cara a Cara, Comparador, Procesos, Postulantes, Documentación
 ├── App.tsx          # layout + enrutado de módulos
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 ```

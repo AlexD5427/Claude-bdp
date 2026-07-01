@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Plus } from "lucide-react";
+import { PortalDropdown } from "./PortalDropdown";
 
 /** Strip emoji / pictographs so suggestions render as clean text only. */
 function stripEmoji(text: string): string {
@@ -23,7 +24,9 @@ interface CompetencyAutocompleteProps {
 /**
  * Accessible autocomplete fed by the API's `competencias` array.
  * Renders suggestions as plain text (no emojis), excludes already-selected
- * items, and supports keyboard navigation.
+ * items, and supports keyboard navigation. The suggestion list is drawn in a
+ * portal (see {@link PortalDropdown}) so it floats above the intake form's
+ * scrollable body instead of being clipped by it.
  */
 export function CompetencyAutocomplete({
   options,
@@ -51,17 +54,6 @@ export function CompetencyAutocomplete({
   }, [options, query, selectedSet]);
 
   useEffect(() => setActive(0), [query, open]);
-
-  // Close on outside click.
-  useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
 
   function choose(name: string) {
     onAdd(name);
@@ -113,11 +105,15 @@ export function CompetencyAutocomplete({
         />
       </div>
 
-      {open && !disabled && suggestions.length > 0 && (
+      <PortalDropdown
+        open={open && !disabled && suggestions.length > 0}
+        anchorRef={wrapRef}
+        onClose={() => setOpen(false)}
+      >
         <ul
           id="competency-listbox"
           role="listbox"
-          className="glass absolute z-50 mt-2 max-h-72 w-full overflow-auto rounded-2xl p-1.5"
+          className="glass-heavy w-full rounded-2xl p-1.5"
         >
           {suggestions.map((opt, i) => (
             <li key={opt} role="option" aria-selected={i === active}>
@@ -138,7 +134,7 @@ export function CompetencyAutocomplete({
             </li>
           ))}
         </ul>
-      )}
+      </PortalDropdown>
     </div>
   );
 }

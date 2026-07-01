@@ -76,6 +76,11 @@ export interface Candidate extends RawCandidate {
 export interface TalentPayload {
   candidatos: RawCandidate[];
   competencias: string[];
+  /**
+   * Raw rows of the "Auxiliar" sheet's `arquetipo_disc` column, each shaped
+   * "Nombre (Código), Descripción…". Optional: older backends omit it.
+   */
+  arquetipos_disc?: string[];
 }
 
 /** The navigable modules surfaced in the floating dock. */
@@ -85,7 +90,8 @@ export type ModuleId =
   | "cara-a-cara"
   | "comparador"
   | "procesos"
-  | "postulantes";
+  | "postulantes"
+  | "documentacion";
 
 /** A free-form list item used by the knowledge / tools builders. */
 export interface FormItem {

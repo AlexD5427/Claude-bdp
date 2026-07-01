@@ -23,8 +23,12 @@ function arcPath(a: number, b: number): string {
   });
   const start = p(a);
   const end = p(b);
-  const large = b - a > 50 ? 1 : 0;
-  return `M ${start.x} ${start.y} A ${R} ${R} 0 ${large} 1 ${end.x} ${end.y}`;
+  // The dial is a half-circle: the swept angle from `a` to `b` is
+  // π·(b−a)/100, which is never greater than 180°. So the SVG "large-arc-flag"
+  // must always be 0 — the minor arc *is* the arc we want. (The old code set it
+  // to 1 past 50 %, which made the stroke jump to the long way round and draw a
+  // wildly mis-placed loop — the "elevado y mal posicionado" bug.)
+  return `M ${start.x} ${start.y} A ${R} ${R} 0 0 1 ${end.x} ${end.y}`;
 }
 
 function bandColor(v: number | null): { stroke: string; text: string } {
@@ -38,8 +42,11 @@ function bandColor(v: number | null): { stroke: string; text: string } {
  * An analog "speedometer" dial used to capture an evaluation score (0–100 %).
  *
  *   · Drag the needle (or click anywhere on the arc) to set the value.
- *   · Click the percentage in the centre to type an exact figure.
+ *   · Click the percentage below the dial to type an exact figure.
  *   · Arrow keys nudge the value when the dial is focused.
+ *
+ * The numeric read-out lives in a pill *below* the dial (not stamped over the
+ * needle pivot), so the number stays legible while the needle sweeps.
  */
 export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -48,10 +55,13 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
   const dragging = useRef(false);
   const v = value ?? 0;
   const { stroke, text } = bandColor(value);
+  const gradientId = useRef(
+    `gauge-grad-${Math.random().toString(36).slice(2, 9)}`,
+  ).current;
 
   const needle = (() => {
     const ang = Math.PI - (Math.PI * v) / 100;
-    return { x: CX + (R - 2) * Math.cos(ang), y: CY - (R - 2) * Math.sin(ang) };
+    return { x: CX + (R - 6) * Math.cos(ang), y: CY - (R - 6) * Math.sin(ang) };
   })();
 
   function valueFromEvent(clientX: number, clientY: number) {
@@ -121,7 +131,7 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
       >
         <svg
           ref={svgRef}
-          viewBox="0 0 200 120"
+          viewBox="0 0 200 116"
           className="w-full cursor-pointer touch-none"
           onPointerDown={(e) => {
             dragging.current = true;
@@ -129,6 +139,12 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
             valueFromEvent(e.clientX, e.clientY);
           }}
         >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor={stroke} stopOpacity={0.55} />
+              <stop offset="100%" stopColor={stroke} stopOpacity={1} />
+            </linearGradient>
+          </defs>
           {/* Track */}
           <path
             d={arcPath(0, 100)}
@@ -159,13 +175,13 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
             <path
               d={arcPath(0, v)}
               fill="none"
-              stroke={stroke}
+              stroke={`url(#${gradientId})`}
               strokeWidth={STROKE}
               strokeLinecap="round"
               style={{ transition: "stroke 0.3s ease" }}
             />
           )}
-          {/* Needle */}
+          {/* Needle + hub */}
           <line
             x1={CX}
             y1={CY}
@@ -174,40 +190,45 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
             stroke={stroke}
             strokeWidth={3.5}
             strokeLinecap="round"
+            style={{ transition: "all 0.25s cubic-bezier(0.34,1.56,0.64,1)" }}
           />
-          <circle cx={CX} cy={CY} r={7} fill={stroke} />
-          <circle cx={CX} cy={CY} r={3} fill="var(--app-base)" />
-        </svg>
-
-        {/* Centre read-out / manual entry */}
-        <div className="absolute inset-x-0 bottom-1 flex justify-center">
-          {editing ? (
-            <input
-              autoFocus
-              value={draft}
-              inputMode="numeric"
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commitDraft}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitDraft();
-                if (e.key === "Escape") setEditing(false);
-              }}
-              className="w-16 rounded-lg bg-white/80 px-2 py-0.5 text-center text-lg font-black text-corp-ink outline-none ring-2 ring-cyan-400"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                setDraft(value === null ? "" : String(value));
-                setEditing(true);
-              }}
-              title="Clic para ingresar manualmente"
-              className={`rounded-lg px-2 text-2xl font-black leading-none drop-shadow-md transition-transform hover:scale-110 ${text}`}
-            >
-              {value === null ? "—" : `${value}%`}
-            </button>
+          {/* Coloured tip dot for a premium finish. */}
+          {value !== null && (
+            <circle cx={needle.x} cy={needle.y} r={4} fill={stroke} />
           )}
-        </div>
+          <circle cx={CX} cy={CY} r={9} fill={stroke} />
+          <circle cx={CX} cy={CY} r={4.5} fill="var(--app-base)" />
+        </svg>
+      </div>
+
+      {/* Centre read-out / manual entry — sits below the dial, off the needle. */}
+      <div className="mt-1 flex justify-center">
+        {editing ? (
+          <input
+            autoFocus
+            value={draft}
+            inputMode="numeric"
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitDraft}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitDraft();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            className="w-16 rounded-lg bg-white/80 px-2 py-0.5 text-center text-lg font-black text-corp-ink outline-none ring-2 ring-cyan-400"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(value === null ? "" : String(value));
+              setEditing(true);
+            }}
+            title="Clic para ingresar manualmente"
+            className={`rounded-xl px-3 py-0.5 text-2xl font-black leading-none drop-shadow-sm transition-transform hover:scale-110 ${text}`}
+          >
+            {value === null ? "—" : `${value}%`}
+          </button>
+        )}
       </div>
     </div>
   );

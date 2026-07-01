@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Plus, X, Users } from "lucide-react";
 import { Avatar } from "./Avatar";
+import { PortalDropdown } from "./PortalDropdown";
 import { extractProceso } from "../lib/candidates";
 import type { Candidate } from "../types";
 
@@ -57,16 +58,6 @@ export function CandidateSearchSelect({
   }, [candidates, query, selectedSet]);
 
   useEffect(() => setActive(0), [query, open]);
-
-  useEffect(() => {
-    function onDoc(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
 
   function choose(c: Candidate) {
     if (full) return;
@@ -129,11 +120,16 @@ export function CandidateSearchSelect({
           />
         </div>
 
-        {open && !full && suggestions.length > 0 && (
+        <PortalDropdown
+          open={open && !full && suggestions.length > 0}
+          anchorRef={wrapRef}
+          onClose={() => setOpen(false)}
+          maxHeight={320}
+        >
           <ul
             id="candidate-listbox"
             role="listbox"
-            className="glass-heavy absolute z-50 mt-2 max-h-80 w-full overflow-auto rounded-2xl p-1.5"
+            className="glass-heavy w-full rounded-2xl p-1.5"
           >
             {suggestions.map((c, i) => (
               <li key={c.id} role="option" aria-selected={i === active}>
@@ -163,12 +159,16 @@ export function CandidateSearchSelect({
               </li>
             ))}
           </ul>
-        )}
-        {open && !full && query.trim() && suggestions.length === 0 && (
-          <div className="glass-heavy absolute z-50 mt-2 w-full rounded-2xl px-4 py-3 text-sm text-ink-soft">
+        </PortalDropdown>
+        <PortalDropdown
+          open={open && !full && query.trim() !== "" && suggestions.length === 0}
+          anchorRef={wrapRef}
+          onClose={() => setOpen(false)}
+        >
+          <div className="glass-heavy w-full rounded-2xl px-4 py-3 text-sm text-ink-soft">
             Sin coincidencias para “{query.trim()}”.
           </div>
-        )}
+        </PortalDropdown>
       </div>
 
       {selected.length > 0 && (
