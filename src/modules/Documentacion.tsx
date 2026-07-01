@@ -21,6 +21,7 @@ import { DocEmailComposer } from "../components/doc/DocEmailComposer";
 import { printModule } from "../lib/print";
 import { useDocStore, type Dossier } from "../lib/docStore";
 import { dossierReport } from "../lib/docReport";
+import { useConfig, activeTemplateFor } from "../lib/configStore";
 
 /**
  * MÓDULO — Documentación.
@@ -32,6 +33,16 @@ import { dossierReport } from "../lib/docReport";
  */
 export function Documentacion() {
   const { dossiers, settings } = useDocStore();
+  const config = useConfig();
+
+  // The active "Documentación" email format (managed in Configuración) drives
+  // the subject/body of the reminders; the cadence & accounts stay local.
+  const settingsWithFormat = useMemo(() => {
+    const tpl = activeTemplateFor(config.emailTemplates, "documentacion");
+    if (!tpl) return settings;
+    return { ...settings, subjectTemplate: tpl.subject, bodyTemplate: tpl.body };
+  }, [settings, config.emailTemplates]);
+
   const [query, setQuery] = useState("");
   const [intakeOpen, setIntakeOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -171,7 +182,7 @@ export function Documentacion() {
         onClose={() => setCompose(null)}
         dossier={autoDossier}
         report={autoReport}
-        settings={settings}
+        settings={settingsWithFormat}
         kind={compose?.kind ?? "manual"}
       />
     </div>
