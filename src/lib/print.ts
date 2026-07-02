@@ -9,6 +9,16 @@
 export type PaperSize = "Letter" | "Legal";
 export type PaperOrientation = "portrait" | "landscape";
 
+export interface PrintOptions {
+  /**
+   * A named print scope. When set, `bdp-scope-<scope>` is toggled on <body>
+   * for the duration of the print, so scope-specific print CSS can hide the
+   * on-screen chrome (brand header, KPI bar, module title) and keep only the
+   * relevant region — e.g. the comparator prints from the profile chips down.
+   */
+  scope?: string;
+}
+
 const STYLE_ID = "bdp-print-page-style";
 const HEADER_ID = "bdp-print-header";
 
@@ -16,8 +26,13 @@ export function printModule(
   title: string,
   paper: PaperSize = "Letter",
   orientation: PaperOrientation = "portrait",
+  options: PrintOptions = {},
 ): void {
   if (typeof window === "undefined") return;
+
+  // 0 · Print scope (optional) — lets a module trim what gets printed.
+  const scopeClass = options.scope ? `bdp-scope-${options.scope}` : "";
+  if (scopeClass) document.body.classList.add("bdp-print-scoped", scopeClass);
 
   // 1 · Paper size + margins.
   document.getElementById(STYLE_ID)?.remove();
@@ -48,6 +63,7 @@ export function printModule(
   const cleanup = () => {
     style.remove();
     header.remove();
+    if (scopeClass) document.body.classList.remove("bdp-print-scoped", scopeClass);
     window.removeEventListener("afterprint", cleanup);
   };
   window.addEventListener("afterprint", cleanup);

@@ -91,7 +91,8 @@ export type ModuleId =
   | "comparador"
   | "procesos"
   | "postulantes"
-  | "documentacion";
+  | "documentacion"
+  | "configuracion";
 
 /** A free-form list item used by the knowledge / tools builders. */
 export interface FormItem {

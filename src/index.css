@@ -54,6 +54,9 @@
 
     /* Cursor spotlight tint */
     --spotlight: rgba(0, 176, 216, 0.16);
+
+    /* Comparator "tie" outline — a warm gold that contrasts on Midnight blue. */
+    --tie-ring: rgba(251, 191, 36, 0.92);
   }
 
   /* ---- LIGHT THEME ("Daylight" · institutional) ------------ */
@@ -91,6 +94,9 @@
     --grain-opacity: 0.02;
 
     --spotlight: rgba(0, 91, 170, 0.12);
+
+    /* On Daylight, a vivid violet contrasts against the corporate blues. */
+    --tie-ring: rgba(124, 58, 237, 0.85);
   }
 
   html,
@@ -261,6 +267,55 @@
   .text-on-glass {
     @apply font-bold text-white drop-shadow-md;
   }
+
+  /* Glassy range slider used across the Configuración module. */
+  .cfg-range {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--fill-2);
+    outline: none;
+    cursor: pointer;
+  }
+  .cfg-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #00b0d8, #005baa);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 12px rgba(0, 176, 216, 0.55);
+  }
+  .cfg-range::-moz-range-thumb {
+    height: 20px;
+    width: 20px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #00b0d8, #005baa);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+  }
+
+  /* Comparator tie flag — a soft, breathing contrasting outline that reads on
+     both themes without clashing with the blue profile card. */
+  .cmp-tie {
+    outline: 2px solid var(--tie-ring);
+    outline-offset: 3px;
+    box-shadow:
+      var(--glass-shadow),
+      0 0 0 1px var(--tie-ring),
+      0 0 22px -4px var(--tie-ring);
+    animation: tie-pulse 2.6s ease-in-out infinite;
+  }
+  @keyframes tie-pulse {
+    0%,
+    100% {
+      outline-color: color-mix(in srgb, var(--tie-ring) 70%, transparent);
+    }
+    50% {
+      outline-color: var(--tie-ring);
+    }
+  }
 }
 
 @layer utilities {
@@ -273,6 +328,15 @@
       animation-iteration-count: 1 !important;
       transition-duration: 0.001ms !important;
     }
+  }
+
+  /* Manual "Reducir movimiento" switch from Configuración mirrors the query. */
+  .reduce-motion *,
+  .reduce-motion *::before,
+  .reduce-motion *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
 
@@ -406,4 +470,33 @@
 /* Slightly tighten the big profile header cards too. */
 .cmp-dense .rounded-3xl {
   border-radius: 1rem;
+}
+
+/* =============================================================
+   PRINT — scope + fit-to-page for the Comparador.
+   • Scope: when printing the comparator we hide the on-screen
+     chrome (brand header, KPI bar, module title) so the report
+     starts at the profile chips, exactly as requested.
+   • Fit:  the grid columns are forced to `minmax(0, 1fr)` so every
+     candidate shrinks to share one page width without clipping.
+   ============================================================= */
+@media print {
+  body.bdp-scope-comparador .print-scope-hide {
+    display: none !important;
+  }
+  /* Reclaim the page: no page gutters beyond the @page margin. */
+  body.bdp-scope-comparador main {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  /* Shrink columns to fit the sheet (screen inline style is overridden). */
+  .cmp-grid {
+    grid-template-columns: var(--print-cols) !important;
+    gap: 0.4rem !important;
+  }
+  .cmp-tie {
+    outline-width: 1.5px !important;
+    box-shadow: none !important;
+    animation: none !important;
+  }
 }

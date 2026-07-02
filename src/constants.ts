@@ -6,6 +6,7 @@ import {
   Workflow,
   ListChecks,
   FolderCheck,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import type { ModuleId } from "./types";
@@ -33,6 +34,7 @@ export const DOCK_ITEMS: DockItem[] = [
   { id: "procesos", label: "Procesos", icon: Workflow },
   { id: "postulantes", label: "Postulantes", icon: ListChecks },
   { id: "documentacion", label: "Documentación", icon: FolderCheck },
+  { id: "configuracion", label: "Configuración", icon: Settings },
 ];
 
 /** Estado civil options. */

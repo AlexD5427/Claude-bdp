@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { MeshBackground } from "./components/MeshBackground";
+import { ThreeBackground } from "./components/ThreeBackground";
 import { CursorSpotlight } from "./components/CursorSpotlight";
 import { FloatingDock } from "./components/FloatingDock";
 import { BrandHeader } from "./components/BrandHeader";
@@ -8,6 +9,7 @@ import { KpiBar } from "./components/KpiBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ThemeProvider } from "./context/ThemeContext";
 import { TalentDataProvider, useTalentData } from "./context/TalentDataContext";
+import { useConfig } from "./lib/configStore";
 import { Dashboard } from "./modules/Dashboard";
 import { Tablero } from "./modules/Tablero";
 import { CaraACara } from "./modules/CaraACara";
@@ -15,6 +17,7 @@ import { NuevoComparador } from "./modules/NuevoComparador";
 import { Procesos } from "./modules/Procesos";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
 import { Documentacion } from "./modules/Documentacion";
+import { Configuracion } from "./modules/Configuracion";
 import { DOCK_ITEMS } from "./constants";
 import type { ModuleId } from "./types";
 
@@ -26,27 +29,39 @@ const SUBTITLES: Record<ModuleId, string> = {
   procesos: "Postulantes agrupados por proceso.",
   postulantes: "Listado y registro de postulantes.",
   documentacion: "Expedientes de documentación de incorporación.",
+  configuracion: "Preferencias del sistema, integraciones y formatos de correo.",
 };
 
 function Shell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
   const { status } = useTalentData();
+  const { reduceMotion } = useConfig();
   const synced = status === "success";
+
+  // Let the "Reducir movimiento" preference dampen animations app-wide.
+  useEffect(() => {
+    document.documentElement.classList.toggle("reduce-motion", reduceMotion);
+  }, [reduceMotion]);
 
   const meta = DOCK_ITEMS.find((d) => d.id === active)!;
 
   return (
     <div className="relative min-h-screen">
       <MeshBackground />
+      <ThreeBackground />
       <CursorSpotlight />
       <FloatingDock active={active} onSelect={setActive} synced={synced} />
 
       <main className="mx-auto w-full max-w-7xl px-4 pb-28 pt-28 sm:px-6 sm:pt-32">
-        <BrandHeader />
+        <div className="print-scope-hide">
+          <BrandHeader />
+        </div>
 
-        <KpiBar module={active} />
+        <div className="print-scope-hide">
+          <KpiBar module={active} />
+        </div>
 
-        <header className="mb-5 mt-8">
+        <header className="print-scope-hide mb-5 mt-8">
           <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-cyan-400 no-print">
             <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-glow-cyan" />
             Módulo
@@ -79,6 +94,7 @@ function Shell() {
               {active === "procesos" && <Procesos />}
               {active === "postulantes" && <ListaPostulantes />}
               {active === "documentacion" && <Documentacion />}
+              {active === "configuracion" && <Configuracion />}
             </motion.section>
           </AnimatePresence>
         </ErrorBoundary>

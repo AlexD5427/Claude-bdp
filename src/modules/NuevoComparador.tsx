@@ -23,6 +23,8 @@ import { DiscInfoButton } from "../components/DiscInfoButton";
 import { discAccent } from "../lib/discAccent";
 import { extractDiscCode } from "../lib/disc";
 import { parseDecimal, ajusteBand } from "../lib/competency";
+import { sortByCapDesc, tieGroups } from "../lib/candidateDisplay";
+import { useConfig } from "../lib/configStore";
 import {
   integrityTone,
   proficiencyTone,
@@ -33,7 +35,6 @@ import {
 import { printModule, type PaperSize, type PaperOrientation } from "../lib/print";
 import type { Candidate, CompetencyScore, TechnicalKnowledge } from "../types";
 
-const MAX_COLUMNS = 5;
 /** Sticky offset that clears the floating dock (px). */
 const STICKY_TOP = 84;
 
@@ -76,9 +77,11 @@ const CONF_ROWS: ConfRow[] = [
  */
 export function NuevoComparador() {
   const { candidatos, loading, error, refetch } = useTalentData();
+  const config = useConfig();
+  const MAX_COLUMNS = config.maxComparador;
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [paper, setPaper] = useState<PaperSize>("Letter");
-  const [orientation, setOrientation] = useState<PaperOrientation>("portrait");
+  const [paper, setPaper] = useState<PaperSize>(config.defaultPaper);
+  const [orientation, setOrientation] = useState<PaperOrientation>(config.defaultOrientation);
   const [dense, setDense] = useState(false);
 
   // Seed with the first few candidates *once*, as a convenience. We guard with a
@@ -103,11 +106,25 @@ export function NuevoComparador() {
     [selectedIds, candidatos],
   );
 
+  // Columns are ordered by Nota CAP (highest → left, lowest → right) so the
+  // strongest candidate always leads the audit. Toggleable from Configuración.
+  const ordered = useMemo(
+    () => (config.sortByCapDesc ? sortByCapDesc(selected) : selected),
+    [selected, config.sortByCapDesc],
+  );
+
+  // Candidates whose Nota CAP is within the configured tolerance are flagged as
+  // a tie and receive a soft contrasting outline in the profile card.
+  const ties = useMemo(
+    () => tieGroups(ordered, config.tieThreshold),
+    [ordered, config.tieThreshold],
+  );
+
   // Union of competency names across the selected candidates (row order).
   const competencyRows = useMemo(() => {
     const names: string[] = [];
     const seen = new Set<string>();
-    for (const c of selected) {
+    for (const c of ordered) {
       for (const comp of c.competenciasList) {
         const key = comp.name.toLowerCase();
         if (!seen.has(key)) {
@@ -117,7 +134,7 @@ export function NuevoComparador() {
       }
     }
     return names;
-  }, [selected]);
+  }, [ordered]);
 
   // --- frozen-header logic: show the compact bar only once the big headers
   //     have scrolled completely past the dock line (no trembling). ---
@@ -152,8 +169,11 @@ export function NuevoComparador() {
   }
 
   const columns = dense
-    ? `minmax(122px, 0.6fr) repeat(${selected.length}, minmax(128px, 1fr))`
-    : `minmax(190px, 0.85fr) repeat(${selected.length}, minmax(210px, 1fr))`;
+    ? `minmax(122px, 0.6fr) repeat(${ordered.length}, minmax(128px, 1fr))`
+    : `minmax(190px, 0.85fr) repeat(${ordered.length}, minmax(210px, 1fr))`;
+  // At print time columns must *shrink* to fit the page (minmax(0, 1fr)),
+  // otherwise wide grids overflow and get clipped. See the `.cmp-grid` rule.
+  const printColumns = `minmax(88px, 0.5fr) repeat(${ordered.length}, minmax(0, 1fr))`;
 
   return (
     <div className="space-y-4">
@@ -231,7 +251,11 @@ export function NuevoComparador() {
         <button
           type="button"
           disabled={selected.length === 0}
-          onClick={() => printModule("Comparativa de Postulantes", paper, orientation)}
+          onClick={() =>
+            printModule("Comparativa de Postulantes", paper, orientation, {
+              scope: "comparador",
+            })
+          }
           className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-500 ease-spring hover:-translate-y-1 hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Printer className="h-4 w-4" />
@@ -271,22 +295,29 @@ export function NuevoComparador() {
             <div className="glass-heavy flex items-center rounded-2xl px-3 py-2 text-xs font-bold uppercase tracking-wide text-ink-soft">
               Comparativa
             </div>
-            {selected.map((c) => (
+            {ordered.map((c, idx) => (
               <div
                 key={c.id}
                 className="glass-heavy flex items-center gap-2 rounded-2xl px-3 py-2"
               >
                 <Avatar name={c.fullName} seed={c.id} size="sm" />
-                <span className="truncate text-sm font-bold text-ink">
+                <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink">
                   {c.fullName}
                 </span>
+                {config.rankingEnabled && (
+                  <span className="shrink-0 rounded-full fill-softer px-1.5 py-0.5 text-[0.65rem] font-black text-ink-soft ring-1 ring-[color:var(--hairline)]">
+                    {idx + 1}.º
+                  </span>
+                )}
               </div>
             ))}
           </div>
 
           <div
-            className={dense ? "grid gap-1.5" : "grid gap-3"}
-            style={{ gridTemplateColumns: columns }}
+            className={dense ? "cmp-grid grid gap-1.5" : "cmp-grid grid gap-3"}
+            style={
+              { gridTemplateColumns: columns, "--print-cols": printColumns } as React.CSSProperties
+            }
             role="table"
             aria-label="Cuadrícula de auditoría de talento"
           >
@@ -296,14 +327,20 @@ export function NuevoComparador() {
                 Postulante
               </span>
             </div>
-            {selected.map((c) => (
+            {ordered.map((c, idx) => (
               <div key={c.id} role="columnheader">
                 <motion.div
                   initial={{ opacity: 0, y: -8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ type: "spring", stiffness: 300, damping: 26 }}
                 >
-                  <CandidateProfileCard candidate={c} onRemove={() => remove(c.id)} />
+                  <CandidateProfileCard
+                    candidate={c}
+                    onRemove={() => remove(c.id)}
+                    rank={idx + 1}
+                    tie={Boolean(ties[c.id])}
+                    showRank={config.rankingEnabled}
+                  />
                 </motion.div>
               </div>
             ))}
@@ -315,7 +352,7 @@ export function NuevoComparador() {
             <SectionBand icon={<Award className="h-4 w-4" />} title="Resultados de Evaluación" />
             {EVAL_ROWS.map((row) => (
               <RowFragment key={String(row.key)} label={row.label} sub={row.sub}>
-                {selected.map((c) => (
+                {ordered.map((c) => (
                   <Cell key={c.id + String(row.key)}>
                     {row.kind === "pct" ? (
                       <PctValue value={parseDecimal(c[row.key] as never)} />
@@ -343,7 +380,7 @@ export function NuevoComparador() {
             ) : (
               competencyRows.map((name) => (
                 <RowFragment key={name} label={name}>
-                  {selected.map((c) => {
+                  {ordered.map((c) => {
                     const score = findScore(c.competenciasList, name);
                     return (
                       <Cell key={c.id + name}>
@@ -362,7 +399,7 @@ export function NuevoComparador() {
               sub="Nivel de conocimientos técnicos"
             />
             <RowFragment label="Conocimientos" sub="Detalle técnico declarado">
-              {selected.map((c) => (
+              {ordered.map((c) => (
                 <Cell key={c.id + "-con"}>
                   <ItemList items={c.conocimientosList} withDetalle />
                 </Cell>
@@ -376,7 +413,7 @@ export function NuevoComparador() {
               sub="Nivel de manejo de herramientas"
             />
             <RowFragment label="Herramientas" sub="Instrumentos y software">
-              {selected.map((c) => (
+              {ordered.map((c) => (
                 <Cell key={c.id + "-herr"}>
                   <ItemList items={c.herramientasList} />
                 </Cell>
@@ -391,7 +428,7 @@ export function NuevoComparador() {
             />
             {CONF_ROWS.map((row) => (
               <RowFragment key={String(row.key)} label={row.label} sub={row.sub}>
-                {selected.map((c) => {
+                {ordered.map((c) => {
                   const value = (c[row.key] as string) || "";
                   return (
                     <Cell key={c.id + String(row.key)}>
@@ -409,7 +446,7 @@ export function NuevoComparador() {
               sub="Banderas y alertas a considerar en la selección"
             />
             <RowFragment label="Observaciones" sub="Anotaciones de selección">
-              {selected.map((c) => (
+              {ordered.map((c) => (
                 <Cell key={c.id + "-obs"}>
                   <Observations text={(c.observaciones as string) || ""} />
                 </Cell>
