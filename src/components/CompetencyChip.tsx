@@ -7,9 +7,16 @@ import { AjusteBadge } from "./AjusteBadge";
  *
  *   Line 1: competency name (bold, clipped if too long)
  *   Line 2: Esperado / Obtenido (tiny)
- *   Line 3: Ajuste badge + Brecha
+ *   Line 3: Ajuste badge + Brecha (hidden when `showAjusteBrecha` is false, a
+ *           toggle exposed in the comparator's session settings)
  */
-export function CompetencyChip({ score }: { score: CompetencyScore }) {
+export function CompetencyChip({
+  score,
+  showAjusteBrecha = true,
+}: {
+  score: CompetencyScore;
+  showAjusteBrecha?: boolean;
+}) {
   const { name, esperado, obtenido, brecha, ajuste } = score;
 
   const brechaColor =
@@ -36,12 +43,14 @@ export function CompetencyChip({ score }: { score: CompetencyScore }) {
         Obtenido: <span className="text-ink">{fmt(obtenido)}</span>
       </p>
 
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <AjusteBadge ajuste={ajuste} />
-        <span className={`text-xs font-bold ${brechaColor}`}>
-          Brecha: {brecha === null ? "—" : fmt(brecha)}
-        </span>
-      </div>
+      {showAjusteBrecha && (
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <AjusteBadge ajuste={ajuste} />
+          <span className={`text-xs font-bold ${brechaColor}`}>
+            Brecha: {brecha === null ? "—" : fmt(brecha)}
+          </span>
+        </div>
+      )}
     </motion.div>
   );
 }

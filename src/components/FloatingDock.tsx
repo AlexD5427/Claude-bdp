@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, ChevronRight, ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { DOCK_ITEMS } from "../constants";
 import { useTheme } from "../context/ThemeContext";
+import { useConfig, setConfig, type DockPosition, type DockSize } from "../lib/configStore";
 import { DrawIcon } from "./DrawIcon";
 import type { ModuleId } from "../types";
 
@@ -12,34 +14,144 @@ interface FloatingDockProps {
   synced: boolean;
 }
 
+/** Per-size scale tokens so the whole dock grows/shrinks coherently. */
+const SIZE: Record<
+  DockSize,
+  { plate: string; logo: string; btn: string; icon: string; label: string }
+> = {
+  sm: { plate: "h-9 w-9", logo: "h-6 w-6", btn: "w-[3rem] sm:w-[3.4rem]", icon: "h-4 w-4", label: "text-[0.55rem]" },
+  md: { plate: "h-10 w-10", logo: "h-7 w-7", btn: "w-[3.6rem] sm:w-[4.25rem]", icon: "h-5 w-5", label: "text-[0.6rem]" },
+  lg: { plate: "h-12 w-12", logo: "h-8 w-8", btn: "w-[4.4rem] sm:w-[5rem]", icon: "h-6 w-6", label: "text-[0.7rem]" },
+};
+
 /**
- * iOS-style floating dock. Each module shows its icon with a short label
- * underneath. The active module is marked by a glowing "liquid pill" plate plus
- * a filled blue "orb" behind its icon — both spring between items via shared
- * `layoutId`s, so the spotlight glides to whatever module is selected (it is no
- * longer pinned to Dashboard). When a module is picked its icon re-draws itself
- * in a contrasting white stroke, and a quick cyan burst flags the change. A
- * theme switch and the DB-sync dot live on the right.
+ * Fixed-position anchor per dock placement. Centering uses auto-margins (not a
+ * CSS transform) on purpose: Framer Motion drives `transform` for the entrance
+ * animation, so a `-translate-x-1/2` here would be overridden and the dock would
+ * drift off-centre. `w-max` / `h-max` size it to its content, capped so it never
+ * runs off a small screen (it scrolls within itself instead).
+ */
+const ANCHOR: Record<DockPosition, string> = {
+  top: "inset-x-0 top-3 mx-auto w-max max-w-[96vw] sm:top-4",
+  bottom: "inset-x-0 bottom-3 mx-auto w-max max-w-[96vw] sm:bottom-4",
+  left: "inset-y-0 left-2 my-auto h-max max-h-[calc(100vh-1.5rem)] sm:left-3",
+  right: "inset-y-0 right-2 my-auto h-max max-h-[calc(100vh-1.5rem)] sm:right-3",
+};
+
+/** Small hook: track the viewport so the dock re-flows on resize/rotation. */
+function useViewport() {
+  const [vp, setVp] = useState({
+    w: typeof window === "undefined" ? 1024 : window.innerWidth,
+    h: typeof window === "undefined" ? 768 : window.innerHeight,
+  });
+  useEffect(() => {
+    let raf = 0;
+    const onResize = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setVp({ w: window.innerWidth, h: window.innerHeight }));
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
+  return vp;
+}
+
+/**
+ * iOS-style floating dock — now fully adjustable and collapsible.
+ *
+ * The recruitment team can dock it to any edge (top / bottom / left / right)
+ * and pick a size from Configuración; those live in the config store, so the
+ * choice persists. A chevron collapses the dock into a single logo pill (to
+ * reclaim screen space) and expands it again. It listens to viewport changes so
+ * it always re-centres and stays fully reachable — scrolling within itself when
+ * a phone is too small — in either orientation.
+ *
+ * The active module is still marked by a spring "liquid pill" + glowing orb
+ * that glide between items via shared `layoutId`s, and the picked icon redraws
+ * itself in a contrasting stroke.
  */
 export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
   const { theme, toggle } = useTheme();
+  const { dockPosition, dockSize, dockCollapsed } = useConfig();
+  const vp = useViewport();
 
+  const vertical = dockPosition === "left" || dockPosition === "right";
+  const sz = SIZE[dockSize];
+  // On a narrow viewport a horizontal dock hides its text labels (icon-only)
+  // and scrolls; a vertical dock is always icon-only with tooltips.
+  const showLabels = !vertical && vp.w >= 640;
+
+  const setCollapsed = (v: boolean) => setConfig({ dockCollapsed: v });
+
+  const CollapseIcon = vertical
+    ? dockCollapsed
+      ? dockPosition === "left"
+        ? ChevronRight
+        : ChevronLeft
+      : dockPosition === "left"
+        ? ChevronLeft
+        : ChevronRight
+    : dockCollapsed
+      ? ChevronDown
+      : ChevronUp;
+
+  /* ---- Collapsed: just the logo + an expand chevron ---- */
+  if (dockCollapsed) {
+    return (
+      <motion.nav
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 260, damping: 24 }}
+        className={[
+          "glass-heavy no-print fixed z-[100] flex items-center gap-1.5 rounded-[1.5rem] p-2",
+          vertical ? "flex-col" : "flex-row",
+          ANCHOR[dockPosition],
+        ].join(" ")}
+      >
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          aria-label="Expandir accesos directos"
+          title="Expandir"
+          className="flex items-center gap-1.5"
+        >
+          <span className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl bg-white shadow-glass ring-1 ring-black/5`}>
+            <img src="/logo-bdp.svg" alt="BDP" className={`${sz.logo} object-contain`} />
+          </span>
+          <span className="grid h-7 w-7 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)]">
+            <CollapseIcon className="h-4 w-4" />
+          </span>
+        </button>
+      </motion.nav>
+    );
+  }
+
+  /* ---- Expanded ---- */
   return (
     <motion.nav
-      initial={{ y: -80, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ type: "spring", stiffness: 220, damping: 22, delay: 0.1 }}
-      className="glass-heavy no-print fixed left-1/2 top-4 z-[100] flex max-w-[96vw] -translate-x-1/2 items-center gap-1.5 overflow-x-auto rounded-[1.75rem] px-2.5 py-2 sm:gap-2 sm:px-3"
+      initial={{ opacity: 0, ...(vertical ? { x: dockPosition === "left" ? -40 : 40 } : { y: dockPosition === "bottom" ? 40 : -40 }) }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      transition={{ type: "spring", stiffness: 220, damping: 22, delay: 0.05 }}
+      className={[
+        "glass-heavy no-print fixed z-[100] flex items-center rounded-[1.75rem]",
+        vertical ? "flex-col gap-1.5 overflow-y-auto px-2 py-2.5" : "flex-row gap-1.5 overflow-x-auto px-2.5 py-2 sm:gap-2 sm:px-3",
+        ANCHOR[dockPosition],
+      ].join(" ")}
     >
-      {/* Left — corporate logo plate */}
-      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-white shadow-glass ring-1 ring-black/5">
-        <img src="/logo-bdp.svg" alt="BDP" className="h-7 w-7 object-contain" />
+      {/* Logo plate */}
+      <div className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl bg-white shadow-glass ring-1 ring-black/5`}>
+        <img src="/logo-bdp.svg" alt="BDP" className={`${sz.logo} object-contain`} />
       </div>
 
-      <span className="mx-0.5 hidden h-9 w-px shrink-0 bg-[color:var(--hairline)] sm:block" />
+      <Divider vertical={vertical} />
 
-      {/* Center — navigation */}
-      <ul className="flex items-center gap-0.5 sm:gap-1">
+      {/* Navigation */}
+      <ul className={`flex items-center ${vertical ? "flex-col gap-0.5" : "gap-0.5 sm:gap-1"}`}>
         {DOCK_ITEMS.map((item) => {
           const isActive = item.id === active;
           const Icon = item.icon;
@@ -48,9 +160,13 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
               <button
                 type="button"
                 aria-label={item.label}
+                title={item.label}
                 aria-current={isActive ? "page" : undefined}
                 onClick={() => onSelect(item.id)}
-                className="relative flex w-[3.6rem] flex-col items-center gap-1 rounded-2xl px-1 py-1.5 outline-none transition-transform duration-300 ease-spring hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-cyan-300 active:scale-95 sm:w-[4.25rem]"
+                className={[
+                  "relative flex flex-col items-center gap-1 rounded-2xl px-1 py-1.5 outline-none transition-transform duration-300 ease-spring hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-cyan-300 active:scale-95",
+                  vertical ? "w-[3rem]" : sz.btn,
+                ].join(" ")}
               >
                 {isActive && (
                   <motion.span
@@ -59,18 +175,14 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
                     className="absolute inset-0 rounded-2xl bg-[color:var(--fill-2)] ring-1 ring-[color:var(--hairline)]"
                   />
                 )}
-                <span className="relative grid h-9 w-9 place-items-center">
+                <span className={`relative grid place-items-center ${sz.plate}`}>
                   {isActive && (
                     <>
-                      {/* The glowing orb — springs between items so the circle
-                          + glow follows the selection instead of staying on
-                          Dashboard. */}
                       <motion.span
                         layoutId="dock-active-orb"
                         transition={{ type: "spring", stiffness: 360, damping: 28 }}
                         className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
                       />
-                      {/* One-shot burst that replays on every selection. */}
                       <motion.span
                         key={`burst-${active}`}
                         aria-hidden
@@ -85,27 +197,31 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
                     icon={Icon}
                     active={isActive}
                     className={[
-                      "relative h-5 w-5 transition-colors duration-300",
+                      sz.icon,
+                      "relative transition-colors duration-300",
                       isActive ? "text-white drop-shadow-md" : "text-ink-soft",
                     ].join(" ")}
                     strokeWidth={isActive ? 2.4 : 2}
                   />
                 </span>
-                <span
-                  className={[
-                    "relative max-w-full truncate text-[0.6rem] font-semibold leading-none transition-colors duration-300",
-                    isActive ? "text-ink" : "text-ink-faint",
-                  ].join(" ")}
-                >
-                  {item.label}
-                </span>
+                {showLabels && (
+                  <span
+                    className={[
+                      "relative max-w-full truncate font-semibold leading-none transition-colors duration-300",
+                      sz.label,
+                      isActive ? "text-ink" : "text-ink-faint",
+                    ].join(" ")}
+                  >
+                    {item.label}
+                  </span>
+                )}
               </button>
             </li>
           );
         })}
       </ul>
 
-      <span className="mx-0.5 hidden h-9 w-px shrink-0 bg-[color:var(--hairline)] sm:block" />
+      <Divider vertical={vertical} />
 
       {/* Theme toggle */}
       <button
@@ -113,7 +229,7 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
         onClick={toggle}
         aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
         title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
-        className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl fill-softer text-ink ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:-translate-y-0.5 hover:fill-soft active:scale-95"
+        className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl fill-softer text-ink ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-95`}
       >
         <motion.span
           key={theme}
@@ -131,7 +247,7 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
       </button>
 
       {/* DB sync status dot */}
-      <div className="grid h-10 w-7 shrink-0 place-items-center" title={synced ? "Sincronizado" : "Sincronizando…"}>
+      <div className="grid h-8 w-7 shrink-0 place-items-center" title={synced ? "Sincronizado" : "Sincronizando…"}>
         <span
           className={[
             "h-2.5 w-2.5 rounded-full",
@@ -141,6 +257,31 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
           ].join(" ")}
         />
       </div>
+
+      <Divider vertical={vertical} />
+
+      {/* Collapse toggle */}
+      <button
+        type="button"
+        onClick={() => setCollapsed(true)}
+        aria-label="Contraer accesos directos"
+        title="Contraer"
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-90"
+      >
+        <CollapseIcon className="h-4 w-4" />
+      </button>
     </motion.nav>
+  );
+}
+
+function Divider({ vertical }: { vertical: boolean }) {
+  return (
+    <span
+      className={
+        vertical
+          ? "my-0.5 hidden h-px w-9 shrink-0 bg-[color:var(--hairline)] sm:block"
+          : "mx-0.5 hidden h-9 w-px shrink-0 bg-[color:var(--hairline)] sm:block"
+      }
+    />
   );
 }

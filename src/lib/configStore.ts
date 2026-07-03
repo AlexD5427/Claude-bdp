@@ -90,6 +90,11 @@ export type ThreeQuality = "auto" | "alta" | "media" | "baja";
 export type PaperSize = "Letter" | "Legal";
 export type PaperOrientation = "portrait" | "landscape";
 
+/** Where the floating dock lives on screen. */
+export type DockPosition = "top" | "bottom" | "left" | "right";
+/** The dock's overall scale. */
+export type DockSize = "sm" | "md" | "lg";
+
 export interface AppConfig {
   /* Institucional */
   orgName: string;
@@ -112,6 +117,11 @@ export interface AppConfig {
   enableThree: boolean;
   threeQuality: ThreeQuality;
   reduceMotion: boolean;
+
+  /* Dock de accesos directos */
+  dockPosition: DockPosition;
+  dockSize: DockSize;
+  dockCollapsed: boolean;
 
   /* Formatos de correo */
   emailTemplates: EmailTemplate[];
@@ -278,6 +288,10 @@ export function defaultConfig(): AppConfig {
     enableThree: true,
     threeQuality: "auto",
     reduceMotion: false,
+
+    dockPosition: "top",
+    dockSize: "md",
+    dockCollapsed: false,
 
     emailTemplates: defaultTemplates(),
   };

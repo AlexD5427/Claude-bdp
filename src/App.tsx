@@ -9,7 +9,7 @@ import { KpiBar } from "./components/KpiBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ThemeProvider } from "./context/ThemeContext";
 import { TalentDataProvider, useTalentData } from "./context/TalentDataContext";
-import { useConfig } from "./lib/configStore";
+import { useConfig, type DockPosition } from "./lib/configStore";
 import { Dashboard } from "./modules/Dashboard";
 import { Tablero } from "./modules/Tablero";
 import { CaraACara } from "./modules/CaraACara";
@@ -32,10 +32,18 @@ const SUBTITLES: Record<ModuleId, string> = {
   configuracion: "Preferencias del sistema, integraciones y formatos de correo.",
 };
 
+/** Content padding that keeps the layout clear of the dock, wherever it sits. */
+const MAIN_PAD: Record<DockPosition, string> = {
+  top: "pt-28 pb-16 sm:pt-32",
+  bottom: "pt-16 pb-28 sm:pb-32",
+  left: "pt-16 pb-16 pl-24 sm:pl-28",
+  right: "pt-16 pb-16 pr-24 sm:pr-28",
+};
+
 function Shell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
   const { status } = useTalentData();
-  const { reduceMotion } = useConfig();
+  const { reduceMotion, dockPosition } = useConfig();
   const synced = status === "success";
 
   // Let the "Reducir movimiento" preference dampen animations app-wide.
@@ -52,7 +60,7 @@ function Shell() {
       <CursorSpotlight />
       <FloatingDock active={active} onSelect={setActive} synced={synced} />
 
-      <main className="mx-auto w-full max-w-7xl px-4 pb-28 pt-28 sm:px-6 sm:pt-32">
+      <main className={`mx-auto w-full max-w-7xl px-4 sm:px-6 ${MAIN_PAD[dockPosition]}`}>
         <div className="print-scope-hide">
           <BrandHeader />
         </div>

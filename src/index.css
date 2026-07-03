@@ -489,6 +489,12 @@
     padding: 0 !important;
     max-width: none !important;
   }
+  /* The on-screen horizontal scroller must not clip the report on paper. */
+  .cmp-scroll {
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
   /* Shrink columns to fit the sheet (screen inline style is overridden). */
   .cmp-grid {
     grid-template-columns: var(--print-cols) !important;

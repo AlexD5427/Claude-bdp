@@ -3,7 +3,7 @@ import type { Candidate } from "../types";
 import { Avatar } from "./Avatar";
 import { ScrollingText } from "./ScrollingText";
 import {
-  academicLine,
+  academicParts,
   bdpRole,
   civilStatus,
   rankLabel,
@@ -39,7 +39,7 @@ export function CandidateProfileCard({
   tie?: boolean;
   showRank?: boolean;
 }) {
-  const academico = academicLine(candidate.nivel_academico, candidate.carrera);
+  const academico = academicParts(candidate.nivel_academico, candidate.carrera);
   const empleadoBdp = worksAtBdp(candidate.trabaja_bdp);
   const cargoBdp = bdpRole(candidate.cargo_bdp);
   const civil = civilStatus(candidate.estado_civil);
@@ -79,9 +79,19 @@ export function CandidateProfileCard({
             className="text-base font-bold text-white drop-shadow-md"
           />
           {academico ? (
-            <p className="truncate text-xs font-medium text-white/85" title={academico}>
-              {academico}
-            </p>
+            <div className="leading-tight">
+              <p className="truncate text-xs font-medium text-white/85" title={academico.top}>
+                {academico.top}
+              </p>
+              {academico.bottom && (
+                <p
+                  className="truncate text-xs font-semibold text-white"
+                  title={academico.bottom}
+                >
+                  {academico.bottom}
+                </p>
+              )}
+            </div>
           ) : (
             <p className="truncate text-xs font-medium text-white/70">
               Formación no especificada
@@ -131,14 +141,10 @@ export function CandidateProfileCard({
         {showRank && rank !== undefined && <RankMedal rank={rank} />}
       </div>
 
-      {/* Mini score row */}
-      <div className="relative mt-3 flex gap-2">
-        <ScorePill label="Currículum" value={candidate.nota_curriculum} />
-        <ScorePill label="Conoc." value={candidate.nota_conocimiento} />
-        <ScorePill label="Comp." value={candidate.nota_competencias} />
-      </div>
-
-      <div className="relative mt-2 truncate text-[0.65rem] font-semibold text-white/70">
+      {/* The Currículum / Conocimientos / Competencias figures used to be
+          duplicated here as mini-pills; they now live only in the "Resultados
+          de Evaluación" section below, so the header stays clean. */}
+      <div className="relative mt-3 truncate text-[0.65rem] font-semibold text-white/70">
         Ref: {candidate.identificador || "Sin identificador"}
       </div>
     </div>
@@ -171,21 +177,4 @@ function RankMedal({ rank }: { rank: number }) {
   );
 }
 
-function ScorePill({
-  label,
-  value,
-}: {
-  label: string;
-  value?: number | string;
-}) {
-  return (
-    <div className="flex-1 rounded-xl bg-white/15 px-2 py-1.5 text-center ring-1 ring-white/25 backdrop-blur-sm">
-      <div className="text-sm font-black leading-none text-white drop-shadow-md">
-        {value ?? "—"}
-      </div>
-      <div className="mt-0.5 text-[0.6rem] font-medium uppercase tracking-wide text-white/70">
-        {label}
-      </div>
-    </div>
-  );
-}
+

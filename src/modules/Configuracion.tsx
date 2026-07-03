@@ -19,6 +19,7 @@ import {
   Gauge,
   Sparkles,
   Building,
+  LayoutPanelTop,
 } from "lucide-react";
 import { usePointerGlow } from "../hooks/usePointerGlow";
 import { TextField, SegmentedField, SelectField } from "../components/form/Fields";
@@ -40,6 +41,8 @@ import {
   type EmailCategory,
   type EmailTemplate,
   type ThreeQuality,
+  type DockPosition,
+  type DockSize,
 } from "../lib/configStore";
 
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.06 } } };
@@ -207,6 +210,38 @@ export function Configuracion() {
         </div>
       </Section>
 
+      {/* ── Dock de accesos directos ──────────────────────────────── */}
+      <Section
+        icon={<LayoutPanelTop className="h-5 w-5 text-cyan-400" />}
+        title="Dock de accesos directos"
+        subtitle="Posición, tamaño y estado del menú flotante de módulos"
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <SegmentedField
+            label="Posición"
+            hint="Dónde se ancla el dock"
+            value={DOCK_POSITION_LABELS[config.dockPosition]}
+            onChange={(v) => setConfig({ dockPosition: LABEL_TO_DOCK_POSITION[v] ?? "top" })}
+            options={Object.values(DOCK_POSITION_LABELS)}
+          />
+          <SegmentedField
+            label="Tamaño"
+            value={DOCK_SIZE_LABELS[config.dockSize]}
+            onChange={(v) => setConfig({ dockSize: LABEL_TO_DOCK_SIZE[v] ?? "md" })}
+            options={Object.values(DOCK_SIZE_LABELS)}
+          />
+        </div>
+        <div className="mt-3">
+          <Toggle
+            title="Iniciar contraído"
+            subtitle="Muestra solo el logo; se expande con un clic."
+            icon={<LayoutPanelTop className="h-4 w-4" />}
+            checked={config.dockCollapsed}
+            onChange={(v) => setConfig({ dockCollapsed: v })}
+          />
+        </div>
+      </Section>
+
       {/* ── Integraciones ─────────────────────────────────────────── */}
       <Section icon={<Plug className="h-5 w-5 text-cyan-400" />} title="Integraciones" subtitle="Conexión con Evaluar.com y la base de datos en Google Sheets">
         <div className="grid grid-cols-1 gap-3">
@@ -356,6 +391,25 @@ const QUALITY_LABELS: Record<ThreeQuality, string> = {
 const LABEL_TO_QUALITY: Record<string, ThreeQuality> = Object.fromEntries(
   Object.entries(QUALITY_LABELS).map(([k, v]) => [v, k as ThreeQuality]),
 ) as Record<string, ThreeQuality>;
+
+const DOCK_POSITION_LABELS: Record<DockPosition, string> = {
+  top: "Superior",
+  bottom: "Inferior",
+  left: "Izquierda",
+  right: "Derecha",
+};
+const LABEL_TO_DOCK_POSITION: Record<string, DockPosition> = Object.fromEntries(
+  Object.entries(DOCK_POSITION_LABELS).map(([k, v]) => [v, k as DockPosition]),
+) as Record<string, DockPosition>;
+
+const DOCK_SIZE_LABELS: Record<DockSize, string> = {
+  sm: "Pequeño",
+  md: "Mediano",
+  lg: "Grande",
+};
+const LABEL_TO_DOCK_SIZE: Record<string, DockSize> = Object.fromEntries(
+  Object.entries(DOCK_SIZE_LABELS).map(([k, v]) => [v, k as DockSize]),
+) as Record<string, DockSize>;
 
 function Section({
   icon,
