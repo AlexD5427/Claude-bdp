@@ -38,15 +38,44 @@ export function academicLine(
   if (hasNivel && !hasCarrera) return nivel;
   if (!hasNivel && hasCarrera) return carrera;
 
+  const connector = academicConnector(nivel);
+  return `${nivel} ${connector} ${carrera}`;
+}
+
+/** The Spanish connector ("en" / "de") that best joins a level to a career. */
+function academicConnector(nivel: string): string {
   const n = nivel.toLowerCase();
-  // Levels that pair with "de" instead of "en".
   const usesDe =
     n.includes("egresad") ||
     n.includes("carrera") ||
     n.includes("diplomad") ||
     n.includes("doctor");
-  const connector = usesDe ? "de" : "en";
-  return `${nivel} ${connector} ${carrera}`;
+  return usesDe ? "de" : "en";
+}
+
+/**
+ * Two-line academic profile for the redesigned comparator chip: the level with
+ * its grammatical connector on the first line ("Licenciatura en") and the
+ * career on its own line below ("Administración de Empresas"). Splitting them
+ * keeps long combinations from running off in a single cramped line.
+ *
+ * Returns `null` when neither part is present; when only one part exists it is
+ * shown alone on the top line with no connector.
+ */
+export function academicParts(
+  nivelRaw: unknown,
+  carreraRaw: unknown,
+): { top: string; bottom?: string } | null {
+  const nivel = asText(nivelRaw);
+  const carrera = asText(carreraRaw);
+  const hasNivel = !isEmptyish(nivel);
+  const hasCarrera = !isEmptyish(carrera);
+
+  if (!hasNivel && !hasCarrera) return null;
+  if (hasNivel && !hasCarrera) return { top: nivel };
+  if (!hasNivel && hasCarrera) return { top: carrera };
+
+  return { top: `${nivel} ${academicConnector(nivel)}`, bottom: carrera };
 }
 
 /** Human civil-status label, or null when unknown. */

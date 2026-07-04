@@ -19,6 +19,23 @@ export const CHART_PALETTE = [
   "#14b8a6",
 ];
 
+/**
+ * A high-contrast qualitative palette for multi-series comparisons (radar,
+ * grouped bars). Unlike CHART_PALETTE — which is all corporate blues and blurs
+ * together when overlaid — these hues stay distinct so each candidate reads
+ * clearly against the others.
+ */
+export const SERIES_PALETTE = [
+  "#00b0d8", // cyan
+  "#f59e0b", // amber
+  "#6366f1", // indigo
+  "#10b981", // emerald
+  "#f43f5e", // rose
+  "#8b5cf6", // violet
+  "#0ea5e9", // sky
+  "#14b8a6", // teal
+];
+
 function polar(cx: number, cy: number, r: number, deg: number) {
   const rad = ((deg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
@@ -58,8 +75,8 @@ export function DonutChart({
   let acc = 0;
 
   return (
-    <div className="flex items-center gap-4">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+    <div className="flex flex-col items-center gap-4 sm:flex-row">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="max-w-full shrink-0">
         <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--hairline)" strokeWidth={thickness} />
         {data.map((s, i) => {
           const start = (acc / total) * 360;
@@ -103,6 +120,183 @@ export function DonutChart({
       </ul>
     </div>
   );
+}
+
+export interface Series {
+  label: string;
+  color?: string;
+  /** One value per category, aligned by index. */
+  values: number[];
+}
+
+/**
+ * Grouped vertical bars — one cluster per category, one bar per series.
+ * Perfect for the comparator: categories are the metrics (Nota CAP, Currículum…)
+ * and each series is a candidate, so bars sit side by side for a direct read.
+ */
+export function GroupedBarChart({
+  categories,
+  series,
+  height = 240,
+  unit = "",
+  max: maxProp,
+}: {
+  categories: string[];
+  series: Series[];
+  height?: number;
+  unit?: string;
+  max?: number;
+}) {
+  const max =
+    maxProp ?? Math.max(1, ...series.flatMap((s) => s.values.map((v) => (Number.isFinite(v) ? v : 0))));
+  const plot = height - 44;
+  return (
+    <div className="w-full overflow-x-auto">
+      <div className="flex items-end gap-4" style={{ height, minWidth: categories.length * Math.max(72, series.length * 26) }}>
+        {categories.map((cat, ci) => (
+          <div key={cat} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1">
+            <div className="flex w-full items-end justify-center gap-1" style={{ height: plot }}>
+              {series.map((s, si) => {
+                const raw = s.values[ci];
+                const v = Number.isFinite(raw) ? raw : 0;
+                const h = (v / max) * plot;
+                const color = s.color ?? CHART_PALETTE[si % CHART_PALETTE.length];
+                return (
+                  <motion.div
+                    key={s.label}
+                    className="group relative w-full max-w-[26px] rounded-t-md"
+                    style={{ background: `linear-gradient(to top, ${color}, ${color}bb)` }}
+                    initial={{ height: 0 }}
+                    animate={{ height: Math.max(h, 2) }}
+                    transition={{ type: "spring", stiffness: 130, damping: 18, delay: 0.04 * (ci + si) }}
+                    title={`${s.label} · ${cat}: ${round(v)}${unit}`}
+                  >
+                    <span className="pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 text-[0.55rem] font-black text-ink opacity-0 transition-opacity group-hover:opacity-100">
+                      {round(v)}
+                    </span>
+                  </motion.div>
+                );
+              })}
+            </div>
+            <span className="w-full truncate text-center text-[0.6rem] text-ink-faint" title={cat}>
+              {cat}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A radial "spider" chart. Each spoke is a metric and every candidate draws a
+ * translucent polygon, so overlapping strengths and weaknesses jump out at a
+ * glance. Dependency-free SVG with an animated, staggered draw.
+ */
+export function RadarChart({
+  axes,
+  series,
+  size = 300,
+  max = 100,
+}: {
+  axes: string[];
+  series: Series[];
+  size?: number;
+  max?: number;
+}) {
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = size / 2 - 58;
+  const n = axes.length;
+  if (n < 3) {
+    return (
+      <p className="rounded-2xl border border-dashed border-[color:var(--hairline)] px-4 py-6 text-center text-sm text-ink-faint">
+        Seleccione al menos 3 métricas para dibujar el radar.
+      </p>
+    );
+  }
+
+  const angle = (i: number) => (i / n) * 360 - 90;
+  const point = (i: number, value: number) => {
+    const rad = (angle(i) * Math.PI) / 180;
+    const ratio = Math.max(0, Math.min(1, value / max));
+    return { x: cx + r * ratio * Math.cos(rad), y: cy + r * ratio * Math.sin(rad) };
+  };
+  const rings = [0.25, 0.5, 0.75, 1];
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="max-w-full overflow-visible">
+        {/* Grid rings */}
+        {rings.map((t) => (
+          <polygon
+            key={t}
+            points={axes
+              .map((_, i) => {
+                const rad = (angle(i) * Math.PI) / 180;
+                return `${cx + r * t * Math.cos(rad)},${cy + r * t * Math.sin(rad)}`;
+              })
+              .join(" ")}
+            fill="none"
+            stroke="var(--hairline)"
+            strokeWidth={1}
+          />
+        ))}
+        {/* Spokes + labels */}
+        {axes.map((label, i) => {
+          const rad = (angle(i) * Math.PI) / 180;
+          const ex = cx + r * Math.cos(rad);
+          const ey = cy + r * Math.sin(rad);
+          const lx = cx + (r + 14) * Math.cos(rad);
+          const ly = cy + (r + 14) * Math.sin(rad);
+          const anchor = Math.abs(Math.cos(rad)) < 0.35 ? "middle" : ex > cx ? "start" : "end";
+          return (
+            <g key={label}>
+              <line x1={cx} y1={cy} x2={ex} y2={ey} stroke="var(--hairline)" strokeWidth={1} />
+              <text
+                x={lx}
+                y={ly}
+                textAnchor={anchor}
+                dominantBaseline="middle"
+                className="fill-[color:var(--ink-soft)]"
+                style={{ fontSize: 9, fontWeight: 700 }}
+              >
+                {label.length > 16 ? `${label.slice(0, 15)}…` : label}
+              </text>
+            </g>
+          );
+        })}
+        {/* Series polygons */}
+        {series.map((s, si) => {
+          const color = s.color ?? CHART_PALETTE[si % CHART_PALETTE.length];
+          const pts = axes.map((_, i) => point(i, s.values[i] ?? 0));
+          const poly = pts.map((p) => `${p.x},${p.y}`).join(" ");
+          return (
+            <motion.g key={s.label} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: "spring", stiffness: 160, damping: 18, delay: 0.12 * si }} style={{ transformOrigin: `${cx}px ${cy}px` }}>
+              <polygon points={poly} fill={color} fillOpacity={0.16} stroke={color} strokeWidth={2} strokeLinejoin="round" />
+              {pts.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r={2.6} fill={color}>
+                  <title>{`${s.label} · ${axes[i]}: ${round(s.values[i] ?? 0)}`}</title>
+                </circle>
+              ))}
+            </motion.g>
+          );
+        })}
+      </svg>
+      <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+        {series.map((s, si) => (
+          <li key={s.label} className="flex items-center gap-1.5 text-xs">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? CHART_PALETTE[si % CHART_PALETTE.length] }} />
+            <span className="text-ink-soft">{s.label}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function round(v: number): number {
+  return Math.round(v * 10) / 10;
 }
 
 /** Vertical bars with a spring grow-in. */
