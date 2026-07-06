@@ -6,6 +6,7 @@ import { CursorSpotlight } from "./components/CursorSpotlight";
 import { FloatingDock } from "./components/FloatingDock";
 import { BrandHeader } from "./components/BrandHeader";
 import { KpiBar } from "./components/KpiBar";
+import { FilterBar } from "./components/FilterBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoginScreen } from "./components/login/LoginScreen";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
@@ -87,6 +88,10 @@ function AppShell() {
       <main className={`mx-auto w-full max-w-[1640px] px-4 sm:px-6 lg:px-8 ${MAIN_PAD[dockPosition]}`}>
         <div className="print-scope-hide">
           <BrandHeader />
+        </div>
+
+        <div className="print-scope-hide">
+          <FilterBar />
         </div>
 
         <div className="print-scope-hide">
