@@ -138,10 +138,10 @@ export function Configuracion() {
           />
           <StepperField
             label="Máx. candidatos a comparar"
-            hint="Columnas simultáneas"
+            hint="Columnas simultáneas (hasta 10)"
             value={config.maxComparador}
             min={2}
-            max={8}
+            max={10}
             onChange={(v) => setConfig({ maxComparador: v })}
           />
           <div className="space-y-2">

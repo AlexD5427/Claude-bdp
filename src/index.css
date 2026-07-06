@@ -534,4 +534,89 @@
     box-shadow: none !important;
     animation: none !important;
   }
+
+  /* ---- Fit-to-page legibility for the printed comparativa ----
+     Names and chips must show in full (never clipped), and everything shrinks
+     progressively as more candidates are added so all columns fit one sheet.
+     Because text sizes are fixed Tailwind classes, we scale them explicitly. */
+  .cmp-grid .truncate,
+  .cmp-grid .line-clamp-2,
+  .cmp-grid .whitespace-nowrap {
+    overflow: visible !important;
+    text-overflow: clip !important;
+    white-space: normal !important;
+    -webkit-line-clamp: unset !important;
+  }
+  /* Kill the name marquee's inline transform so it prints at rest, in full. */
+  .cmp-grid .whitespace-nowrap {
+    transform: none !important;
+  }
+  /* Baseline print compaction (applies from ~4 columns onward). */
+  .cmp-grid .glass,
+  .cmp-grid .glass-heavy {
+    padding: 0.4rem !important;
+  }
+  .cmp-grid .text-2xl {
+    font-size: 1.1rem !important;
+    line-height: 1.1 !important;
+  }
+  .cmp-grid .text-base {
+    font-size: 0.82rem !important;
+  }
+  .cmp-grid .text-sm {
+    font-size: 0.72rem !important;
+  }
+  .cmp-grid .text-xs {
+    font-size: 0.64rem !important;
+  }
+  .cmp-grid .min-h-\[64px\] {
+    min-height: 40px !important;
+  }
+  /* Progressive shrink: 6–7 columns. */
+  .cmp-grid[data-cols="6"],
+  .cmp-grid[data-cols="7"] {
+    font-size: 0.7rem;
+  }
+  .cmp-grid[data-cols="6"] .text-2xl,
+  .cmp-grid[data-cols="7"] .text-2xl {
+    font-size: 0.95rem !important;
+  }
+  .cmp-grid[data-cols="6"] .text-base,
+  .cmp-grid[data-cols="7"] .text-base {
+    font-size: 0.72rem !important;
+  }
+  /* Progressive shrink: 8–10 columns. */
+  .cmp-grid[data-cols="8"],
+  .cmp-grid[data-cols="9"],
+  .cmp-grid[data-cols="10"] {
+    font-size: 0.62rem;
+  }
+  .cmp-grid[data-cols="8"] .text-2xl,
+  .cmp-grid[data-cols="9"] .text-2xl,
+  .cmp-grid[data-cols="10"] .text-2xl {
+    font-size: 0.82rem !important;
+  }
+  .cmp-grid[data-cols="8"] .text-base,
+  .cmp-grid[data-cols="9"] .text-base,
+  .cmp-grid[data-cols="10"] .text-base {
+    font-size: 0.64rem !important;
+  }
+  .cmp-grid[data-cols="8"] .text-sm,
+  .cmp-grid[data-cols="9"] .text-sm,
+  .cmp-grid[data-cols="10"] .text-sm {
+    font-size: 0.6rem !important;
+  }
+  .cmp-grid[data-cols="8"] .glass,
+  .cmp-grid[data-cols="9"] .glass,
+  .cmp-grid[data-cols="10"] .glass,
+  .cmp-grid[data-cols="8"] .glass-heavy,
+  .cmp-grid[data-cols="9"] .glass-heavy,
+  .cmp-grid[data-cols="10"] .glass-heavy {
+    padding: 0.28rem !important;
+  }
+  /* Keep a section band glued to the rows that follow it. */
+  .cmp-grid .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }
