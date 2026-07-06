@@ -117,6 +117,8 @@ export interface AppConfig {
   enableThree: boolean;
   threeQuality: ThreeQuality;
   reduceMotion: boolean;
+  /** Render profile avatars as static (no idle animations) for low-end devices. */
+  staticAvatars: boolean;
 
   /* Dock de accesos directos */
   dockPosition: DockPosition;
@@ -288,6 +290,7 @@ export function defaultConfig(): AppConfig {
     enableThree: true,
     threeQuality: "auto",
     reduceMotion: false,
+    staticAvatars: false,
 
     dockPosition: "top",
     dockSize: "md",
@@ -430,6 +433,16 @@ function subscribe(cb: () => void) {
 }
 function getSnapshot(): AppConfig {
   return state;
+}
+
+/** Imperative snapshot getter (for non-React consumers, e.g. profile bundles). */
+export function getConfig(): AppConfig {
+  return state;
+}
+
+/** Subscribe to config changes outside React (returns an unsubscribe fn). */
+export function subscribeConfig(cb: () => void): () => void {
+  return subscribe(cb);
 }
 
 export function useConfig(): AppConfig {

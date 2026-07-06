@@ -26,6 +26,7 @@ import { CompetencyConfigCard } from "../components/CompetencyConfigCard";
 import { useTalentData } from "../context/TalentDataContext";
 import { useFormDraft } from "../hooks/useFormDraft";
 import { useAssistedKeyboardGlow } from "../hooks/useAssistedKeyboardGlow";
+import { logActivity } from "../lib/profilesStore";
 import {
   CONFIABILIDAD_OPTIONS,
   DEPARTAMENTO_OPTIONS,
@@ -354,6 +355,11 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
     setSubmitting(false);
     setFeedback({ kind: result.ok ? "ok" : "warn", message: result.message });
     if (result.ok) {
+      logActivity({
+        modulo: "postulantes",
+        accion: "Registró postulante",
+        detalle: candidate.identificador ?? "",
+      });
       clearDraft();
       resetForm();
       onSaved?.();

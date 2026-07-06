@@ -206,6 +206,13 @@ export function Configuracion() {
               checked={config.reduceMotion}
               onChange={(v) => setConfig({ reduceMotion: v })}
             />
+            <Toggle
+              title="Avatares de perfil estáticos"
+              subtitle="Desactiva las animaciones de los avatares (login y dock) en equipos de menor potencia."
+              icon={<Sparkles className="h-4 w-4" />}
+              checked={config.staticAvatars}
+              onChange={(v) => setConfig({ staticAvatars: v })}
+            />
           </div>
         </div>
       </Section>

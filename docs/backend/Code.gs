@@ -1,321 +1,593 @@
 /****************************************************************************
- * BDP · Sistema de Selección y Reclutamiento
- * Backend de KPIs para Google Apps Script (pestaña "Dashboard y KPIs")
- * ---------------------------------------------------------------------------
- * Este archivo es ADITIVO. Mantiene el contrato actual del Web App
- *   GET  -> { candidatos:[...], competencias:[...] }
- * y agrega:
- *   GET  -> ahora también devuelve { kpis:{...}, estados:[...] }
- *   POST { type:"hiring_status", ... }  -> upsert de estado de contratación
- *   POST { type:"kpi_snapshot",  ... }  -> registro mensual de KPIs
- *   POST { ...candidato }               -> alta de postulante (comportamiento previo)
+ * BDP · Sistema de Reclutamiento y Selección — Web App (Apps Script)
+ * ============================================================================
+ * SCRIPT ÚNICO Y AUTORITATIVO. Reemplaza por completo el script anterior del
+ * libro (pegue TODO este archivo en el editor de Apps Script y vuelva a
+ * implementar: "Implementar → Administrar implementaciones → Editar → Nueva
+ * versión", manteniendo "Cualquiera con el enlace").
  *
- * Además instala un disparador (trigger) diario que, en el ÚLTIMO día del mes,
- * congela los KPIs calculados del mes en curso (snapshot de cierre de mes).
+ * Novedades de esta versión:
+ *   • Lee la hoja de postulantes por NOMBRE ("Registro_Postulantes"), con
+ *     respaldo a la primera pestaña — ya no depende de que se llame "Hoja 1".
+ *   • Devuelve, además de candidatos/competencias/arquetipos_disc, los nuevos
+ *     catálogos de la hoja "Auxiliar":
+ *        cargos_bdp, gerencias_bdp, agencias_bdp,
+ *        modalidad_reclutamiento, estado_proceso.
+ *   • Sistema de PERFILES (hoja "Perfiles_y_Configuracion"): login, guardado de
+ *     configuración por perfil y bitácora de actividad (log_actividad_perfil).
+ *   • Enlaza las hojas "Espejo_Base" y "Espejo_Ultimo_Registro" (procesos).
+ *   • RENDIMIENTO: cachea el GET completo en CacheService por tramos (chunks),
+ *     así las cargas repetidas (varios usuarios/dispositivos) son casi
+ *     instantáneas en lugar de tardar >10 s. La caché se invalida en cada
+ *     escritura para no servir datos viejos.
+ *   • Mantiene el módulo Documentación (expedientes + recordatorios por correo).
  *
- * >>> ADAPTAR <<< Ajuste los nombres de hoja/columna marcados con "ADAPTAR"
- * a su libro real de postulantes.
+ * Contrato GET (retrocompatible + ampliado):
+ *   {
+ *     candidatos:[...], competencias:[...], arquetipos_disc:[...],
+ *     auxiliares:{ cargos_bdp, gerencias_bdp, agencias_bdp,
+ *                  modalidad_reclutamiento, estado_proceso },
+ *     perfiles:[ { nombre_perfil, cargo_perfil, datos_perfil,
+ *                  config_personal_perfil, tiene_password } ],
+ *     espejo_base:[...], espejo_ultimo:[...],
+ *     sincronizado_en: "ISO"
+ *   }
+ *
+ * Parámetros GET opcionales:
+ *   ?nocache=1          → ignora la caché y relee todo.
+ *   ?part=ligero        → omite espejo_base/espejo_ultimo (carga más liviana).
  ****************************************************************************/
 
 var CONFIG = {
-  HOJA_POSTULANTES: 'Postulantes',     // ADAPTAR: hoja con los candidatos
-  HOJA_KPIS: 'Dashboard y KPIs',       // se crea automáticamente si no existe
-  HOJA_ESTADOS: 'Estados de Contratación',
+  // Hoja de postulantes (renombrada). Se prueban en orden; si ninguna existe,
+  // se usa la primera pestaña del libro.
+  HOJAS_POSTULANTES: ['Registro_Postulantes', 'Hoja 1', 'Postulantes'],
+  HOJA_AUXILIAR: 'Auxiliar',
+  HOJA_PERFILES: 'Perfiles_y_Configuracion',
+  HOJA_ESPEJO_BASE: 'Espejo_Base',
+  HOJA_ESPEJO_ULTIMO: 'Espejo_Ultimo_Registro',
+  HOJA_DOCS: 'Documentación',
+  HOJA_AVISOS: 'Avisos Documentación',
+  CACHE_KEY: 'bdp_payload_v3',
+  CACHE_SEGUNDOS: 45,        // vida de la caché del GET completo
+  MAX_LOG_ENTRADAS: 400,     // tope de entradas de bitácora por perfil
+  INTERVALO_DIAS_DOC: 3,
+  CC_AUXILIAR: '',
+  REMITENTE_NOMBRE: 'Reclutamiento y Selección · BDP',
+  ASUNTO_DOC: 'BDP · Documentación pendiente para su incorporación',
   TZ: 'America/La_Paz',
 };
 
-/* Mapa key -> { modulo, etiqueta, unidad }. Define a qué "sección" (módulo)
- * pertenece cada KPI y cómo etiquetarlo en la hoja. */
-var KPI_MAP = {
-  // Dashboard (panel ejecutivo)
-  calidad_contratacion: { modulo: 'dashboard', etiqueta: 'Calidad de Contratación', unidad: '%' },
-  tiempo_contratacion:  { modulo: 'dashboard', etiqueta: 'Tiempo de Contratación', unidad: 'días' },
-  costo_contratacion:   { modulo: 'dashboard', etiqueta: 'Costo por Contratación', unidad: 'Bs' },
-  tasa_rotacion:        { modulo: 'dashboard', etiqueta: 'Tasa de Rotación', unidad: '%' },
-  contratados:          { modulo: 'dashboard', etiqueta: 'Contratados', unidad: '' },
-  en_proceso:           { modulo: 'dashboard', etiqueta: 'En proceso', unidad: '' },
-  bajas:                { modulo: 'dashboard', etiqueta: 'Bajas', unidad: '' },
-  // Lista de Postulantes
-  num_candidatos:          { modulo: 'postulantes', etiqueta: 'Número de Candidatos', unidad: '' },
-  procesos_activos:        { modulo: 'postulantes', etiqueta: 'Procesos Activos', unidad: '' },
-  prom_competencias:       { modulo: 'postulantes', etiqueta: 'Promedio Competencias', unidad: '%' },
-  competencias_catalogadas:{ modulo: 'postulantes', etiqueta: 'Competencias Catalogadas', unidad: '' },
-  // Comparador
-  postulantes_con_comp:  { modulo: 'comparador', etiqueta: 'Perfiles con Competencias', unidad: '' },
-  ajuste_promedio:       { modulo: 'comparador', etiqueta: 'Ajuste Promedio', unidad: '%' },
-  brecha_promedio:       { modulo: 'comparador', etiqueta: 'Brecha Promedio', unidad: '' },
-  competencias_evaluadas:{ modulo: 'comparador', etiqueta: 'Competencias Evaluadas', unidad: '' },
-  // Cara a Cara
-  nota_cap_prom:         { modulo: 'cara_a_cara', etiqueta: 'Nota CAP Promedio', unidad: '%' },
-  nota_curriculum_prom:  { modulo: 'cara_a_cara', etiqueta: 'Currículum Promedio', unidad: '%' },
-  nota_conocimiento_prom:{ modulo: 'cara_a_cara', etiqueta: 'Conocimientos Promedio', unidad: '%' },
-  // Procesos
-  prom_postulantes_proceso:{ modulo: 'procesos', etiqueta: 'Postulantes / Proceso', unidad: '' },
-  proceso_mas_grande:      { modulo: 'procesos', etiqueta: 'Proceso Más Grande', unidad: '' },
-  sin_proceso:             { modulo: 'procesos', etiqueta: 'Sin Proceso', unidad: '' },
-  // Tablero
-  pct_confiables:        { modulo: 'tablero', etiqueta: '% Confiables', unidad: '%' },
-  pct_integridad_alta:   { modulo: 'tablero', etiqueta: '% Integridad Alta', unidad: '%' },
-  pct_riesgo_robo_alto:  { modulo: 'tablero', etiqueta: '% Riesgo Robo Alto', unidad: '%' },
-};
+/* ============================== GET ============================== */
 
-/* ===================== ENDPOINTS ===================== */
+function doGet(e) {
+  var params = (e && e.parameter) || {};
+  var ligero = params.part === 'ligero';
+  var noCache = params.nocache === '1' || params.nocache === 'true';
 
-function doGet() {
-  var out = {
-    candidatos: leerPostulantes_(),       // >>> use su lectura existente
-    competencias: leerCompetencias_(),    // >>> use su lectura existente
-    kpis: leerKpis_(),
-    estados: leerEstados_(),
-  };
-  return ContentService
-    .createTextOutput(JSON.stringify(out))
-    .setMimeType(ContentService.MimeType.JSON);
+  if (!noCache && !ligero) {
+    var cached = leerCache_();
+    if (cached) return ContentService.createTextOutput(cached)
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  var payload = construirPayload_(ligero);
+  var texto = JSON.stringify(payload);
+  if (!ligero) guardarCache_(texto);
+
+  return ContentService.createTextOutput(texto).setMimeType(ContentService.MimeType.JSON);
 }
+
+function construirPayload_(ligero) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var candidatos = leerPostulantes_(ss);
+  var aux = leerAuxiliar_(ss);
+  var perfiles = leerPerfilesPublico_(ss);
+
+  var payload = {
+    candidatos: candidatos,
+    competencias: aux.competencias,
+    arquetipos_disc: aux.arquetipos_disc,
+    auxiliares: {
+      cargos_bdp: aux.cargos_bdp,
+      gerencias_bdp: aux.gerencias_bdp,
+      agencias_bdp: aux.agencias_bdp,
+      modalidad_reclutamiento: aux.modalidad_reclutamiento,
+      estado_proceso: aux.estado_proceso,
+    },
+    perfiles: perfiles,
+    sincronizado_en: new Date().toISOString(),
+  };
+
+  if (!ligero) {
+    payload.espejo_base = leerHojaObjetos_(ss, CONFIG.HOJA_ESPEJO_BASE);
+    payload.espejo_ultimo = leerHojaObjetos_(ss, CONFIG.HOJA_ESPEJO_ULTIMO);
+  }
+  return payload;
+}
+
+/* ============================== POST ============================= */
 
 function doPost(e) {
-  var body = {};
-  try { body = JSON.parse(e.postData.contents); } catch (err) { body = {}; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var data = {};
+  try { data = JSON.parse(e.postData.contents); } catch (err) { data = {}; }
 
   var resp;
-  if (body.type === 'kpi_snapshot') {
-    escribirSnapshot_(body.month, body.values || {});
-    resp = { ok: true, type: 'kpi_snapshot' };
-  } else if (body.type === 'hiring_status') {
-    upsertEstado_(body);
-    resp = { ok: true, type: 'hiring_status' };
-  } else {
-    appendPostulante_(body);   // comportamiento previo: alta de postulante
-    resp = { ok: true, type: 'candidato' };
+  switch (data.type) {
+    case 'documentacion':        resp = handleDocumentacion_(ss, data); break;
+    case 'documentacion_email':  resp = handleDocEmail_(ss, data); break;
+    case 'perfil_login':         resp = handlePerfilLogin_(ss, data); break;
+    case 'perfil_config':        resp = handlePerfilConfig_(ss, data); break;
+    case 'perfil_log':           resp = handlePerfilLog_(ss, data); break;
+    case 'hiring_status':
+    case 'kpi_snapshot':
+      resp = { status: 'ignored', type: data.type }; break;
+    default:
+      resp = handlePostulante_(ss, data); break;  // alta/edición/baja
   }
-  return ContentService
-    .createTextOutput(JSON.stringify(resp))
+
+  // Cualquier escritura de postulantes/perfiles invalida la caché del GET.
+  invalidarCache_();
+  return ContentService.createTextOutput(JSON.stringify(resp))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-/* ===================== HOJA "Dashboard y KPIs" ===================== */
-/* Formato LARGO (tidy) — una fila por (periodo, kpi). Escala indefinidamente
- * y permite filtrar por módulo/periodo/kpi con facilidad. */
+/* ===================== POSTULANTES (CRUD) ======================= */
 
-function hojaKpis_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(CONFIG.HOJA_KPIS);
-  if (!sh) {
-    sh = ss.insertSheet(CONFIG.HOJA_KPIS);
-    sh.appendRow(['periodo', 'anio', 'mes', 'modulo', 'kpi', 'etiqueta', 'valor', 'unidad', 'registrado_en']);
-    sh.setFrozenRows(1);
+function handlePostulante_(ss, data) {
+  var sheet = hojaPostulantes_(ss);
+  if (!sheet) return { status: 'error', message: 'No se encontró la hoja de postulantes' };
+
+  if (data.action === 'delete') {
+    var all = sheet.getDataRange().getValues();
+    for (var i = all.length - 1; i >= 1; i--) {
+      if (String(all[i][0]) == String(data.identificador)) {
+        sheet.deleteRow(i + 1);
+        return { status: 'success', message: 'Eliminado' };
+      }
+    }
+    return { status: 'error', message: 'No encontrado' };
   }
-  return sh;
+
+  if (data.action === 'update') {
+    var vals = sheet.getDataRange().getValues();
+    var headers = vals[0];
+    for (var r = 1; r < vals.length; r++) {
+      if (String(vals[r][0]) == String(data.identificador)) {
+        var row = r + 1;
+        headers.forEach(function (h, idx) {
+          if (data[h] !== undefined) sheet.getRange(row, idx + 1).setValue(data[h]);
+        });
+        return { status: 'success', message: 'Actualizado' };
+      }
+    }
+    return { status: 'error', message: 'No encontrado' };
+  }
+
+  // Alta.
+  var head = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var newRow = head.map(function (h) { return data[h] !== undefined ? data[h] : ''; });
+  sheet.appendRow(newRow);
+  return { status: 'success', message: 'Agregado' };
 }
 
-/** Upsert: reemplaza las filas del periodo dado y vuelve a escribirlas. */
-function escribirSnapshot_(periodo, values) {
-  if (!periodo) periodo = Utilities.formatDate(new Date(), CONFIG.TZ, 'yyyy-MM');
-  var sh = hojaKpis_();
-  var data = sh.getDataRange().getValues();
-  // Borra filas existentes del periodo (de abajo hacia arriba).
-  for (var r = data.length - 1; r >= 1; r--) {
-    if (String(data[r][0]) === String(periodo)) sh.deleteRow(r + 1);
+/* ===================== LECTURA DE HOJAS ========================= */
+
+function hojaPostulantes_(ss) {
+  for (var i = 0; i < CONFIG.HOJAS_POSTULANTES.length; i++) {
+    var sh = ss.getSheetByName(CONFIG.HOJAS_POSTULANTES[i]);
+    if (sh) return sh;
   }
-  var anio = periodo.split('-')[0];
-  var mes = periodo.split('-')[1];
-  var now = new Date();
-  var filas = [];
-  Object.keys(values).forEach(function (key) {
-    var meta = KPI_MAP[key] || { modulo: 'otros', etiqueta: key, unidad: '' };
-    var val = values[key];
-    filas.push([periodo, anio, mes, meta.modulo, key, meta.etiqueta,
-                (val === null || val === undefined ? '' : val), meta.unidad, now]);
-  });
-  if (filas.length) {
-    sh.getRange(sh.getLastRow() + 1, 1, filas.length, 9).setValues(filas);
-  }
+  return ss.getSheets()[0]; // respaldo: primera pestaña
 }
 
-/** Devuelve los KPIs agrupados por periodo y módulo para el frontend. */
-function leerKpis_() {
-  var sh = hojaKpis_();
+function leerPostulantes_(ss) {
+  var sh = hojaPostulantes_(ss);
+  if (!sh) return [];
+  return leerFilasComoObjetos_(sh);
+}
+
+/** Devuelve las filas de una hoja como objetos { encabezado: valor }. */
+function leerFilasComoObjetos_(sh) {
   var data = sh.getDataRange().getValues();
-  var out = {};
+  if (data.length < 2) return [];
+  var headers = data[0].map(function (h) { return String(h).trim(); });
+  var out = [];
   for (var r = 1; r < data.length; r++) {
     var row = data[r];
-    var periodo = String(row[0]);
-    if (!periodo) continue;
-    if (!out[periodo]) out[periodo] = {};
-    out[periodo][row[4]] = (row[6] === '' ? null : Number(row[6]));
+    // Saltar filas totalmente vacías.
+    var vacia = row.every(function (v) { return v === '' || v === null; });
+    if (vacia) continue;
+    var obj = {};
+    for (var c = 0; c < headers.length; c++) {
+      if (headers[c]) obj[headers[c]] = row[c];
+    }
+    out.push(obj);
   }
   return out;
 }
 
-/* ===================== HOJA "Estados de Contratación" ===================== */
+function leerHojaObjetos_(ss, nombre) {
+  var sh = ss.getSheetByName(nombre);
+  if (!sh) return [];
+  return leerFilasComoObjetos_(sh);
+}
 
-function hojaEstados_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(CONFIG.HOJA_ESTADOS);
+/* ===================== HOJA "Auxiliar" ========================= */
+/* Lee la hoja una sola vez y extrae cada catálogo por su encabezado. */
+
+function leerAuxiliar_(ss) {
+  var vacio = {
+    competencias: [], arquetipos_disc: [], cargos_bdp: [], gerencias_bdp: [],
+    agencias_bdp: [], modalidad_reclutamiento: [], estado_proceso: [],
+  };
+  var sh = ss.getSheetByName(CONFIG.HOJA_AUXILIAR);
+  if (!sh) return vacio;
+  var data = sh.getDataRange().getValues();
+  if (data.length < 1) return vacio;
+
+  var headers = data[0].map(function (h) { return String(h).trim().toLowerCase(); });
+  var col = function (nombre) {
+    var idx = headers.indexOf(nombre);
+    if (idx < 0) return [];
+    var vals = [];
+    for (var r = 1; r < data.length; r++) {
+      var v = data[r][idx];
+      if (v !== '' && v !== null && v !== undefined) vals.push(String(v).trim());
+    }
+    // Únicos, preservando orden.
+    var seen = {}, uniq = [];
+    vals.forEach(function (v) { if (v && !seen[v]) { seen[v] = 1; uniq.push(v); } });
+    return uniq;
+  };
+
+  // "competencias": preferir encabezado nombrado; si no, la columna A (retrocompat).
+  var competencias = col('competencias');
+  if (!competencias.length) competencias = col('competencias_bdp');
+  if (!competencias.length) {
+    for (var r = 1; r < data.length; r++) {
+      var v = data[r][0];
+      if (v !== '' && v !== null) competencias.push(String(v).trim());
+    }
+  }
+
+  return {
+    competencias: competencias,
+    arquetipos_disc: col('arquetipo_disc'),
+    cargos_bdp: col('cargos_bdp'),
+    gerencias_bdp: col('gerencias_bdp'),
+    agencias_bdp: col('agencias_bdp'),
+    modalidad_reclutamiento: col('modalidad_reclutamiento'),
+    estado_proceso: col('estado_proceso'),
+  };
+}
+
+/* ===================== PERFILES ================================= */
+/* Hoja "Perfiles_y_Configuracion". Encabezados esperados:
+ *   nombre_perfil | contraseña_perfil | cargo_perfil |
+ *   config_personal_perfil | datos_perfil | log_actividad_perfil
+ * (los acentos y mayúsculas son indiferentes; se normalizan). */
+
+var PERFIL_COLS = {
+  nombre: ['nombre_perfil', 'nombre'],
+  password: ['contraseña_perfil', 'contrasena_perfil', 'password_perfil', 'clave_perfil'],
+  cargo: ['cargo_perfil', 'cargo'],
+  config: ['config_personal_perfil', 'config_perfil', 'configuracion_perfil'],
+  datos: ['datos_perfil', 'datos'],
+  log: ['log_actividad_perfil', 'log_perfil', 'bitacora_perfil'],
+};
+
+function hojaPerfiles_(ss) {
+  var sh = ss.getSheetByName(CONFIG.HOJA_PERFILES);
   if (!sh) {
-    sh = ss.insertSheet(CONFIG.HOJA_ESTADOS);
-    sh.appendRow(['identificador', 'status', 'firstSeenAt', 'contratadoAt', 'bajaAt', 'updatedAt']);
+    sh = ss.insertSheet(CONFIG.HOJA_PERFILES);
+    sh.appendRow(['nombre_perfil', 'contraseña_perfil', 'cargo_perfil',
+      'config_personal_perfil', 'datos_perfil', 'log_actividad_perfil']);
     sh.setFrozenRows(1);
   }
   return sh;
 }
 
-function upsertEstado_(rec) {
-  var sh = hojaEstados_();
-  var data = sh.getDataRange().getValues();
-  var now = new Date();
-  for (var r = 1; r < data.length; r++) {
-    if (String(data[r][0]) === String(rec.identificador)) {
-      sh.getRange(r + 1, 2, 1, 5).setValues([[
-        rec.status || data[r][1],
-        rec.firstSeenAt || data[r][2],
-        rec.contratadoAt || data[r][3],
-        rec.bajaAt || data[r][4],
-        now,
-      ]]);
-      return;
+/** Mapa header-normalizado → índice de columna. */
+function indicePerfiles_(headers) {
+  var norm = headers.map(function (h) {
+    return String(h).trim().toLowerCase().replace(/\s+/g, '_');
+  });
+  var find = function (aliases) {
+    for (var i = 0; i < aliases.length; i++) {
+      var idx = norm.indexOf(aliases[i]);
+      if (idx >= 0) return idx;
     }
-  }
-  sh.appendRow([rec.identificador, rec.status, rec.firstSeenAt || '', rec.contratadoAt || '', rec.bajaAt || '', now]);
+    return -1;
+  };
+  return {
+    nombre: find(PERFIL_COLS.nombre),
+    password: find(PERFIL_COLS.password),
+    cargo: find(PERFIL_COLS.cargo),
+    config: find(PERFIL_COLS.config),
+    datos: find(PERFIL_COLS.datos),
+    log: find(PERFIL_COLS.log),
+  };
 }
 
-function leerEstados_() {
-  var sh = hojaEstados_();
+/** Perfiles para el GET público: SIN contraseñas (sólo un indicador). */
+function leerPerfilesPublico_(ss) {
+  var sh = ss.getSheetByName(CONFIG.HOJA_PERFILES);
+  if (!sh) return [];
   var data = sh.getDataRange().getValues();
+  if (data.length < 2) return [];
+  var idx = indicePerfiles_(data[0]);
+  if (idx.nombre < 0) return [];
   var out = [];
   for (var r = 1; r < data.length; r++) {
+    var nombre = String(data[r][idx.nombre] || '').trim();
+    if (!nombre) continue;
+    var pass = idx.password >= 0 ? String(data[r][idx.password] || '') : '';
     out.push({
-      identificador: data[r][0], status: data[r][1], firstSeenAt: data[r][2],
-      contratadoAt: data[r][3], bajaAt: data[r][4], updatedAt: data[r][5],
+      nombre_perfil: nombre,
+      cargo_perfil: idx.cargo >= 0 ? String(data[r][idx.cargo] || '') : '',
+      datos_perfil: idx.datos >= 0 ? String(data[r][idx.datos] || '') : '',
+      config_personal_perfil: idx.config >= 0 ? String(data[r][idx.config] || '') : '',
+      tiene_password: pass.trim() !== '',
     });
   }
   return out;
 }
 
-/* ===================== CÁLCULO SERVER-SIDE DE KPIs ===================== */
-/* Calcula los KPIs computables a partir de las hojas (no depende de que haya
- * un navegador abierto). Los KPIs N/A (calidad, costo) quedan vacíos. */
+/** Valida credenciales y devuelve config + datos del perfil. */
+function handlePerfilLogin_(ss, data) {
+  var sh = ss.getSheetByName(CONFIG.HOJA_PERFILES);
+  if (!sh) return { status: 'error', message: 'No hay hoja de perfiles' };
+  var all = sh.getDataRange().getValues();
+  var idx = indicePerfiles_(all[0]);
+  for (var r = 1; r < all.length; r++) {
+    var nombre = String(all[r][idx.nombre] || '').trim();
+    if (nombre.toLowerCase() !== String(data.nombre || '').trim().toLowerCase()) continue;
+    var pass = idx.password >= 0 ? String(all[r][idx.password] || '') : '';
+    var ok = pass.trim() === '' || pass === String(data.contrasena || data['contraseña'] || '');
+    if (!ok) return { status: 'error', message: 'Contraseña incorrecta' };
+    return {
+      status: 'success',
+      perfil: {
+        nombre_perfil: nombre,
+        cargo_perfil: idx.cargo >= 0 ? String(all[r][idx.cargo] || '') : '',
+        datos_perfil: idx.datos >= 0 ? String(all[r][idx.datos] || '') : '',
+        config_personal_perfil: idx.config >= 0 ? String(all[r][idx.config] || '') : '',
+      },
+    };
+  }
+  return { status: 'error', message: 'Perfil no encontrado' };
+}
 
-function computeKpis_() {
-  var cands = leerPostulantes_();
-  var estados = leerEstados_();
-  var v = {};
-
-  // — Conteos / promedios básicos —
-  v.num_candidatos = cands.length;
-  v.prom_competencias = promedio_(cands.map(function (c) { return num_(c.nota_competencias); }));
-  v.nota_cap_prom = promedio_(cands.map(function (c) { return num_(c.nota_cap); }));
-  v.nota_curriculum_prom = promedio_(cands.map(function (c) { return num_(c.nota_curriculum); }));
-  v.nota_conocimiento_prom = promedio_(cands.map(function (c) { return num_(c.nota_conocimiento); }));
-
-  // — Procesos (segmento medio del identificador CI-Proceso-Año) —
-  var procMap = {};
-  cands.forEach(function (c) {
-    var p = proceso_(c.identificador);
-    if (p !== 'Sin proceso') procMap[p] = (procMap[p] || 0) + 1;
-  });
-  var procKeys = Object.keys(procMap);
-  v.procesos_activos = procKeys.length;
-  v.proceso_mas_grande = procKeys.reduce(function (m, k) { return Math.max(m, procMap[k]); }, 0) || null;
-  v.prom_postulantes_proceso = procKeys.length ? Math.round(cands.length / procKeys.length) : null;
-  v.sin_proceso = cands.filter(function (c) { return proceso_(c.identificador) === 'Sin proceso'; }).length;
-
-  // — Confiabilidad / riesgo —
-  var total = cands.length || 1;
-  v.pct_confiables = Math.round(cands.filter(function (c) {
-    var s = String(c.nivel_general_confiabilidad || '').toLowerCase();
-    return s.indexOf('confiable') >= 0 && s.indexOf('no confiable') < 0;
-  }).length / total * 100);
-  v.pct_riesgo_robo_alto = Math.round(cands.filter(function (c) { return c.riesgo_robo === 'Alto'; }).length / total * 100);
-  v.pct_integridad_alta = Math.round(cands.filter(function (c) { return c.nivel_integridad === 'Alto'; }).length / total * 100);
-
-  // — Hiring (de la hoja de estados) —
-  var contratados = estados.filter(function (e) { return e.status === 'contratado' || e.status === 'baja'; });
-  v.contratados = estados.filter(function (e) { return e.status === 'contratado'; }).length;
-  v.bajas = estados.filter(function (e) { return e.status === 'baja'; }).length;
-  v.en_proceso = estados.filter(function (e) { return e.status === 'en_proceso'; }).length;
-  var dias = [];
-  contratados.forEach(function (e) {
-    if (e.firstSeenAt && e.contratadoAt) {
-      var d = (new Date(e.contratadoAt) - new Date(e.firstSeenAt)) / 86400000;
-      if (d >= 0) dias.push(d);
+/** Guarda la configuración personal (JSON) de un perfil. */
+function handlePerfilConfig_(ss, data) {
+  var sh = hojaPerfiles_(ss);
+  var all = sh.getDataRange().getValues();
+  var idx = indicePerfiles_(all[0]);
+  if (idx.config < 0) return { status: 'error', message: 'Falta la columna config_personal_perfil' };
+  for (var r = 1; r < all.length; r++) {
+    if (String(all[r][idx.nombre] || '').trim().toLowerCase() ===
+        String(data.nombre || '').trim().toLowerCase()) {
+      var cfg = typeof data.config === 'string' ? data.config : JSON.stringify(data.config || {});
+      sh.getRange(r + 1, idx.config + 1).setValue(cfg);
+      return { status: 'success', message: 'Configuración guardada' };
     }
-  });
-  v.tiempo_contratacion = promedio_(dias);
-  var early = contratados.filter(function (e) {
-    return e.status === 'baja' && e.bajaAt && e.contratadoAt &&
-      ((new Date(e.bajaAt) - new Date(e.contratadoAt)) / 86400000) <= 92;
-  }).length;
-  v.tasa_rotacion = contratados.length ? Math.round(early / contratados.length * 100) : null;
-
-  // — N/A (sin conectar) —
-  v.calidad_contratacion = null;
-  v.costo_contratacion = null;
-
-  return v;
+  }
+  return { status: 'error', message: 'Perfil no encontrado' };
 }
 
-/* ===================== SNAPSHOT MENSUAL (CRON) ===================== */
-
-function snapshotMensual() {
-  var periodo = Utilities.formatDate(new Date(), CONFIG.TZ, 'yyyy-MM');
-  escribirSnapshot_(periodo, computeKpis_());
+/**
+ * Agrega una entrada a la bitácora del perfil. Guarda un arreglo JSON con las
+ * últimas CONFIG.MAX_LOG_ENTRADAS acciones. Cada entrada:
+ *   { fecha, hora, perfil, dispositivo, modulo, accion, detalle }
+ */
+function handlePerfilLog_(ss, data) {
+  var sh = hojaPerfiles_(ss);
+  var all = sh.getDataRange().getValues();
+  var idx = indicePerfiles_(all[0]);
+  if (idx.log < 0) return { status: 'error', message: 'Falta la columna log_actividad_perfil' };
+  for (var r = 1; r < all.length; r++) {
+    if (String(all[r][idx.nombre] || '').trim().toLowerCase() ===
+        String(data.nombre || '').trim().toLowerCase()) {
+      var actual = [];
+      try { actual = JSON.parse(all[r][idx.log] || '[]'); } catch (err) { actual = []; }
+      if (!Array.isArray(actual)) actual = [];
+      var entrada = data.entrada || {};
+      var ahora = new Date();
+      actual.push({
+        fecha: Utilities.formatDate(ahora, CONFIG.TZ, 'yyyy-MM-dd'),
+        hora: Utilities.formatDate(ahora, CONFIG.TZ, 'HH:mm:ss'),
+        perfil: String(data.nombre || ''),
+        dispositivo: entrada.dispositivo || '',
+        modulo: entrada.modulo || '',
+        accion: entrada.accion || '',
+        detalle: entrada.detalle || '',
+      });
+      // Conservar sólo las últimas N entradas.
+      if (actual.length > CONFIG.MAX_LOG_ENTRADAS) {
+        actual = actual.slice(actual.length - CONFIG.MAX_LOG_ENTRADAS);
+      }
+      sh.getRange(r + 1, idx.log + 1).setValue(JSON.stringify(actual));
+      return { status: 'success', message: 'Actividad registrada' };
+    }
+  }
+  return { status: 'error', message: 'Perfil no encontrado' };
 }
 
-/** Se ejecuta a diario; sólo congela el cierre el ÚLTIMO día del mes. */
-function dailyCheck() {
-  var hoy = new Date();
-  var manana = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() + 1);
-  if (manana.getMonth() !== hoy.getMonth()) {  // mañana es otro mes => hoy es fin de mes
-    snapshotMensual();
+/* ===================== CACHÉ (chunked) ========================= */
+/* CacheService limita cada valor a ~100 KB, así que el payload se guarda en
+ * varios tramos: <KEY>_meta con la cantidad y <KEY>_0.._n con los tramos. */
+
+function leerCache_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var meta = cache.get(CONFIG.CACHE_KEY + '_meta');
+    if (!meta) return null;
+    var n = parseInt(meta, 10);
+    var keys = [];
+    for (var i = 0; i < n; i++) keys.push(CONFIG.CACHE_KEY + '_' + i);
+    var partes = cache.getAll(keys);
+    var texto = '';
+    for (var j = 0; j < n; j++) {
+      var p = partes[CONFIG.CACHE_KEY + '_' + j];
+      if (p === null || p === undefined) return null; // tramo expirado → reconstruir
+      texto += p;
+    }
+    return texto;
+  } catch (err) {
+    return null;
   }
 }
 
-/** Ejecute UNA VEZ para instalar el disparador diario (23:00-24:00). */
-function installTriggers() {
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'dailyCheck') ScriptApp.deleteTrigger(t);
+function guardarCache_(texto) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var CHUNK = 90000; // < 100 KB por clave
+    var n = Math.ceil(texto.length / CHUNK) || 1;
+    var obj = {};
+    for (var i = 0; i < n; i++) {
+      obj[CONFIG.CACHE_KEY + '_' + i] = texto.substring(i * CHUNK, (i + 1) * CHUNK);
+    }
+    obj[CONFIG.CACHE_KEY + '_meta'] = String(n);
+    cache.putAll(obj, CONFIG.CACHE_SEGUNDOS);
+  } catch (err) { /* silencioso */ }
+}
+
+function invalidarCache_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var meta = cache.get(CONFIG.CACHE_KEY + '_meta');
+    if (!meta) return;
+    var n = parseInt(meta, 10);
+    var keys = [CONFIG.CACHE_KEY + '_meta'];
+    for (var i = 0; i < n; i++) keys.push(CONFIG.CACHE_KEY + '_' + i);
+    cache.removeAll(keys);
+  } catch (err) { /* silencioso */ }
+}
+
+/* ==================== MÓDULO DOCUMENTACIÓN ===================== */
+
+var DOC_HEADERS = [
+  'identificador', 'nombre', 'cargo', 'agencia', 'gerencia', 'correo',
+  'fecha_ingreso', 'grupo', 'documento_id', 'documento', 'estado',
+  'paginas', 'observacion', 'prorroga', 'actualizado_en',
+];
+
+function hojaDocs_(ss) {
+  var sh = ss.getSheetByName(CONFIG.HOJA_DOCS);
+  if (!sh) { sh = ss.insertSheet(CONFIG.HOJA_DOCS); sh.appendRow(DOC_HEADERS); sh.setFrozenRows(1); }
+  return sh;
+}
+
+function handleDocumentacion_(ss, data) {
+  var sh = hojaDocs_(ss);
+  if (data.action === 'delete') {
+    borrarFilasPorId_(sh, data.identificador);
+    return { status: 'success', message: 'Expediente eliminado' };
+  }
+  var d = data.dossier || {};
+  var id = d.identificador;
+  if (!id) return { status: 'error', message: 'Falta identificador' };
+  borrarFilasPorId_(sh, id);
+  var now = new Date();
+  var filas = (d.items || []).map(function (it) {
+    return [id, d.nombre || '', d.cargo || '', d.agencia || '', d.gerencia || '',
+      d.correo || '', d.fechaIngreso || '', it.group || '', it.id || '',
+      it.label || '', it.status || '', it.pages || 0, it.observation || '',
+      it.prorroga || '', now];
   });
-  ScriptApp.newTrigger('dailyCheck').timeBased().atHour(23).everyDays(1)
-    .inTimezone(CONFIG.TZ).create();
+  if (filas.length) sh.getRange(sh.getLastRow() + 1, 1, filas.length, DOC_HEADERS.length).setValues(filas);
+  return { status: 'success', message: 'Expediente guardado', filas: filas.length };
 }
 
-/* ===================== HELPERS ===================== */
-
-function num_(x) { var n = parseFloat(String(x).replace(',', '.')); return isFinite(n) ? n : null; }
-function promedio_(arr) {
-  var xs = arr.filter(function (n) { return n !== null && n !== undefined && isFinite(n); });
-  if (!xs.length) return null;
-  return Math.round(xs.reduce(function (a, b) { return a + b; }, 0) / xs.length);
-}
-function proceso_(id) {
-  var s = String(id || '').split('-');
-  return (s.length >= 2 && s[1].trim()) ? s[1].trim() : 'Sin proceso';
+function borrarFilasPorId_(sh, id) {
+  var all = sh.getDataRange().getValues();
+  for (var i = all.length - 1; i >= 1; i--) {
+    if (String(all[i][0]) == String(id)) sh.deleteRow(i + 1);
+  }
 }
 
-/* >>> ADAPTAR: reemplace estas dos funciones por su lectura real de datos.
- * Deben devolver arreglos de objetos con las mismas claves que ya usa su
- * doGet actual. */
-function leerPostulantes_() {
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.HOJA_POSTULANTES);
-  if (!sh) return [];
-  var data = sh.getDataRange().getValues();
-  if (data.length < 2) return [];
-  var headers = data[0];
-  return data.slice(1).map(function (row) {
-    var o = {};
-    headers.forEach(function (h, i) { o[String(h).trim()] = row[i]; });
-    return o;
-  });
+function hojaAvisos_(ss) {
+  var sh = ss.getSheetByName(CONFIG.HOJA_AVISOS);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.HOJA_AVISOS);
+    sh.appendRow(['fecha', 'identificador', 'para', 'cc', 'asunto', 'tipo', 'faltantes']);
+    sh.setFrozenRows(1);
+  }
+  return sh;
 }
-function leerCompetencias_() {
-  // Devuelva aquí su catálogo de competencias como hoy lo hace.
-  return [];
+
+function handleDocEmail_(ss, data) {
+  hojaAvisos_(ss).appendRow([new Date(), data.identificador || '', data.to || '',
+    data.cc || '', data.subject || '', data.kind || 'manual', data.missingCount || 0]);
+  return { status: 'success', message: 'Aviso registrado' };
 }
-function appendPostulante_(obj) {
-  // Conserve aquí su lógica actual de alta de postulante.
-  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.HOJA_POSTULANTES);
+
+function enviarRecordatoriosDocumentacion() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(CONFIG.HOJA_DOCS);
   if (!sh) return;
-  var headers = sh.getDataRange().getValues()[0];
-  sh.appendRow(headers.map(function (h) { return obj[String(h).trim()] || ''; }));
+  var data = sh.getDataRange().getValues();
+  if (data.length < 2) return;
+  var idx = indexar_(data[0]);
+  var personas = {};
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var id = row[idx.identificador];
+    if (!id) continue;
+    if (!personas[id]) personas[id] = {
+      nombre: row[idx.nombre], cargo: row[idx.cargo], correo: row[idx.correo],
+      fecha_ingreso: row[idx.fecha_ingreso], faltantes: [],
+    };
+    var estado = String(row[idx.estado] || '').toLowerCase();
+    if (estado === 'pendiente' || estado === 'observado') personas[id].faltantes.push(row[idx.documento]);
+  }
+  var hoy = new Date();
+  Object.keys(personas).forEach(function (id) {
+    var p = personas[id];
+    if (!p.correo || p.faltantes.length === 0 || !p.fecha_ingreso) return;
+    var dias = Math.floor((hoy - new Date(p.fecha_ingreso)) / 86400000);
+    if (dias <= 0 || dias % CONFIG.INTERVALO_DIAS_DOC !== 0) return;
+    try {
+      MailApp.sendEmail({
+        to: p.correo, cc: CONFIG.CC_AUXILIAR, name: CONFIG.REMITENTE_NOMBRE,
+        subject: CONFIG.ASUNTO_DOC, body: construirCuerpo_(p, dias),
+      });
+      hojaAvisos_(ss).appendRow([hoy, id, p.correo, CONFIG.CC_AUXILIAR,
+        CONFIG.ASUNTO_DOC, 'auto', p.faltantes.length]);
+    } catch (err) { /* reintenta en la próxima corrida */ }
+  });
+}
+
+function construirCuerpo_(p, dias) {
+  var lista = p.faltantes.map(function (d) { return '• ' + d; }).join('\n');
+  return [
+    'Estimado/a ' + (p.nombre || 'postulante') + ':', '',
+    'Como parte de su proceso de incorporación al Banco de Desarrollo Productivo para el cargo de ' +
+      (p.cargo || '(cargo por definir)') + ', le recordamos que aún tenemos pendiente la recepción de la siguiente documentación:',
+    '', lista, '',
+    'Han transcurrido ' + dias + ' día(s) desde su fecha de ingreso. Le agradeceremos presentar la documentación faltante a la brevedad posible.',
+    '', 'Saludos cordiales,', CONFIG.REMITENTE_NOMBRE,
+  ].join('\n');
+}
+
+/* ============================ TRIGGERS ========================= */
+
+/** Ejecute UNA VEZ para instalar el disparador diario de recordatorios (08:00). */
+function instalarTriggersDocumentacion() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'enviarRecordatoriosDocumentacion') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('enviarRecordatoriosDocumentacion')
+    .timeBased().everyDays(1).atHour(8).inTimezone(CONFIG.TZ).create();
+}
+
+/* ============================ HELPERS ========================== */
+
+function indexar_(headers) {
+  var map = {};
+  headers.forEach(function (h, i) { map[String(h).trim()] = i; });
+  return map;
 }

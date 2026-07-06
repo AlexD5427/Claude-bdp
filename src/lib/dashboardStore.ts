@@ -149,12 +149,29 @@ export function resetLayout(): void {
   emit();
 }
 
+/** Replace the whole layout (used when applying a profile's saved config). */
+export function importLayout(widgets: DashWidget[]): void {
+  const valid = Array.isArray(widgets) ? widgets.filter((w) => widgetDef(w.id)) : [];
+  state = { widgets: valid.length ? valid : [...DEFAULT_LAYOUT] };
+  emit();
+}
+
+/** Imperative snapshot getter (for non-React consumers, e.g. profile bundles). */
+export function getLayout(): DashWidget[] {
+  return state.widgets;
+}
+
 function subscribe(cb: () => void) {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
 function getSnapshot(): DashState {
   return state;
+}
+
+/** Subscribe to layout changes outside React (returns an unsubscribe fn). */
+export function subscribeDashboard(cb: () => void): () => void {
+  return subscribe(cb);
 }
 
 export function useDashboard(): DashState {
