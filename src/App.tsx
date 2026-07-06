@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { MeshBackground } from "./components/MeshBackground";
 import { ThreeBackground } from "./components/ThreeBackground";
@@ -6,10 +6,18 @@ import { CursorSpotlight } from "./components/CursorSpotlight";
 import { FloatingDock } from "./components/FloatingDock";
 import { BrandHeader } from "./components/BrandHeader";
 import { KpiBar } from "./components/KpiBar";
+import { FilterBar } from "./components/FilterBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { ThemeProvider } from "./context/ThemeContext";
+import { LoginScreen } from "./components/login/LoginScreen";
+import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { TalentDataProvider, useTalentData } from "./context/TalentDataContext";
 import { useConfig, type DockPosition } from "./lib/configStore";
+import {
+  getBundle,
+  logActivity,
+  mergeBackendProfiles,
+  useProfiles,
+} from "./lib/profilesStore";
 import { Dashboard } from "./modules/Dashboard";
 import { Tablero } from "./modules/Tablero";
 import { CaraACara } from "./modules/CaraACara";
@@ -40,16 +48,33 @@ const MAIN_PAD: Record<DockPosition, string> = {
   right: "pt-16 pb-16 pr-24 sm:pr-28",
 };
 
-function Shell() {
+function AppShell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
   const { status } = useTalentData();
   const { reduceMotion, dockPosition } = useConfig();
+  const { current } = useProfiles();
+  const { setTheme } = useTheme();
   const synced = status === "success";
 
   // Let the "Reducir movimiento" preference dampen animations app-wide.
   useEffect(() => {
     document.documentElement.classList.toggle("reduce-motion", reduceMotion);
   }, [reduceMotion]);
+
+  // Apply the logged-in profile's saved theme (the rest of the bundle —
+  // appConfig + dashboard layout — is applied by the store on login).
+  const appliedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!current || appliedFor.current === current.id) return;
+    appliedFor.current = current.id;
+    const bundle = getBundle(current.id);
+    if (bundle.theme) setTheme(bundle.theme);
+  }, [current, setTheme]);
+
+  // Trace navigation into the per-profile activity log (best-effort).
+  useEffect(() => {
+    logActivity({ modulo: active, accion: "Abrió módulo" });
+  }, [active]);
 
   const meta = DOCK_ITEMS.find((d) => d.id === active)!;
 
@@ -60,9 +85,13 @@ function Shell() {
       <CursorSpotlight />
       <FloatingDock active={active} onSelect={setActive} synced={synced} />
 
-      <main className={`mx-auto w-full max-w-7xl px-4 sm:px-6 ${MAIN_PAD[dockPosition]}`}>
+      <main className={`mx-auto w-full max-w-[1640px] px-4 sm:px-6 lg:px-8 ${MAIN_PAD[dockPosition]}`}>
         <div className="print-scope-hide">
           <BrandHeader />
+        </div>
+
+        <div className="print-scope-hide">
+          <FilterBar />
         </div>
 
         <div className="print-scope-hide">
@@ -108,6 +137,24 @@ function Shell() {
         </ErrorBoundary>
       </main>
     </div>
+  );
+}
+
+/** Gate the app behind the profile login while keeping data syncing behind it. */
+function Shell() {
+  const { current } = useProfiles();
+  const { perfiles } = useTalentData();
+
+  // Merge sheet-provided profiles (names, cargos, passwords) into the seed set.
+  useEffect(() => {
+    mergeBackendProfiles(perfiles);
+  }, [perfiles]);
+
+  return (
+    <>
+      {current && <AppShell />}
+      <AnimatePresence>{!current && <LoginScreen key="login" />}</AnimatePresence>
+    </>
   );
 }
 

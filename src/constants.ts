@@ -51,8 +51,9 @@ export const NIVEL_ACADEMICO_OPTIONS = [
   "Bachiller",
   "Técnico Medio",
   "Técnico Superior",
+  "Egresado Técnico Medio",
+  "Egresado Técnico Superior",
   "Licenciatura",
-  "Carrera",
 ] as const;
 
 /** Departments of residence (Bolivia) — "N/A" leads the list. */
@@ -83,6 +84,18 @@ export const CONFIABILIDAD_OPTIONS = [
 
 /** Generic three-step risk / integrity scale. */
 export const NIVEL_RIESGO_OPTIONS = ["N/A", "Bajo", "Medio", "Alto"] as const;
+
+/**
+ * Risk scale specific to "Nivel de Robo (Riesgo)". The explicit "Riesgo …"
+ * wording is what gets stored in the database (per the brief), and each option
+ * carries a semantic colour: verde = bajo, amarillo = medio, rojo = alto.
+ */
+export const NIVEL_RIESGO_ROBO_OPTIONS = [
+  "N/A",
+  "Riesgo Bajo",
+  "Riesgo Medio",
+  "Riesgo Alto",
+] as const;
 
 /** Level scale used by the knowledge / tools list builders. */
 export const NIVEL_ITEM_OPTIONS = ["Bajo", "Medio", "Alto"] as const;

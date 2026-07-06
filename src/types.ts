@@ -72,6 +72,37 @@ export interface Candidate extends RawCandidate {
   herramientasList: TechnicalKnowledge[];
 }
 
+/**
+ * Catalogues read from the "Auxiliar" sheet, used to feed dropdowns, the cargo
+ * autocomplete and the universal KPI filters. Every list is optional so the UI
+ * degrades gracefully while the backend that provides them is being deployed.
+ */
+export interface Auxiliares {
+  /** `cargos_bdp` — every position, powers the cargo autocomplete. */
+  cargos_bdp: string[];
+  /** `gerencias_bdp` — management units, for the Gerencia filter. */
+  gerencias_bdp: string[];
+  /** `agencias_bdp` — branches, for the Agencia filter. */
+  agencias_bdp: string[];
+  /** `modalidad_reclutamiento` — recruitment modalities. */
+  modalidad_reclutamiento: string[];
+  /** `estado_proceso` — process states. */
+  estado_proceso: string[];
+}
+
+export function emptyAuxiliares(): Auxiliares {
+  return {
+    cargos_bdp: [],
+    gerencias_bdp: [],
+    agencias_bdp: [],
+    modalidad_reclutamiento: [],
+    estado_proceso: [],
+  };
+}
+
+/** A raw process row from the "Espejo_Base" / "Espejo_Ultimo_Registro" sheets. */
+export type EspejoRow = Record<string, string | number>;
+
 /** Combined payload returned by the GET endpoint. */
 export interface TalentPayload {
   candidatos: RawCandidate[];
@@ -81,6 +112,25 @@ export interface TalentPayload {
    * "Nombre (Código), Descripción…". Optional: older backends omit it.
    */
   arquetipos_disc?: string[];
+  /** Auxiliary catalogues (cargos, gerencias, agencias, …). Optional. */
+  auxiliares?: Partial<Auxiliares>;
+  /** Rows of the "Perfiles_y_Configuracion" sheet. Optional. */
+  perfiles?: RawPerfil[];
+  /** Rows of the "Espejo_Base" sheet (full process history). Optional. */
+  espejo_base?: EspejoRow[];
+  /** Rows of the "Espejo_Ultimo_Registro" sheet (latest state per process). */
+  espejo_ultimo?: EspejoRow[];
+}
+
+/** A profile row exactly as delivered by the "Perfiles_y_Configuracion" sheet. */
+export interface RawPerfil {
+  nombre_perfil?: string;
+  contraseña_perfil?: string;
+  cargo_perfil?: string;
+  config_personal_perfil?: string;
+  datos_perfil?: string;
+  log_actividad_perfil?: string;
+  [key: string]: unknown;
 }
 
 /** The navigable modules surfaced in the floating dock. */

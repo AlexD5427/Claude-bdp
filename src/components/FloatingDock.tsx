@@ -5,6 +5,7 @@ import { DOCK_ITEMS } from "../constants";
 import { useTheme } from "../context/ThemeContext";
 import { useConfig, setConfig, type DockPosition, type DockSize } from "../lib/configStore";
 import { DrawIcon } from "./DrawIcon";
+import { DockProfileChip } from "./DockProfileChip";
 import type { ModuleId } from "../types";
 
 interface FloatingDockProps {
@@ -257,6 +258,11 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
           ].join(" ")}
         />
       </div>
+
+      <Divider vertical={vertical} />
+
+      {/* Profile chip (logged-in person) */}
+      <DockProfileChip plate={sz.plate} />
 
       <Divider vertical={vertical} />
 

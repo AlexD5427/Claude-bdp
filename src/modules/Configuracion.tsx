@@ -138,10 +138,10 @@ export function Configuracion() {
           />
           <StepperField
             label="Máx. candidatos a comparar"
-            hint="Columnas simultáneas"
+            hint="Columnas simultáneas (hasta 10)"
             value={config.maxComparador}
             min={2}
-            max={8}
+            max={10}
             onChange={(v) => setConfig({ maxComparador: v })}
           />
           <div className="space-y-2">
@@ -205,6 +205,13 @@ export function Configuracion() {
               subtitle="Minimiza animaciones para mayor comodidad y rendimiento."
               checked={config.reduceMotion}
               onChange={(v) => setConfig({ reduceMotion: v })}
+            />
+            <Toggle
+              title="Avatares de perfil estáticos"
+              subtitle="Desactiva las animaciones de los avatares (login y dock) en equipos de menor potencia."
+              icon={<Sparkles className="h-4 w-4" />}
+              checked={config.staticAvatars}
+              onChange={(v) => setConfig({ staticAvatars: v })}
             />
           </div>
         </div>

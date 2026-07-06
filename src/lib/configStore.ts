@@ -117,6 +117,8 @@ export interface AppConfig {
   enableThree: boolean;
   threeQuality: ThreeQuality;
   reduceMotion: boolean;
+  /** Render profile avatars as static (no idle animations) for low-end devices. */
+  staticAvatars: boolean;
 
   /* Dock de accesos directos */
   dockPosition: DockPosition;
@@ -277,7 +279,7 @@ export function defaultConfig(): AppConfig {
 
     capApprovalThreshold: 80,
     tieThreshold: 2,
-    maxComparador: 5,
+    maxComparador: 10,
     rankingEnabled: true,
     sortByCapDesc: true,
     defaultPaper: "Letter",
@@ -288,6 +290,7 @@ export function defaultConfig(): AppConfig {
     enableThree: true,
     threeQuality: "auto",
     reduceMotion: false,
+    staticAvatars: false,
 
     dockPosition: "top",
     dockSize: "md",
@@ -308,9 +311,16 @@ function load(): AppConfig {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    // Migration: the comparator cap moved from 5 (old default) → 10. Bump the
+    // untouched default and clamp any explicit choice into the new [2,10] range.
+    const maxComparador =
+      parsed.maxComparador === undefined || parsed.maxComparador === 5
+        ? 10
+        : Math.min(10, Math.max(2, parsed.maxComparador));
     return {
       ...base,
       ...parsed,
+      maxComparador,
       // Templates: keep persisted ones if present, else the seeded set.
       emailTemplates:
         Array.isArray(parsed.emailTemplates) && parsed.emailTemplates.length
@@ -423,6 +433,16 @@ function subscribe(cb: () => void) {
 }
 function getSnapshot(): AppConfig {
   return state;
+}
+
+/** Imperative snapshot getter (for non-React consumers, e.g. profile bundles). */
+export function getConfig(): AppConfig {
+  return state;
+}
+
+/** Subscribe to config changes outside React (returns an unsubscribe fn). */
+export function subscribeConfig(cb: () => void): () => void {
+  return subscribe(cb);
 }
 
 export function useConfig(): AppConfig {

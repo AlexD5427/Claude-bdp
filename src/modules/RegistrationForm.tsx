@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   UserPlus,
@@ -11,10 +11,12 @@ import {
   ClipboardList,
   Save,
   BadgeCheck,
+  Keyboard,
 } from "lucide-react";
 import { Modal } from "../components/Modal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { TextField, SelectField, SegmentedField } from "../components/form/Fields";
+import { TextField, SelectField, SegmentedField, type SegmentTone } from "../components/form/Fields";
+import { TextAutocomplete } from "../components/form/TextAutocomplete";
 import { DiscSelect } from "../components/DiscSelect";
 import { TagInput } from "../components/form/TagInput";
 import { GaugeInput } from "../components/form/GaugeInput";
@@ -23,6 +25,8 @@ import { CompetencyAutocomplete } from "../components/CompetencyAutocomplete";
 import { CompetencyConfigCard } from "../components/CompetencyConfigCard";
 import { useTalentData } from "../context/TalentDataContext";
 import { useFormDraft } from "../hooks/useFormDraft";
+import { useAssistedKeyboardGlow } from "../hooks/useAssistedKeyboardGlow";
+import { logActivity } from "../lib/profilesStore";
 import {
   CONFIABILIDAD_OPTIONS,
   DEPARTAMENTO_OPTIONS,
@@ -32,9 +36,19 @@ import {
   MAX_HERRAMIENTAS,
   NIVEL_ACADEMICO_OPTIONS,
   NIVEL_RIESGO_OPTIONS,
+  NIVEL_RIESGO_ROBO_OPTIONS,
 } from "../constants";
 import { buildSavedCompetency, parseDecimal } from "../lib/competency";
 import type { FormCompetency, FormItem, RawCandidate } from "../types";
+
+/** Semantic colour for the "Nivel de Robo (Riesgo)" options. */
+function riesgoRoboTone(opt: string): SegmentTone | undefined {
+  const s = opt.toLowerCase();
+  if (s.includes("bajo")) return "green";
+  if (s.includes("medio")) return "amber";
+  if (s.includes("alto")) return "red";
+  return undefined;
+}
 
 function newUid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -152,11 +166,29 @@ interface RegistrationFormProps {
  *   · Live local autosave + crash recovery, and an exit-confirmation guard.
  */
 export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormProps) {
-  const { competencias, arquetipos, submitCandidate } = useTalentData();
+  const { competencias, arquetipos, auxiliares, submitCandidate } = useTalentData();
   const [form, setForm] = useState<FormState>({ ...EMPTY });
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [confirmExit, setConfirmExit] = useState(false);
+  const [assistedNav, setAssistedNav] = useState(false);
+
+  // Refs for keyboard-only navigation: the form scope (for the assisted glow)
+  // and the identificador field (auto-focused + selected on open).
+  const formRef = useRef<HTMLFormElement>(null);
+  const identificadorRef = useRef<HTMLInputElement>(null);
+
+  useAssistedKeyboardGlow(formRef, open && assistedNav);
+
+  // On open, the identificador is immediately ready to receive text.
+  useEffect(() => {
+    if (!open) return;
+    const t = window.setTimeout(() => {
+      identificadorRef.current?.focus();
+      identificadorRef.current?.select();
+    }, 260); // after the modal's entrance spring settles
+    return () => window.clearTimeout(t);
+  }, [open]);
 
   const { recoveredDraft, savedAt, clearDraft } = useFormDraft(
     DRAFT_KEY,
@@ -259,11 +291,13 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.nombres.trim() || !form.apellido_paterno.trim()) {
+    // Only the identificador is mandatory — every other field is optional.
+    if (!form.identificador.trim()) {
       setFeedback({
         kind: "warn",
-        message: "Nombres y Apellido Paterno son obligatorios.",
+        message: "El Identificador Único es el único campo obligatorio.",
       });
+      identificadorRef.current?.focus();
       return;
     }
 
@@ -321,6 +355,11 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
     setSubmitting(false);
     setFeedback({ kind: result.ok ? "ok" : "warn", message: result.message });
     if (result.ok) {
+      logActivity({
+        modulo: "postulantes",
+        accion: "Registró postulante",
+        detalle: candidate.identificador ?? "",
+      });
       clearDraft();
       resetForm();
       onSaved?.();
@@ -335,13 +374,13 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
         onRequestClose={requestClose}
         ariaLabel="Cuestionario de Registro de Postulante"
       >
-        <form onSubmit={handleSubmit}>
+        <form ref={formRef} onSubmit={handleSubmit}>
           {/* ---- Sticky header ---- */}
           <div className="sticky top-0 z-20 flex items-center gap-3 rounded-t-3xl border-b border-[color:var(--hairline)] bg-[color:var(--glass-bg-heavy)] px-5 py-4 backdrop-blur-xl sm:px-7">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glass ring-1 ring-white/30">
               <UserPlus className="h-6 w-6 text-white drop-shadow-md" />
             </div>
-            <div className="min-w-0 flex-1 pr-10">
+            <div className="min-w-0 flex-1">
               <h2 className="truncate text-lg font-black tracking-tight text-ink sm:text-xl">
                 Cuestionario de Registro de Postulante
               </h2>
@@ -352,6 +391,24 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                   : "El avance se guarda automáticamente en este equipo."}
               </p>
             </div>
+            {/* Assisted keyboard navigation switch — sits just left of the ✕. */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={assistedNav}
+              onClick={() => setAssistedNav((v) => !v)}
+              title="Resalta el campo actual (dorado), el siguiente (verde) y el anterior (rojo) para navegar con el teclado."
+              className={[
+                "mr-11 hidden shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-bold ring-1 transition-all active:scale-95 sm:inline-flex",
+                assistedNav
+                  ? "bg-gradient-to-br from-amber-400 to-yellow-500 text-white ring-white/40 shadow-[0_0_16px_rgba(245,158,11,0.55)]"
+                  : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft",
+              ].join(" ")}
+            >
+              <Keyboard className="h-4 w-4" />
+              <span className="hidden lg:inline">Navegación por teclado asistida</span>
+              <span className="lg:hidden">Nav. asistida</span>
+            </button>
           </div>
 
           <div className="max-h-[calc(100vh-13rem)] space-y-6 overflow-y-auto px-5 py-6 sm:px-7">
@@ -364,8 +421,10 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="sm:col-span-2 lg:col-span-2">
                   <TextField
+                    ref={identificadorRef}
                     label="Identificador Único"
-                    hint="CI - Nro Proceso - Año"
+                    required
+                    hint="CI - Nro Proceso - Año · único obligatorio"
                     value={form.identificador}
                     onChange={(v) => setField("identificador", v)}
                     placeholder="CI - Nro Proceso - Año"
@@ -386,14 +445,12 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                 />
                 <TextField
                   label="Nombres"
-                  required
                   value={form.nombres}
                   onChange={(v) => setField("nombres", v)}
                   placeholder="Nombres"
                 />
                 <TextField
                   label="Apellido Paterno"
-                  required
                   value={form.apellido_paterno}
                   onChange={(v) => setField("apellido_paterno", v)}
                   placeholder="Apellido Paterno"
@@ -450,11 +507,13 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ type: "spring", stiffness: 260, damping: 26 }}
                     >
-                      <TextField
+                      <TextAutocomplete
                         label="Cargo actual del Postulante"
+                        hint="Sugerencias en vivo de cargos_bdp · admite texto libre"
                         value={form.cargo_bdp}
                         onChange={(v) => setField("cargo_bdp", v)}
-                        placeholder="Cargo que ocupa actualmente"
+                        options={auxiliares.cargos_bdp}
+                        placeholder="Escriba para buscar el cargo…"
                       />
                     </motion.div>
                   )}
@@ -516,6 +575,7 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                   items={form.conocimientos}
                   max={MAX_CONOCIMIENTOS}
                   addLabel="Agregar"
+                  namePlaceholder="Nombre del Conocimiento Técnico"
                   withDetalle
                   emptyHint="No se agregaron conocimientos técnicos aún."
                   onAdd={() => addItem("conocimientos")}
@@ -526,7 +586,7 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                   title="A2. Manejo de Herramientas u otros"
                   items={form.herramientas}
                   max={MAX_HERRAMIENTAS}
-                  addLabel="Configurar"
+                  addLabel="Agregar"
                   emptyHint="No se agregaron herramientas aún."
                   onAdd={() => addItem("herramientas")}
                   onChange={(uid, patch) => updateItem("herramientas", uid, patch)}
@@ -605,7 +665,8 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                   label="Nivel de Robo (Riesgo)"
                   value={form.riesgo_robo}
                   onChange={(v) => setField("riesgo_robo", v)}
-                  options={NIVEL_RIESGO_OPTIONS}
+                  options={NIVEL_RIESGO_ROBO_OPTIONS}
+                  toneFor={riesgoRoboTone}
                 />
                 <SegmentedField
                   label="Nivel de Mentira (Riesgo)"

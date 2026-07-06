@@ -162,7 +162,9 @@ export function computeAllKpiValues(
     const v = (c.nivel_general_confiabilidad ?? "").toLowerCase();
     return v.includes("confiable") && !v.includes("no confiable");
   }).length;
-  const riesgoAlto = candidates.filter((c) => (c.riesgo_robo ?? "") === "Alto").length;
+  const riesgoAlto = candidates.filter((c) =>
+    /alto/i.test(c.riesgo_robo ?? ""),
+  ).length;
   const integridadAlta = candidates.filter((c) => (c.nivel_integridad ?? "") === "Alto").length;
 
   const { contratados, bajas, enProceso } = hiringCounts(hiring);

@@ -34,7 +34,7 @@ export interface WidgetDef {
   goodWhenUp?: boolean;
   help?: string;
   /** For panel widgets: which panel to render. */
-  panel?: "demografia" | "estado" | "nuevas" | "historico";
+  panel?: "demografia" | "estado" | "nuevas" | "historico" | "estado_procesos" | "modalidad";
   /** Icon key resolved to a Lucide icon in the module. */
   icon?: string;
 }
@@ -64,6 +64,10 @@ export const WIDGET_CATALOG: WidgetDef[] = [
   { id: "panel_estado", title: "Estado de Contratación", kind: "panel", defaultSize: 2, group: "Paneles", panel: "estado", icon: "TrendingUp" },
   { id: "panel_nuevas", title: "Nuevas Adiciones", kind: "panel", defaultSize: 2, group: "Paneles", panel: "nuevas", icon: "UserPlus" },
   { id: "panel_historico", title: "Histórico de Contrataciones", kind: "panel", defaultSize: 2, group: "Paneles", panel: "historico", icon: "TrendingUp" },
+
+  // — Process distributions (Espejo sheets), rendered as bar charts —
+  { id: "panel_estado_procesos", title: "Estado de Procesos", kind: "panel", defaultSize: 2, group: "Procesos (Espejo)", panel: "estado_procesos", icon: "Workflow" },
+  { id: "panel_modalidad", title: "Modalidad de Reclutamiento", kind: "panel", defaultSize: 2, group: "Procesos (Espejo)", panel: "modalidad", icon: "Workflow" },
 ];
 
 export function widgetDef(id: string): WidgetDef | undefined {
@@ -78,6 +82,8 @@ export const DEFAULT_LAYOUT: DashWidget[] = [
   { id: "kpi_rotacion", size: 1 },
   { id: "panel_demografia", size: 2 },
   { id: "panel_estado", size: 2 },
+  { id: "panel_estado_procesos", size: 2 },
+  { id: "panel_modalidad", size: 2 },
   { id: "panel_nuevas", size: 2 },
   { id: "panel_historico", size: 2 },
 ];
@@ -149,12 +155,29 @@ export function resetLayout(): void {
   emit();
 }
 
+/** Replace the whole layout (used when applying a profile's saved config). */
+export function importLayout(widgets: DashWidget[]): void {
+  const valid = Array.isArray(widgets) ? widgets.filter((w) => widgetDef(w.id)) : [];
+  state = { widgets: valid.length ? valid : [...DEFAULT_LAYOUT] };
+  emit();
+}
+
+/** Imperative snapshot getter (for non-React consumers, e.g. profile bundles). */
+export function getLayout(): DashWidget[] {
+  return state.widgets;
+}
+
 function subscribe(cb: () => void) {
   listeners.add(cb);
   return () => listeners.delete(cb);
 }
 function getSnapshot(): DashState {
   return state;
+}
+
+/** Subscribe to layout changes outside React (returns an unsubscribe fn). */
+export function subscribeDashboard(cb: () => void): () => void {
+  return subscribe(cb);
 }
 
 export function useDashboard(): DashState {
