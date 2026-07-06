@@ -60,7 +60,7 @@ function Shell() {
       <CursorSpotlight />
       <FloatingDock active={active} onSelect={setActive} synced={synced} />
 
-      <main className={`mx-auto w-full max-w-7xl px-4 sm:px-6 ${MAIN_PAD[dockPosition]}`}>
+      <main className={`mx-auto w-full max-w-[1640px] px-4 sm:px-6 lg:px-8 ${MAIN_PAD[dockPosition]}`}>
         <div className="print-scope-hide">
           <BrandHeader />
         </div>

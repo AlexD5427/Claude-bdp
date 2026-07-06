@@ -296,6 +296,35 @@
     border: 2px solid rgba(255, 255, 255, 0.85);
   }
 
+  /* Assisted keyboard navigation glows. Outlines (not box-shadows) so they are
+     never clipped by the `overflow-hidden` on glass surfaces. Gold = current,
+     green = next (where Tab goes), red = previous (where Shift+Tab returns). */
+  .kbd-nav-current {
+    outline: 2px solid rgba(251, 191, 36, 0.95) !important;
+    outline-offset: 2px;
+    border-radius: 0.75rem;
+    animation: kbd-current-pulse 1.6s ease-in-out infinite;
+  }
+  .kbd-nav-next {
+    outline: 2px solid rgba(16, 185, 129, 0.9) !important;
+    outline-offset: 2px;
+    border-radius: 0.75rem;
+  }
+  .kbd-nav-prev {
+    outline: 2px dashed rgba(244, 63, 94, 0.9) !important;
+    outline-offset: 2px;
+    border-radius: 0.75rem;
+  }
+  @keyframes kbd-current-pulse {
+    0%,
+    100% {
+      outline-color: rgba(251, 191, 36, 0.6);
+    }
+    50% {
+      outline-color: rgba(251, 191, 36, 1);
+    }
+  }
+
   /* Comparator tie flag — a soft, breathing contrasting outline that reads on
      both themes without clashing with the blue profile card. */
   .cmp-tie {

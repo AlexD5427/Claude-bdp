@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { forwardRef, useRef, type ReactNode } from "react";
 
 interface BaseProps {
   label: string;
@@ -21,24 +21,23 @@ function Label({ label, required, hint }: BaseProps) {
 const fieldClass =
   "glass w-full rounded-xl px-3.5 py-2.5 text-sm text-ink placeholder:text-ink-faint outline-none focus-within:ring-2 focus-within:ring-cyan-400/70";
 
-export function TextField({
-  label,
-  required,
-  hint,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-}: BaseProps & {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  type?: string;
-}) {
+export const TextField = forwardRef<
+  HTMLInputElement,
+  BaseProps & {
+    value: string;
+    onChange: (v: string) => void;
+    placeholder?: string;
+    type?: string;
+  }
+>(function TextField(
+  { label, required, hint, value, onChange, placeholder, type = "text" },
+  ref,
+) {
   return (
     <label className="block">
       <Label label={label} required={required} hint={hint} />
       <input
+        ref={ref}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -47,7 +46,7 @@ export function TextField({
       />
     </label>
   );
-}
+});
 
 export function TextAreaField({
   label,
@@ -141,10 +140,25 @@ export function DateField({
   );
 }
 
+/** Semantic tones an option can carry (drives the active pill colour). */
+export type SegmentTone = "green" | "amber" | "red";
+
+const TONE_ACTIVE: Record<SegmentTone, string> = {
+  green:
+    "bg-gradient-to-br from-emerald-500 to-green-600 text-white ring-white/40 shadow-[0_0_16px_rgba(16,185,129,0.6)]",
+  amber:
+    "bg-gradient-to-br from-amber-400 to-yellow-500 text-white ring-white/40 shadow-[0_0_16px_rgba(245,158,11,0.6)]",
+  red: "bg-gradient-to-br from-rose-500 to-red-600 text-white ring-white/40 shadow-[0_0_16px_rgba(244,63,94,0.6)]",
+};
+
 /**
  * A pill-style segmented control — friendlier than a dropdown for short option
  * sets (e.g. risk levels, reliability). Highlights the active option with the
- * corporate gradient.
+ * corporate gradient, or with a semantic colour when `toneFor` is supplied.
+ *
+ * It behaves as an accessible radiogroup with **roving tabindex**: the control
+ * is a single Tab stop and the ←/→/↑/↓ arrows move between options (selecting
+ * as they go), so the whole form is navigable without a mouse.
  */
 export function SegmentedField({
   label,
@@ -153,26 +167,57 @@ export function SegmentedField({
   value,
   onChange,
   options,
+  toneFor,
 }: BaseProps & {
   value: string;
   onChange: (v: string) => void;
   options: readonly string[];
+  /** Optional semantic colour per option. */
+  toneFor?: (opt: string) => SegmentTone | undefined;
 }) {
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // Which option owns the Tab stop: the selected one, else the first.
+  const selectedIndex = Math.max(0, options.indexOf(value));
+
+  function focusOption(i: number) {
+    const idx = (i + options.length) % options.length;
+    btnRefs.current[idx]?.focus();
+    onChange(options[idx]);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent, i: number) {
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      focusOption(i + 1);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      focusOption(i - 1);
+    }
+  }
+
   return (
     <div>
       <Label label={label} required={required} hint={hint} />
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((opt) => {
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={label}>
+        {options.map((opt, i) => {
           const active = value === opt;
+          const tone = active ? toneFor?.(opt) : undefined;
           return (
             <button
               key={opt}
+              ref={(el) => (btnRefs.current[i] = el)}
               type="button"
+              role="radio"
+              aria-checked={active}
+              tabIndex={i === selectedIndex ? 0 : -1}
               onClick={() => onChange(active ? "" : opt)}
+              onKeyDown={(e) => onKeyDown(e, i)}
               className={[
-                "rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-all duration-300 ease-spring active:scale-95",
+                "rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-all duration-300 ease-spring active:scale-95 focus-visible:ring-2 focus-visible:ring-cyan-300",
                 active
-                  ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/40 shadow-glow-cyan"
+                  ? tone
+                    ? TONE_ACTIVE[tone]
+                    : "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/40 shadow-glow-cyan"
                   : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft",
               ].join(" ")}
             >

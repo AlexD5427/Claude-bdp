@@ -49,7 +49,7 @@ export function KpiBar({ module }: { module: ModuleId }) {
   if (module === "dashboard" || specs.length === 0) return null;
 
   return (
-    <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div className="mx-auto grid w-full grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       {specs.map((spec, i) => (
         <KpiWidget key={spec.key} spec={spec} raw={merged[spec.key]} index={i} />
       ))}
