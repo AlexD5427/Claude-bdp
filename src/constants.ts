@@ -82,15 +82,14 @@ export const CONFIABILIDAD_OPTIONS = [
   "No Confiable",
 ] as const;
 
-/** Generic three-step risk / integrity scale. */
-export const NIVEL_RIESGO_OPTIONS = ["N/A", "Bajo", "Medio", "Alto"] as const;
-
 /**
- * Risk scale specific to "Nivel de Robo (Riesgo)". The explicit "Riesgo …"
- * wording is what gets stored in the database (per the brief), and each option
- * carries a semantic colour: verde = bajo, amarillo = medio, rojo = alto.
+ * Explicit, labelled risk scale shared by every "riesgo" field of the intake
+ * form — Integridad, Robo and Mentira. The "Riesgo …" wording is what gets
+ * stored in the database (per the brief), and each option carries a semantic
+ * colour: verde = riesgo bajo, amarillo = riesgo medio, rojo = riesgo alto.
+ * "N/A" is the only option without the "Riesgo" prefix.
  */
-export const NIVEL_RIESGO_ROBO_OPTIONS = [
+export const NIVEL_RIESGO_ETIQUETADO_OPTIONS = [
   "N/A",
   "Riesgo Bajo",
   "Riesgo Medio",

@@ -296,32 +296,80 @@
     border: 2px solid rgba(255, 255, 255, 0.85);
   }
 
-  /* Assisted keyboard navigation glows. Outlines (not box-shadows) so they are
-     never clipped by the `overflow-hidden` on glass surfaces. Gold = current,
-     green = next (where Tab goes), red = previous (where Shift+Tab returns). */
-  .kbd-nav-current {
-    outline: 2px solid rgba(251, 191, 36, 0.95) !important;
-    outline-offset: 2px;
-    border-radius: 0.75rem;
-    animation: kbd-current-pulse 1.6s ease-in-out infinite;
+  /* ---------------------------------------------------------------
+     Assisted keyboard navigation — a single bright light-blue glow
+     with a conic gradient that ROTATES around the edges of the field
+     being edited. Drawn as free-floating overlays on <body> (see
+     hooks/useAssistedKeyboardGlow.ts), so glass `overflow: hidden`
+     never clips them and inputs — which can't host pseudo-elements —
+     are covered too. The next/prev fields reuse the same effect at
+     ~50% intensity. Cheap: one GPU-composited layer per role, driven
+     by an animated custom `--kbd-angle` (a single conic gradient).
+     --------------------------------------------------------------- */
+  @property --kbd-angle {
+    syntax: "<angle>";
+    initial-value: 0deg;
+    inherits: false;
   }
-  .kbd-nav-next {
-    outline: 2px solid rgba(16, 185, 129, 0.9) !important;
-    outline-offset: 2px;
-    border-radius: 0.75rem;
+
+  .kbd-glow {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 130; /* above the intake modal (z-120) */
+    pointer-events: none;
+    opacity: 0;
+    will-change: transform, width, height, opacity;
+    transition:
+      opacity 0.25s ease,
+      transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      height 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .kbd-nav-prev {
-    outline: 2px dashed rgba(244, 63, 94, 0.9) !important;
-    outline-offset: 2px;
-    border-radius: 0.75rem;
+  .kbd-glow.is-on {
+    opacity: 1;
   }
-  @keyframes kbd-current-pulse {
-    0%,
-    100% {
-      outline-color: rgba(251, 191, 36, 0.6);
-    }
-    50% {
-      outline-color: rgba(251, 191, 36, 1);
+
+  /* Crisp rotating ring, masked to a ~2px border. A layered drop-shadow turns
+     the bright arc of the ring into a moving glow WITHOUT tinting the field's
+     centre (the mask keeps the middle fully transparent). */
+  .kbd-glow::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 2px;
+    background: conic-gradient(
+      from var(--kbd-angle),
+      transparent 0deg,
+      rgba(56, 189, 248, 0) 30deg,
+      #38bdf8 90deg,
+      #7dd3fc 140deg,
+      #e0f2fe 170deg,
+      #38bdf8 210deg,
+      rgba(56, 189, 248, 0) 300deg,
+      transparent 360deg
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    filter:
+      drop-shadow(0 0 6px rgba(56, 189, 248, 0.9))
+      drop-shadow(0 0 12px rgba(56, 189, 248, 0.55));
+    animation: kbd-spin 2.6s linear infinite;
+  }
+
+  /* Next / previous fields: same effect, roughly half as strong. */
+  .kbd-glow-side::after {
+    opacity: 0.5;
+    filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.6));
+  }
+
+  @keyframes kbd-spin {
+    to {
+      --kbd-angle: 360deg;
     }
   }
 
@@ -348,6 +396,16 @@
 }
 
 @layer utilities {
+  /* Word-by-word wrapping: text flows onto new lines at spaces only, never
+     breaking mid-word (so full names/labels always show without a marquee or
+     letter-level clipping). Used across the comparator's personal-data chip. */
+  .wrap-words {
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: keep-all;
+    hyphens: none;
+  }
+
   /* Honour reduced-motion preferences for accessibility. */
   @media (prefers-reduced-motion: reduce) {
     *,
@@ -499,6 +557,18 @@
 /* Slightly tighten the big profile header cards too. */
 .cmp-dense .rounded-3xl {
   border-radius: 1rem;
+}
+
+/* When the dock glides to the left edge (see dockOverrideStore), nudge the
+   comparator content right on wide screens so the vertical dock never overlaps
+   the frozen label column. Animated so it feels connected to the dock's move. */
+.cmp-shifted {
+  transition: padding-left 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (min-width: 1024px) {
+  .cmp-shifted.is-shifted {
+    padding-left: 5rem;
+  }
 }
 
 /* =============================================================

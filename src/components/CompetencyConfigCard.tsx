@@ -1,8 +1,13 @@
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import type { FormCompetency } from "../types";
 import { computeAjuste, computeBrecha, parseDecimal } from "../lib/competency";
+import { buildCompetencyCatalog, lookupCompetency } from "../lib/competencyMeta";
+import { useTalentData } from "../context/TalentDataContext";
 import { AjusteBadge } from "./AjusteBadge";
+import { CompetencyInfoButton } from "./CompetencyInfoButton";
+import { CompetencyLevelBoxes } from "./CompetencyLevelBoxes";
 
 interface CompetencyConfigCardProps {
   competency: FormCompetency;
@@ -22,6 +27,12 @@ export function CompetencyConfigCard({
   onChange,
   onRemove,
 }: CompetencyConfigCardProps) {
+  const { competencias } = useTalentData();
+  const meta = useMemo(
+    () => lookupCompetency(buildCompetencyCatalog(competencias), competency.name) ?? null,
+    [competencias, competency.name],
+  );
+
   const esperado = parseDecimal(competency.esperadoText);
   const obtenido = parseDecimal(competency.obtenidoText);
   const brecha = computeBrecha(esperado, obtenido);
@@ -52,9 +63,11 @@ export function CompetencyConfigCard({
           <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-xs font-black text-white ring-1 ring-white/30">
             {index + 1}
           </span>
-          <h4 className="truncate text-sm font-bold text-ink" title={competency.name}>
+          <h4 className="min-w-0 flex-1 text-sm font-bold text-ink [overflow-wrap:normal] [word-break:keep-all]" title={competency.name}>
             {competency.name}
           </h4>
+          {/* Mouse-only "?" — explains the competency (not in the Tab order). */}
+          <CompetencyInfoButton name={competency.name} meta={meta} size="sm" />
         </div>
         <button
           type="button"
@@ -65,6 +78,13 @@ export function CompetencyConfigCard({
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {/* Level applicability cue (Cargo: Bajo · Medio · Alto). */}
+      {meta?.hasLevels && (
+        <div className="mt-2">
+          <CompetencyLevelBoxes levels={meta.levels} compact />
+        </div>
+      )}
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* Valor Esperado — with static ≥ prefix inside the wrapper */}

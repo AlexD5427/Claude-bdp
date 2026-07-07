@@ -94,6 +94,23 @@ export function ThreeBackground() {
       resize();
       window.addEventListener("resize", resize, { passive: true });
 
+      // A long-lived WebGL context can be dropped by the OS/GPU (tab parked for
+      // a long time, device sleep). If we don't intercept the event the tab can
+      // wedge; we stop the loop cleanly and let the CSS mesh cover for us.
+      const onContextLost = (e: Event) => {
+        e.preventDefault();
+        running = false;
+        cancelAnimationFrame(raf);
+      };
+      const onContextRestored = () => {
+        if (!running) {
+          running = true;
+          raf = requestAnimationFrame(loop);
+        }
+      };
+      canvas.addEventListener("webglcontextlost", onContextLost, false);
+      canvas.addEventListener("webglcontextrestored", onContextRestored, false);
+
       // Pointer parallax — a subtle light that follows the cursor (screen space).
       const target = new THREE.Vector2(0.5, 0.5);
       const current = new THREE.Vector2(0.5, 0.5);
@@ -140,6 +157,8 @@ export function ThreeBackground() {
         window.removeEventListener("resize", resize);
         window.removeEventListener("mousemove", onMove);
         document.removeEventListener("visibilitychange", onVisibility);
+        canvas.removeEventListener("webglcontextlost", onContextLost, false);
+        canvas.removeEventListener("webglcontextrestored", onContextRestored, false);
         quad.geometry.dispose();
         material.dispose();
         renderer.dispose();

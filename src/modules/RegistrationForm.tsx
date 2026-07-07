@@ -35,17 +35,16 @@ import {
   MAX_CONOCIMIENTOS,
   MAX_HERRAMIENTAS,
   NIVEL_ACADEMICO_OPTIONS,
-  NIVEL_RIESGO_OPTIONS,
-  NIVEL_RIESGO_ROBO_OPTIONS,
+  NIVEL_RIESGO_ETIQUETADO_OPTIONS,
 } from "../constants";
 import { buildSavedCompetency, parseDecimal } from "../lib/competency";
 import type { FormCompetency, FormItem, RawCandidate } from "../types";
 
-/** Semantic colour for the "Nivel de Robo (Riesgo)" options. */
-function riesgoRoboTone(opt: string): SegmentTone | undefined {
+/** Semantic colour for the labelled "Riesgo Bajo/Medio/Alto" options. */
+function riesgoTone(opt: string): SegmentTone | undefined {
   const s = opt.toLowerCase();
-  if (s.includes("bajo")) return "green";
   if (s.includes("medio")) return "amber";
+  if (s.includes("bajo")) return "green";
   if (s.includes("alto")) return "red";
   return undefined;
 }
@@ -397,11 +396,11 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
               role="switch"
               aria-checked={assistedNav}
               onClick={() => setAssistedNav((v) => !v)}
-              title="Resalta el campo actual (dorado), el siguiente (verde) y el anterior (rojo) para navegar con el teclado."
+              title="Rodea el campo actual con un glow azul giratorio y centra la selección en pantalla; el campo siguiente y el anterior se marcan con el mismo efecto más tenue."
               className={[
                 "mr-11 hidden shrink-0 items-center gap-2 rounded-full px-3 py-2 text-xs font-bold ring-1 transition-all active:scale-95 sm:inline-flex",
                 assistedNav
-                  ? "bg-gradient-to-br from-amber-400 to-yellow-500 text-white ring-white/40 shadow-[0_0_16px_rgba(245,158,11,0.55)]"
+                  ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/40 shadow-[0_0_16px_rgba(0,176,216,0.6)]"
                   : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft",
               ].join(" ")}
             >
@@ -659,20 +658,22 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                   label="Nivel de Integridad"
                   value={form.nivel_integridad}
                   onChange={(v) => setField("nivel_integridad", v)}
-                  options={NIVEL_RIESGO_OPTIONS}
+                  options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+                  toneFor={riesgoTone}
                 />
                 <SegmentedField
                   label="Nivel de Robo (Riesgo)"
                   value={form.riesgo_robo}
                   onChange={(v) => setField("riesgo_robo", v)}
-                  options={NIVEL_RIESGO_ROBO_OPTIONS}
-                  toneFor={riesgoRoboTone}
+                  options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+                  toneFor={riesgoTone}
                 />
                 <SegmentedField
                   label="Nivel de Mentira (Riesgo)"
                   value={form.riesgo_mentira}
                   onChange={(v) => setField("riesgo_mentira", v)}
-                  options={NIVEL_RIESGO_OPTIONS}
+                  options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+                  toneFor={riesgoTone}
                 />
               </div>
               <div className="mt-4">

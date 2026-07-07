@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { SCRIPT_URL } from "../constants";
+import { getConfig, subscribeConfig } from "../lib/configStore";
 import { normaliseCandidate } from "../lib/candidates";
 import {
   FALLBACK_DISC,
@@ -216,6 +217,55 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     load();
     return () => controllerRef.current?.abort();
   }, [load]);
+
+  // ---- passive freshness -------------------------------------------------
+  // The database is the single source of truth and may change from other
+  // devices, so we keep the app fresh without any user action:
+  //   · a background poll on the interval configured in Configuración,
+  //   · an immediate refresh whenever the tab/window regains focus or the
+  //     network comes back online.
+  // All of these funnel through `load()`, which is a no-op-friendly
+  // stale-while-revalidate fetch (it never blanks the screen while data exists).
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
+  useEffect(() => {
+    // Re-read the (external) config store and re-arm the timer when it changes.
+    let intervalId: number | undefined;
+    const arm = () => {
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      const cfg = getConfig();
+      if (!cfg.autoRefresh) {
+        intervalId = undefined;
+        return;
+      }
+      const ms = Math.max(15, cfg.autoRefreshSeconds || 60) * 1000;
+      intervalId = window.setInterval(() => {
+        // Don't hammer the API for a hidden tab; the visibility handler will
+        // refresh the moment the operator returns.
+        if (!document.hidden) loadRef.current();
+      }, ms);
+    };
+    arm();
+    const unsubscribe = subscribeConfig(arm);
+
+    const onFocus = () => loadRef.current();
+    const onVisibility = () => {
+      if (!document.hidden) loadRef.current();
+    };
+    const onOnline = () => loadRef.current();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onOnline);
+
+    return () => {
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      unsubscribe();
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onOnline);
+    };
+  }, []);
 
   const submitCandidate = useCallback(
     async (candidate: RawCandidate) => {

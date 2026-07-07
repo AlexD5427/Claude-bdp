@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Moon, Sun, ChevronRight, ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { DOCK_ITEMS } from "../constants";
 import { useTheme } from "../context/ThemeContext";
 import { useConfig, setConfig, type DockPosition, type DockSize } from "../lib/configStore";
+import { useDockOverride } from "../lib/dockOverrideStore";
 import { DrawIcon } from "./DrawIcon";
 import { DockProfileChip } from "./DockProfileChip";
 import type { ModuleId } from "../types";
@@ -39,6 +40,20 @@ const ANCHOR: Record<DockPosition, string> = {
   right: "inset-y-0 right-2 my-auto h-max max-h-[calc(100vh-1.5rem)] sm:right-3",
 };
 
+/** Directional enter/exit offset so a position change reads as a glide. */
+function slide(position: DockPosition) {
+  switch (position) {
+    case "top":
+      return { x: 0, y: -44 };
+    case "bottom":
+      return { x: 0, y: 44 };
+    case "left":
+      return { x: -44, y: 0 };
+    case "right":
+      return { x: 44, y: 0 };
+  }
+}
+
 /** Small hook: track the viewport so the dock re-flows on resize/rotation. */
 function useViewport() {
   const [vp, setVp] = useState({
@@ -63,220 +78,234 @@ function useViewport() {
 }
 
 /**
- * iOS-style floating dock — now fully adjustable and collapsible.
+ * iOS-style floating dock — fully adjustable, collapsible and context-aware.
  *
  * The recruitment team can dock it to any edge (top / bottom / left / right)
  * and pick a size from Configuración; those live in the config store, so the
- * choice persists. A chevron collapses the dock into a single logo pill (to
- * reclaim screen space) and expands it again. It listens to viewport changes so
- * it always re-centres and stays fully reachable — scrolling within itself when
- * a phone is too small — in either orientation.
+ * choice persists. A chevron collapses the dock into a single logo pill and
+ * expands it again. It listens to viewport changes so it always re-centres.
  *
- * The active module is still marked by a spring "liquid pill" + glowing orb
- * that glide between items via shared `layoutId`s, and the picked icon redraws
- * itself in a contrasting stroke.
+ * On top of the user's choice it honours a transient **position override** (see
+ * {@link ../lib/dockOverrideStore}): when the Comparador scrolls into its audit
+ * grid it asks the dock to glide to the left edge, clearing the top for the
+ * sticky candidate strip. The move is animated as a directional cross-fade, and
+ * unique `layoutId`s per position keep the active pill/orb from tearing during
+ * the hand-off.
+ *
+ * The active module is marked by a spring "liquid pill" + glowing orb that glide
+ * between items via shared `layoutId`s, and the picked icon redraws itself.
  */
 export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
   const { theme, toggle } = useTheme();
   const { dockPosition, dockSize, dockCollapsed } = useConfig();
+  const override = useDockOverride();
   const vp = useViewport();
 
-  const vertical = dockPosition === "left" || dockPosition === "right";
+  // The override only takes effect if it differs from the user's own choice.
+  const position: DockPosition = override ?? dockPosition;
+  const vertical = position === "left" || position === "right";
   const sz = SIZE[dockSize];
-  // On a narrow viewport a horizontal dock hides its text labels (icon-only)
-  // and scrolls; a vertical dock is always icon-only with tooltips.
   const showLabels = !vertical && vp.w >= 640;
 
   const setCollapsed = (v: boolean) => setConfig({ dockCollapsed: v });
 
   const CollapseIcon = vertical
     ? dockCollapsed
-      ? dockPosition === "left"
+      ? position === "left"
         ? ChevronRight
         : ChevronLeft
-      : dockPosition === "left"
+      : position === "left"
         ? ChevronLeft
         : ChevronRight
     : dockCollapsed
       ? ChevronDown
       : ChevronUp;
 
-  /* ---- Collapsed: just the logo + an expand chevron ---- */
-  if (dockCollapsed) {
-    return (
-      <motion.nav
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ type: "spring", stiffness: 260, damping: 24 }}
-        className={[
-          "glass-heavy no-print fixed z-[100] flex items-center gap-1.5 rounded-[1.5rem] p-2",
-          vertical ? "flex-col" : "flex-row",
-          ANCHOR[dockPosition],
-        ].join(" ")}
-      >
-        <button
-          type="button"
-          onClick={() => setCollapsed(false)}
-          aria-label="Expandir accesos directos"
-          title="Expandir"
-          className="flex items-center gap-1.5"
-        >
-          <span className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl bg-white shadow-glass ring-1 ring-black/5`}>
-            <img src="/logo-bdp.svg" alt="BDP" className={`${sz.logo} object-contain`} />
-          </span>
-          <span className="grid h-7 w-7 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)]">
-            <CollapseIcon className="h-4 w-4" />
-          </span>
-        </button>
-      </motion.nav>
-    );
-  }
+  const off = slide(position);
+  // Unique per position so two navs (old exiting + new entering) never share a
+  // layoutId during the position hand-off.
+  const pillId = `dock-active-pill-${position}`;
+  const orbId = `dock-active-orb-${position}`;
 
-  /* ---- Expanded ---- */
+  const navMotion = {
+    initial: { opacity: 0, ...off, scale: 0.94 },
+    animate: { opacity: 1, x: 0, y: 0, scale: 1 },
+    exit: { opacity: 0, ...off, scale: 0.94 },
+    transition: { type: "spring" as const, stiffness: 240, damping: 24 },
+  };
+
   return (
-    <motion.nav
-      initial={{ opacity: 0, ...(vertical ? { x: dockPosition === "left" ? -40 : 40 } : { y: dockPosition === "bottom" ? 40 : -40 }) }}
-      animate={{ opacity: 1, x: 0, y: 0 }}
-      transition={{ type: "spring", stiffness: 220, damping: 22, delay: 0.05 }}
-      className={[
-        "glass-heavy no-print fixed z-[100] flex items-center rounded-[1.75rem]",
-        vertical ? "flex-col gap-1.5 overflow-y-auto px-2 py-2.5" : "flex-row gap-1.5 overflow-x-auto px-2.5 py-2 sm:gap-2 sm:px-3",
-        ANCHOR[dockPosition],
-      ].join(" ")}
-    >
-      {/* Logo plate */}
-      <div className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl bg-white shadow-glass ring-1 ring-black/5`}>
-        <img src="/logo-bdp.svg" alt="BDP" className={`${sz.logo} object-contain`} />
-      </div>
+    <AnimatePresence mode="sync">
+      {dockCollapsed ? (
+        <motion.nav
+          key={`collapsed-${position}`}
+          {...navMotion}
+          className={[
+            "glass-heavy no-print fixed z-[100] flex items-center gap-1.5 rounded-[1.5rem] p-2",
+            vertical ? "flex-col" : "flex-row",
+            ANCHOR[position],
+          ].join(" ")}
+        >
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            aria-label="Expandir accesos directos"
+            title="Expandir"
+            className="flex items-center gap-1.5"
+          >
+            <span className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl bg-white shadow-glass ring-1 ring-black/5`}>
+              <img src="/logo-bdp.svg" alt="BDP" className={`${sz.logo} object-contain`} />
+            </span>
+            <span className="grid h-7 w-7 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)]">
+              <CollapseIcon className="h-4 w-4" />
+            </span>
+          </button>
+        </motion.nav>
+      ) : (
+        <motion.nav
+          key={`expanded-${position}`}
+          {...navMotion}
+          className={[
+            "glass-heavy no-print fixed z-[100] flex items-center rounded-[1.75rem]",
+            vertical ? "flex-col gap-1.5 overflow-y-auto px-2 py-2.5" : "flex-row gap-1.5 overflow-x-auto px-2.5 py-2 sm:gap-2 sm:px-3",
+            ANCHOR[position],
+          ].join(" ")}
+        >
+          {/* Logo plate */}
+          <div className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl bg-white shadow-glass ring-1 ring-black/5`}>
+            <img src="/logo-bdp.svg" alt="BDP" className={`${sz.logo} object-contain`} />
+          </div>
 
-      <Divider vertical={vertical} />
+          <Divider vertical={vertical} />
 
-      {/* Navigation */}
-      <ul className={`flex items-center ${vertical ? "flex-col gap-0.5" : "gap-0.5 sm:gap-1"}`}>
-        {DOCK_ITEMS.map((item) => {
-          const isActive = item.id === active;
-          const Icon = item.icon;
-          return (
-            <li key={item.id} className="relative">
-              <button
-                type="button"
-                aria-label={item.label}
-                title={item.label}
-                aria-current={isActive ? "page" : undefined}
-                onClick={() => onSelect(item.id)}
-                className={[
-                  "relative flex flex-col items-center gap-1 rounded-2xl px-1 py-1.5 outline-none transition-transform duration-300 ease-spring hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-cyan-300 active:scale-95",
-                  vertical ? "w-[3rem]" : sz.btn,
-                ].join(" ")}
-              >
-                {isActive && (
-                  <motion.span
-                    layoutId="dock-active-pill"
-                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                    className="absolute inset-0 rounded-2xl bg-[color:var(--fill-2)] ring-1 ring-[color:var(--hairline)]"
-                  />
-                )}
-                <span className={`relative grid place-items-center ${sz.plate}`}>
-                  {isActive && (
-                    <>
-                      <motion.span
-                        layoutId="dock-active-orb"
-                        transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                        className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
-                      />
-                      <motion.span
-                        key={`burst-${active}`}
-                        aria-hidden
-                        initial={{ opacity: 0.55, scale: 0.45 }}
-                        animate={{ opacity: 0, scale: 1.75 }}
-                        transition={{ duration: 0.5, ease: "easeOut" }}
-                        className="pointer-events-none absolute inset-0 rounded-full bg-cyan-300/70 blur-[2px]"
-                      />
-                    </>
-                  )}
-                  <DrawIcon
-                    icon={Icon}
-                    active={isActive}
+          {/* Navigation */}
+          <ul className={`flex items-center ${vertical ? "flex-col gap-0.5" : "gap-0.5 sm:gap-1"}`}>
+            {DOCK_ITEMS.map((item) => {
+              const isActive = item.id === active;
+              const Icon = item.icon;
+              return (
+                <li key={item.id} className="relative">
+                  <button
+                    type="button"
+                    aria-label={item.label}
+                    title={item.label}
+                    aria-current={isActive ? "page" : undefined}
+                    onClick={() => onSelect(item.id)}
                     className={[
-                      sz.icon,
-                      "relative transition-colors duration-300",
-                      isActive ? "text-white drop-shadow-md" : "text-ink-soft",
-                    ].join(" ")}
-                    strokeWidth={isActive ? 2.4 : 2}
-                  />
-                </span>
-                {showLabels && (
-                  <span
-                    className={[
-                      "relative max-w-full truncate font-semibold leading-none transition-colors duration-300",
-                      sz.label,
-                      isActive ? "text-ink" : "text-ink-faint",
+                      "relative flex flex-col items-center gap-1 rounded-2xl px-1 py-1.5 outline-none transition-transform duration-300 ease-spring hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-cyan-300 active:scale-95",
+                      vertical ? "w-[3rem]" : sz.btn,
                     ].join(" ")}
                   >
-                    {item.label}
-                  </span>
-                )}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                    {isActive && (
+                      <motion.span
+                        layoutId={pillId}
+                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                        className="absolute inset-0 rounded-2xl bg-[color:var(--fill-2)] ring-1 ring-[color:var(--hairline)]"
+                      />
+                    )}
+                    <span className={`relative grid place-items-center ${sz.plate}`}>
+                      {isActive && (
+                        <>
+                          <motion.span
+                            layoutId={orbId}
+                            transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                            className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+                          />
+                          <motion.span
+                            key={`burst-${active}`}
+                            aria-hidden
+                            initial={{ opacity: 0.55, scale: 0.45 }}
+                            animate={{ opacity: 0, scale: 1.75 }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                            className="pointer-events-none absolute inset-0 rounded-full bg-cyan-300/70 blur-[2px]"
+                          />
+                        </>
+                      )}
+                      <DrawIcon
+                        icon={Icon}
+                        active={isActive}
+                        className={[
+                          sz.icon,
+                          "relative transition-colors duration-300",
+                          isActive ? "text-white drop-shadow-md" : "text-ink-soft",
+                        ].join(" ")}
+                        strokeWidth={isActive ? 2.4 : 2}
+                      />
+                    </span>
+                    {showLabels && (
+                      <span
+                        className={[
+                          "relative max-w-full truncate font-semibold leading-none transition-colors duration-300",
+                          sz.label,
+                          isActive ? "text-ink" : "text-ink-faint",
+                        ].join(" ")}
+                      >
+                        {item.label}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
 
-      <Divider vertical={vertical} />
+          <Divider vertical={vertical} />
 
-      {/* Theme toggle */}
-      <button
-        type="button"
-        onClick={toggle}
-        aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
-        title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
-        className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl fill-softer text-ink ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-95`}
-      >
-        <motion.span
-          key={theme}
-          initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
-          animate={{ rotate: 0, opacity: 1, scale: 1 }}
-          transition={{ type: "spring", stiffness: 320, damping: 20 }}
-          className="grid place-items-center"
-        >
-          {theme === "dark" ? (
-            <Sun className="h-5 w-5 text-amber-300" />
-          ) : (
-            <Moon className="h-5 w-5 text-[#005baa]" />
-          )}
-        </motion.span>
-      </button>
+          {/* Theme toggle */}
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+            title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
+            className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl fill-softer text-ink ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-95`}
+          >
+            <motion.span
+              key={theme}
+              initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
+              animate={{ rotate: 0, opacity: 1, scale: 1 }}
+              transition={{ type: "spring", stiffness: 320, damping: 20 }}
+              className="grid place-items-center"
+            >
+              {theme === "dark" ? (
+                <Sun className="h-5 w-5 text-amber-300" />
+              ) : (
+                <Moon className="h-5 w-5 text-[#005baa]" />
+              )}
+            </motion.span>
+          </button>
 
-      {/* DB sync status dot */}
-      <div className="grid h-8 w-7 shrink-0 place-items-center" title={synced ? "Sincronizado" : "Sincronizando…"}>
-        <span
-          className={[
-            "h-2.5 w-2.5 rounded-full",
-            synced
-              ? "bg-green-500 shadow-glow-green animate-[pulse_2s_ease-in-out_infinite]"
-              : "bg-amber-400 shadow-glow-amber animate-[pulse_1s_ease-in-out_infinite]",
-          ].join(" ")}
-        />
-      </div>
+          {/* DB sync status dot */}
+          <div className="grid h-8 w-7 shrink-0 place-items-center" title={synced ? "Sincronizado" : "Sincronizando…"}>
+            <span
+              className={[
+                "h-2.5 w-2.5 rounded-full",
+                synced
+                  ? "bg-green-500 shadow-glow-green animate-[pulse_2s_ease-in-out_infinite]"
+                  : "bg-amber-400 shadow-glow-amber animate-[pulse_1s_ease-in-out_infinite]",
+              ].join(" ")}
+            />
+          </div>
 
-      <Divider vertical={vertical} />
+          <Divider vertical={vertical} />
 
-      {/* Profile chip (logged-in person) */}
-      <DockProfileChip plate={sz.plate} />
+          {/* Profile chip (logged-in person) */}
+          <DockProfileChip plate={sz.plate} />
 
-      <Divider vertical={vertical} />
+          <Divider vertical={vertical} />
 
-      {/* Collapse toggle */}
-      <button
-        type="button"
-        onClick={() => setCollapsed(true)}
-        aria-label="Contraer accesos directos"
-        title="Contraer"
-        className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-90"
-      >
-        <CollapseIcon className="h-4 w-4" />
-      </button>
-    </motion.nav>
+          {/* Collapse toggle */}
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            aria-label="Contraer accesos directos"
+            title="Contraer"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-90"
+          >
+            <CollapseIcon className="h-4 w-4" />
+          </button>
+        </motion.nav>
+      )}
+    </AnimatePresence>
   );
 }
 

@@ -17,13 +17,24 @@ interface PortalDropdownProps {
   className?: string;
   /** Max panel height in px; the panel flips above the anchor when cramped. */
   maxHeight?: number;
+  /**
+   * When true (default) the panel matches the anchor's width — ideal for
+   * autocomplete inputs. When false the panel keeps its own (content) width and
+   * is aligned to the nearest edge, clamped inside the viewport — used by small
+   * triggers (e.g. the dock profile chip) whose panel is far wider than them.
+   */
+  matchAnchorWidth?: boolean;
+  /** Horizontal alignment when `matchAnchorWidth` is false. */
+  align?: "left" | "right" | "auto";
 }
 
 interface Pos {
   top: number;
   bottom: number;
   left: number;
+  right: number;
   width: number;
+  viewport: number;
   placement: "bottom" | "top";
 }
 
@@ -44,6 +55,8 @@ export function PortalDropdown({
   children,
   className = "",
   maxHeight = 288,
+  matchAnchorWidth = true,
+  align = "auto",
 }: PortalDropdownProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<Pos | null>(null);
@@ -65,7 +78,9 @@ export function PortalDropdown({
         top: r.bottom,
         bottom: r.top,
         left: r.left,
+        right: r.right,
         width: r.width,
+        viewport: window.innerWidth,
         placement,
       });
     }
@@ -93,18 +108,42 @@ export function PortalDropdown({
 
   if (!open || !pos) return null;
 
+  const GUTTER = 8;
+  const vertical =
+    pos.placement === "bottom"
+      ? { top: pos.top + GUTTER }
+      : { bottom: window.innerHeight - pos.bottom + GUTTER };
+
+  // Horizontal placement. When matching the anchor width we clamp the left edge
+  // so the panel never runs off screen. Otherwise we pin the panel to the
+  // nearest edge (right when the anchor sits in the right half of the screen),
+  // and constrain its width to the viewport so its own content decides the size.
+  let horizontal: React.CSSProperties;
+  if (matchAnchorWidth) {
+    const left = Math.min(
+      Math.max(GUTTER, pos.left),
+      Math.max(GUTTER, pos.viewport - pos.width - GUTTER),
+    );
+    horizontal = { left, width: pos.width };
+  } else {
+    const alignRight =
+      align === "right" ||
+      (align === "auto" && pos.left + pos.width / 2 > pos.viewport / 2);
+    horizontal = alignRight
+      ? { right: Math.max(GUTTER, pos.viewport - pos.right) }
+      : { left: Math.max(GUTTER, pos.left) };
+    horizontal.maxWidth = `calc(100vw - ${GUTTER * 2}px)`;
+  }
+
   return createPortal(
     <div
       ref={panelRef}
       style={{
         position: "fixed",
-        left: pos.left,
-        width: pos.width,
         maxHeight,
         zIndex: 200,
-        ...(pos.placement === "bottom"
-          ? { top: pos.top + 8 }
-          : { bottom: window.innerHeight - pos.bottom + 8 }),
+        ...horizontal,
+        ...vertical,
       }}
       className={`overflow-auto ${className}`}
     >

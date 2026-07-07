@@ -43,8 +43,15 @@ export function DockProfileChip({ plate }: { plate: string }) {
         />
       </button>
 
-      <PortalDropdown open={open} anchorRef={wrapRef} onClose={() => setOpen(false)} maxHeight={420}>
-        <div className="glass-heavy w-72 rounded-2xl p-3">
+      <PortalDropdown
+        open={open}
+        anchorRef={wrapRef}
+        onClose={() => setOpen(false)}
+        maxHeight={420}
+        matchAnchorWidth={false}
+        align="auto"
+      >
+        <div className="glass-heavy w-72 max-w-[calc(100vw-1.5rem)] rounded-2xl p-3">
           <div className="flex items-center gap-3 rounded-xl fill-softer p-3 ring-1 ring-[color:var(--hairline)]">
             <ProfileAvatar nombre={current.nombre} avatar={current.avatar} size="sm" staticMode={staticAvatars} />
             <div className="min-w-0">
