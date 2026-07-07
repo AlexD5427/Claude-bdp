@@ -40,9 +40,18 @@ export function proficiencyTone(v?: string): Tone {
   return integrityTone(v);
 }
 
+/**
+ * High-contrast pill styles for categorical levels. The colour is carried by a
+ * solid gradient with white, drop-shadowed text so "Riesgo Bajo/Medio/Alto"
+ * reads clearly on the comparator's saturated glass in either theme (the old
+ * translucent tint washed out on busy backgrounds).
+ */
 export const TONE_CLASS: Record<Tone, string> = {
-  green: "bg-emerald-500/15 text-emerald-500 ring-emerald-400/40",
-  amber: "bg-amber-500/15 text-amber-500 ring-amber-400/40",
-  red: "bg-rose-500/15 text-rose-500 ring-rose-400/40",
-  muted: "fill-softer text-ink-faint ring-[color:var(--hairline)]",
+  green:
+    "bg-gradient-to-br from-emerald-500 to-green-600 text-white ring-white/40 shadow-[0_2px_10px_rgba(16,185,129,0.45)] [text-shadow:0_1px_1px_rgba(0,0,0,0.25)]",
+  amber:
+    "bg-gradient-to-br from-amber-400 to-orange-500 text-white ring-white/40 shadow-[0_2px_10px_rgba(245,158,11,0.45)] [text-shadow:0_1px_1px_rgba(0,0,0,0.25)]",
+  red:
+    "bg-gradient-to-br from-rose-500 to-red-600 text-white ring-white/40 shadow-[0_2px_10px_rgba(244,63,94,0.45)] [text-shadow:0_1px_1px_rgba(0,0,0,0.25)]",
+  muted: "fill-softer text-ink-soft ring-[color:var(--hairline)]",
 };

@@ -7,6 +7,7 @@ import { FloatingDock } from "./components/FloatingDock";
 import { BrandHeader } from "./components/BrandHeader";
 import { KpiBar } from "./components/KpiBar";
 import { FilterBar } from "./components/FilterBar";
+import { RefreshButton } from "./components/RefreshButton";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoginScreen } from "./components/login/LoginScreen";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
@@ -84,6 +85,7 @@ function AppShell() {
       <ThreeBackground />
       <CursorSpotlight />
       <FloatingDock active={active} onSelect={setActive} synced={synced} />
+      <RefreshButton />
 
       <main className={`mx-auto w-full max-w-[1640px] px-4 sm:px-6 lg:px-8 ${MAIN_PAD[dockPosition]}`}>
         <div className="print-scope-hide">
@@ -94,9 +96,14 @@ function AppShell() {
           <FilterBar />
         </div>
 
-        <div className="print-scope-hide">
-          <KpiBar module={active} />
-        </div>
+        {/* The comparator hides the KPI row entirely (per the redesign): the
+            audit grid is the star there, and the four generic KPIs only added
+            noise and empty space above it. */}
+        {active !== "comparador" && (
+          <div className="print-scope-hide">
+            <KpiBar module={active} />
+          </div>
+        )}
 
         <header className="print-scope-hide mb-5 mt-8">
           <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-cyan-400 no-print">
@@ -115,25 +122,29 @@ function AppShell() {
           <p className="mt-1 text-sm text-ink-soft">{SUBTITLES[active]}</p>
         </header>
 
-        <ErrorBoundary>
-          <AnimatePresence mode="wait">
-            <motion.section
-              key={active}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.35, ease: [0.175, 0.885, 0.32, 1.275] }}
-            >
-              {active === "dashboard" && <Dashboard />}
-              {active === "tablero" && <Tablero />}
-              {active === "cara-a-cara" && <CaraACara />}
-              {active === "comparador" && <NuevoComparador />}
-              {active === "procesos" && <Procesos />}
-              {active === "postulantes" && <ListaPostulantes />}
-              {active === "documentacion" && <Documentacion />}
-              {active === "configuracion" && <Configuracion />}
-            </motion.section>
-          </AnimatePresence>
+        {/* A keyed entrance animation — NOT wrapped in <AnimatePresence
+            mode="wait">. The old exit-then-enter handshake could deadlock: if an
+            exiting module's animation never reported completion (common with
+            long-lived infinite/layout animations), the incoming module was never
+            mounted and the page went blank until a full reload. Keying a plain
+            motion.section makes React swap modules immediately while still
+            playing a smooth enter transition. */}
+        <ErrorBoundary key={active}>
+          <motion.section
+            key={active}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: [0.175, 0.885, 0.32, 1.275] }}
+          >
+            {active === "dashboard" && <Dashboard />}
+            {active === "tablero" && <Tablero />}
+            {active === "cara-a-cara" && <CaraACara />}
+            {active === "comparador" && <NuevoComparador />}
+            {active === "procesos" && <Procesos />}
+            {active === "postulantes" && <ListaPostulantes />}
+            {active === "documentacion" && <Documentacion />}
+            {active === "configuracion" && <Configuracion />}
+          </motion.section>
         </ErrorBoundary>
       </main>
     </div>

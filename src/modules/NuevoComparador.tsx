@@ -29,6 +29,7 @@ import { CompetencyChip } from "../components/CompetencyChip";
 import { LevelBadge } from "../components/LevelBadge";
 import { Avatar } from "../components/Avatar";
 import { DiscInfoButton } from "../components/DiscInfoButton";
+import { CompetencyInfoButton } from "../components/CompetencyInfoButton";
 import { Toggle } from "../components/form/Controls";
 import { ComparatorCharts } from "../components/comparator/ComparatorCharts";
 import { discAccent } from "../lib/discAccent";
@@ -36,6 +37,7 @@ import { extractDiscCode } from "../lib/disc";
 import { parseDecimal, ajusteBand } from "../lib/competency";
 import { sortByCapDesc, tieGroups } from "../lib/candidateDisplay";
 import { useConfig } from "../lib/configStore";
+import { setDockOverride } from "../lib/dockOverrideStore";
 import {
   useComparator,
   addComparator,
@@ -51,7 +53,6 @@ import {
   type ComparatorSectionId,
 } from "../lib/comparatorStore";
 import {
-  integrityTone,
   proficiencyTone,
   reliabilityTone,
   riskTone,
@@ -84,7 +85,9 @@ interface ConfRow {
 }
 const CONF_ROWS: ConfRow[] = [
   { key: "nivel_general_confiabilidad", label: "Confiabilidad e Integridad", sub: "Mide la honestidad y el compromiso con las normas", tone: reliabilityTone },
-  { key: "nivel_integridad", label: "Integridad", sub: "Firmeza de los principios morales del postulante", tone: integrityTone },
+  // "Nivel de Integridad" is now a labelled risk scale ("Riesgo Bajo/Medio/Alto"),
+  // so a lower risk reads as better — same semantics as the other risk rows.
+  { key: "nivel_integridad", label: "Integridad (Riesgo)", sub: "Riesgo asociado a la integridad del postulante", tone: riskTone },
   { key: "riesgo_robo", label: "Riesgo de robo", sub: "Probabilidad de cometer o justificar sustracciones", tone: riskTone },
   { key: "riesgo_mentira", label: "Riesgo de Mentira", sub: "Tendencia a exagerar o distorsionar la verdad", tone: riskTone },
 ];
@@ -175,6 +178,20 @@ export function NuevoComparador() {
     return () => obs.disconnect();
   }, [selected.length, tab, stickyTop]);
 
+  // When the sticky candidate strip appears (the operator has scrolled into the
+  // grid) and the dock lives on top/bottom, ask it to glide to the left edge so
+  // it clears the top for the strip. We also nudge the grid right so the moved
+  // dock never sits over the frozen label column. Everything reverts on the way
+  // back up, on tab change and on unmount.
+  const moveDock =
+    stuck &&
+    tab === "comparativa" &&
+    (config.dockPosition === "top" || config.dockPosition === "bottom");
+  useEffect(() => {
+    setDockOverride(moveDock ? "left" : null);
+    return () => setDockOverride(null);
+  }, [moveDock]);
+
   // --- horizontal navigation + column-aligned sticky strip ---
   // The comparison scrolls sideways when there are many candidates. We mirror
   // the table's horizontal scroll onto the compact strip (so its chips stay
@@ -239,13 +256,15 @@ export function NuevoComparador() {
   }
 
   const dense = cmp.dense;
+  // Candidate columns are a touch wider by default so the personal-data chip has
+  // more breathing room (names wrap by word, ranking badge fits comfortably).
   const columns = dense
-    ? `minmax(122px, 0.6fr) repeat(${ordered.length}, minmax(128px, 1fr))`
-    : `minmax(170px, 0.85fr) repeat(${ordered.length}, minmax(200px, 1fr))`;
+    ? `minmax(130px, 0.6fr) repeat(${ordered.length}, minmax(150px, 1fr))`
+    : `minmax(184px, 0.8fr) repeat(${ordered.length}, minmax(238px, 1fr))`;
   const printColumns = `minmax(88px, 0.5fr) repeat(${ordered.length}, minmax(0, 1fr))`;
 
   return (
-    <div className="space-y-4">
+    <div className={`cmp-shifted space-y-4 ${moveDock ? "is-shifted" : ""}`}>
       <TabBar tab={tab} onTab={setTab} count={selected.length} />
 
       {/* Shared candidate picker for both the grid and the charts. */}
@@ -505,7 +524,15 @@ export function NuevoComparador() {
                       </div>
                     ) : (
                       competencyRows.map((name) => (
-                        <RowFragment key={name} label={name}>
+                        <RowFragment
+                          key={name}
+                          label={name}
+                          info={
+                            <span className="no-print">
+                              <CompetencyInfoButton name={name} size="sm" />
+                            </span>
+                          }
+                        >
                           {ordered.map((c) => {
                             const score = findScore(c.competenciasList, name);
                             return (
@@ -643,7 +670,7 @@ function StripChip({
     >
       <Avatar name={candidate.fullName} seed={candidate.id} size="sm" />
       <span
-        className={`min-w-0 flex-1 font-bold leading-tight text-ink line-clamp-2 ${nameSize}`}
+        className={`wrap-words min-w-0 flex-1 font-bold leading-tight text-ink line-clamp-3 ${nameSize}`}
         title={candidate.fullName}
       >
         {candidate.fullName}
@@ -914,9 +941,12 @@ function SectionBand({
   onToggle?: () => void;
 }) {
   return (
-    <div
+    <motion.div
       style={{ gridColumn: "1 / -1" }}
-      className="mt-2 flex items-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#004a8f] to-[#005baa] px-4 py-2.5 text-white shadow-glass ring-1 ring-white/20 print-avoid-break"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 260, damping: 26 }}
+      className="liquid-streak mt-2 flex items-center gap-2.5 overflow-hidden rounded-2xl bg-gradient-to-r from-[#004a8f] to-[#005baa] px-4 py-2.5 text-white shadow-glass ring-1 ring-white/20 print-avoid-break"
     >
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/15 ring-1 ring-white/25">
         {icon}
@@ -939,7 +969,7 @@ function SectionBand({
           />
         </button>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -947,21 +977,27 @@ function SectionBand({
 function RowFragment({
   label,
   sub,
+  info,
   children,
 }: {
   label: string;
   sub?: string;
+  /** Optional trailing element (e.g. a competency "?" info button). */
+  info?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <>
       <div className="sticky left-0 z-[40] flex items-center" role="rowheader">
         <span
-          className="glass flex w-full flex-col rounded-xl px-3 py-2 print-avoid-break"
+          className="glass flex w-full items-center gap-1.5 rounded-xl px-3 py-2 print-avoid-break"
           title={label}
         >
-          <span className="truncate text-xs font-bold text-ink">{label}</span>
-          {sub && <span className="truncate text-[0.65rem] text-ink-faint">{sub}</span>}
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-xs font-bold text-ink">{label}</span>
+            {sub && <span className="truncate text-[0.65rem] text-ink-faint">{sub}</span>}
+          </span>
+          {info}
         </span>
       </div>
       {children}

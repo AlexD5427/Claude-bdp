@@ -1,19 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Plus } from "lucide-react";
 import { PortalDropdown } from "./PortalDropdown";
-
-/** Strip emoji / pictographs so suggestions render as clean text only. */
-function stripEmoji(text: string): string {
-  return text
-    .replace(
-      /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\uFE0F\u200D]/gu,
-      "",
-    )
-    .replace(/\s+/g, " ")
-    .trim();
-}
+import { CompetencyLevelBoxes } from "./CompetencyLevelBoxes";
+import { parseCompetencyMeta, type CompetencyMeta } from "../lib/competencyMeta";
 
 interface CompetencyAutocompleteProps {
+  /** Raw catalogue rows ("Nombre,Bajo,Medio,Alto,\"Descripción\""). */
   options: string[];
   /** Names already chosen (excluded from suggestions). */
   selected: string[];
@@ -23,10 +15,14 @@ interface CompetencyAutocompleteProps {
 
 /**
  * Accessible autocomplete fed by the API's `competencias` array.
- * Renders suggestions as plain text (no emojis), excludes already-selected
- * items, and supports keyboard navigation. The suggestion list is drawn in a
- * portal (see {@link PortalDropdown}) so it floats above the intake form's
- * scrollable body instead of being clipped by it.
+ *
+ * Each catalogue row is parsed into {@link CompetencyMeta}: the search still
+ * works purely by **name**, but every suggestion now also renders the
+ * "Cargo: Bajo · Medio · Alto" applicability boxes so the analyst can tell at a
+ * glance whether a competency suits the level of the position. Already-selected
+ * items are excluded and keyboard navigation is fully supported. The suggestion
+ * list is drawn in a portal (see {@link PortalDropdown}) so it floats above the
+ * intake form's scrollable body instead of being clipped by it.
  */
 export function CompetencyAutocomplete({
   options,
@@ -44,19 +40,32 @@ export function CompetencyAutocomplete({
     [selected],
   );
 
+  // Parse once, de-duplicate by name, and drop already-selected competencies.
+  const catalog = useMemo(() => {
+    const seen = new Set<string>();
+    const list: CompetencyMeta[] = [];
+    for (const opt of options) {
+      const meta = parseCompetencyMeta(opt);
+      const key = meta.name.toLowerCase();
+      if (!meta.name || seen.has(key)) continue;
+      seen.add(key);
+      list.push(meta);
+    }
+    return list;
+  }, [options]);
+
   const suggestions = useMemo(() => {
-    const q = stripEmoji(query).toLowerCase();
-    return options
-      .map(stripEmoji)
-      .filter((opt) => opt && !selectedSet.has(opt.toLowerCase()))
-      .filter((opt) => (q ? opt.toLowerCase().includes(q) : true))
+    const q = query.trim().toLowerCase();
+    return catalog
+      .filter((m) => !selectedSet.has(m.name.toLowerCase()))
+      .filter((m) => (q ? m.name.toLowerCase().includes(q) : true))
       .slice(0, 8);
-  }, [options, query, selectedSet]);
+  }, [catalog, query, selectedSet]);
 
   useEffect(() => setActive(0), [query, open]);
 
-  function choose(name: string) {
-    onAdd(name);
+  function choose(meta: CompetencyMeta) {
+    onAdd(meta.name);
     setQuery("");
     setOpen(false);
   }
@@ -115,20 +124,21 @@ export function CompetencyAutocomplete({
           role="listbox"
           className="glass-heavy w-full rounded-2xl p-1.5"
         >
-          {suggestions.map((opt, i) => (
-            <li key={opt} role="option" aria-selected={i === active}>
+          {suggestions.map((meta, i) => (
+            <li key={meta.name} role="option" aria-selected={i === active}>
               <button
                 type="button"
                 onMouseEnter={() => setActive(i)}
-                onClick={() => choose(opt)}
+                onClick={() => choose(meta)}
                 className={[
-                  "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                  "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors",
                   i === active
                     ? "bg-gradient-to-br from-[#00b0d8]/40 to-[#005baa]/40 text-ink"
                     : "text-ink-soft hover:fill-soft",
                 ].join(" ")}
               >
-                <span className="truncate">{opt}</span>
+                <span className="min-w-0 flex-1 truncate font-semibold">{meta.name}</span>
+                {meta.hasLevels && <CompetencyLevelBoxes levels={meta.levels} compact />}
                 <Plus className="h-4 w-4 shrink-0 opacity-70" />
               </button>
             </li>

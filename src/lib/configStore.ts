@@ -112,6 +112,12 @@ export interface AppConfig {
 
   /* Integraciones */
   evaluarUrl: string;
+  /** Poll the database in the background so the app always shows fresh data. */
+  autoRefresh: boolean;
+  /** Seconds between passive background refreshes. */
+  autoRefreshSeconds: number;
+  /** Show the floating "actualizar base de datos" button. */
+  showRefreshButton: boolean;
 
   /* Apariencia y rendimiento */
   enableThree: boolean;
@@ -286,6 +292,9 @@ export function defaultConfig(): AppConfig {
     defaultOrientation: "portrait",
 
     evaluarUrl: "https://www.evaluar.com",
+    autoRefresh: true,
+    autoRefreshSeconds: 60,
+    showRefreshButton: true,
 
     enableThree: true,
     threeQuality: "auto",

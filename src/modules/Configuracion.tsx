@@ -259,6 +259,39 @@ export function Configuracion() {
             onChange={(v) => setConfig({ evaluarUrl: v })}
             placeholder="https://www.evaluar.com"
           />
+          {/* Sincronización de datos */}
+          <div className="space-y-2 rounded-2xl fill-softer p-4 ring-1 ring-[color:var(--hairline)]">
+            <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+              Sincronización de datos
+            </span>
+            <Toggle
+              title="Actualización automática"
+              subtitle="Revisa la base de datos en segundo plano para mostrar siempre los datos más recientes."
+              icon={<RefreshCcw className="h-4 w-4" />}
+              checked={config.autoRefresh}
+              onChange={(v) => setConfig({ autoRefresh: v })}
+            />
+            {config.autoRefresh && (
+              <RangeField
+                label="Frecuencia de actualización"
+                hint="Cada cuántos segundos se revisa la base de datos en segundo plano."
+                value={config.autoRefreshSeconds}
+                min={15}
+                max={300}
+                step={15}
+                suffix=" s"
+                onChange={(v) => setConfig({ autoRefreshSeconds: v })}
+              />
+            )}
+            <Toggle
+              title="Botón de actualización manual"
+              subtitle="Muestra un botón flotante para forzar la recarga de toda la base de datos."
+              icon={<RefreshCcw className="h-4 w-4" />}
+              checked={config.showRefreshButton}
+              onChange={(v) => setConfig({ showRefreshButton: v })}
+            />
+          </div>
+
           <div className="rounded-2xl fill-softer p-4 ring-1 ring-[color:var(--hairline)]">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
