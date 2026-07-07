@@ -20,18 +20,12 @@ export function integrityTone(v?: string): Tone {
   return "muted";
 }
 
-/**
- * Riesgo (robo / mentira) — Bajo good, Alto bad. Uses substring matching so it
- * understands both the legacy wording ("Bajo") and the explicit one stored by
- * the intake form ("Riesgo Bajo"). Order matters: "medio" before "bajo"/"alto"
- * so a value like "Riesgo Medio" is never mis-read.
- */
+/** Riesgo (robo / mentira) — Bajo good, Alto bad. */
 export function riskTone(v?: string): Tone {
   const s = norm(v);
-  if (!s || s === "n/a") return "muted";
-  if (s.includes("medio")) return "amber";
-  if (s.includes("bajo")) return "green";
-  if (s.includes("alto")) return "red";
+  if (s === "bajo") return "green";
+  if (s === "medio") return "amber";
+  if (s === "alto") return "red";
   return "muted";
 }
 

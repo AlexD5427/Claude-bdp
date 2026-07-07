@@ -38,7 +38,6 @@ import { deltaVsPrev, history, useKpiRecorder } from "../lib/kpiHistory";
 import { printModule } from "../lib/print";
 import {
   AreaChart,
-  BarChart,
   DonutChart,
   RadialProgress,
   Sparkline,
@@ -50,8 +49,6 @@ import { Modal } from "../components/Modal";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
 import { Avatar } from "../components/Avatar";
 import { extractProceso } from "../lib/candidates";
-import { useFilteredData } from "../lib/useFilteredData";
-import { distributionBy, type ProcesoAttrs } from "../lib/procesos";
 import {
   useDashboard,
   addWidget,
@@ -103,7 +100,6 @@ interface DashCtx {
   recientes: ReturnType<typeof recentAdditions>;
   counts: ReturnType<typeof hiringCounts>;
   serie: { label: string; value: number }[];
-  procesos: ProcesoAttrs[];
   months: number;
   setMonths: (m: number) => void;
   total: number;
@@ -117,23 +113,13 @@ interface DashCtx {
  * and hiring stores, so customizing the layout never touches the numbers.
  */
 export function Dashboard() {
-  const { candidatos: allCandidatos, competencias, loading, error, refetch } = useTalentData();
-  const { candidatos, filteredIds, procesos, active } = useFilteredData();
-  const hiringAll = useHiring();
+  const { candidatos, competencias, loading, error, refetch } = useTalentData();
+  const hiring = useHiring();
   const layout = useDashboard();
 
-  // When a filter is active, the hiring-derived KPIs follow the same subset.
-  const hiring = useMemo(
-    () =>
-      active
-        ? Object.fromEntries(Object.entries(hiringAll).filter(([id]) => filteredIds.has(id)))
-        : hiringAll,
-    [active, hiringAll, filteredIds],
-  );
-
   useEffect(() => {
-    ensureSeen(allCandidatos.map((c) => c.id));
-  }, [allCandidatos]);
+    ensureSeen(candidatos.map((c) => c.id));
+  }, [candidatos]);
 
   const values = useMemo(
     () => computeAllKpiValues(candidatos, competencias, hiring),
@@ -154,7 +140,7 @@ export function Dashboard() {
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={refetch} />;
-  if (allCandidatos.length === 0) {
+  if (candidatos.length === 0) {
     return <EmptyState message="Aún no hay datos para construir el panel." />;
   }
 
@@ -164,7 +150,6 @@ export function Dashboard() {
     recientes,
     counts,
     serie,
-    procesos,
     months,
     setMonths,
     total: candidatos.length,
@@ -372,18 +357,6 @@ function renderWidget(id: string, ctx: DashCtx): React.ReactNode {
                 Aún no hay contrataciones registradas. Marca postulantes como «Contratado» en la Lista de Postulantes para alimentar este histórico.
               </p>
             )}
-          </Panel>
-        );
-      case "estado_procesos":
-        return (
-          <Panel icon={<Workflow className="h-5 w-5 text-cyan-400" />} title="Estado de Procesos" subtitle="Distribución de procesos por estado">
-            <ProcesoDist data={ctx.procesos} dim="estado" />
-          </Panel>
-        );
-      case "modalidad":
-        return (
-          <Panel icon={<Workflow className="h-5 w-5 text-cyan-400" />} title="Modalidad de Reclutamiento" subtitle="Distribución de procesos por modalidad">
-            <ProcesoDist data={ctx.procesos} dim="modalidad" />
           </Panel>
         );
       default:
@@ -763,21 +736,4 @@ function NaPlate({ hint }: { hint: string }) {
       </span>
     </div>
   );
-}
-
-/** Bar-chart distribution of processes by a dimension (from the Espejo sheets). */
-function ProcesoDist({ data, dim }: { data: ProcesoAttrs[]; dim: "estado" | "modalidad" }) {
-  const slices = useMemo(() => distributionBy(data, dim), [data, dim]);
-  if (slices.length === 0) {
-    return (
-      <div className="flex h-[210px] flex-col items-center justify-center gap-2 text-center">
-        <Workflow className="h-8 w-8 text-ink-faint" />
-        <p className="max-w-xs text-sm text-ink-faint">
-          Conecte las hojas <span className="font-semibold text-ink-soft">Espejo_Base</span> /{" "}
-          <span className="font-semibold text-ink-soft">Espejo_Ultimo_Registro</span> para ver esta distribución de procesos.
-        </p>
-      </div>
-    );
-  }
-  return <BarChart data={slices} height={230} />;
 }

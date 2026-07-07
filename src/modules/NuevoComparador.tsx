@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import {
   Printer,
   FileText,
@@ -12,8 +12,6 @@ import {
   RectangleVertical,
   Minimize2,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   GitCompareArrows,
   BarChart3,
   SlidersHorizontal,
@@ -175,56 +173,6 @@ export function NuevoComparador() {
     return () => obs.disconnect();
   }, [selected.length, tab, stickyTop]);
 
-  // --- horizontal navigation + column-aligned sticky strip ---
-  // The comparison scrolls sideways when there are many candidates. We mirror
-  // the table's horizontal scroll onto the compact strip (so its chips stay
-  // perfectly under their columns) and expose an on-screen slider + arrows for
-  // a smooth, mouse-friendly way to pan across the columns.
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const stripScrollRef = useRef<HTMLDivElement>(null);
-  const stripGridRef = useRef<HTMLDivElement>(null);
-  const [scrollNav, setScrollNav] = useState({ left: 0, max: 0 });
-
-  const syncStrip = useCallback(() => {
-    const sc = scrollRef.current;
-    if (sc) {
-      const max = Math.max(0, sc.scrollWidth - sc.clientWidth);
-      setScrollNav((prev) =>
-        prev.left === sc.scrollLeft && prev.max === max
-          ? prev
-          : { left: sc.scrollLeft, max },
-      );
-      if (stripScrollRef.current) stripScrollRef.current.scrollLeft = sc.scrollLeft;
-    }
-    if (gridRef.current && stripGridRef.current) {
-      // Match the strip's inner grid to the table's exact rendered width so the
-      // fractional columns resolve identically and every chip lines up.
-      stripGridRef.current.style.width = `${gridRef.current.offsetWidth}px`;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (tab !== "comparativa") return;
-    syncStrip();
-    const sc = scrollRef.current;
-    const grid = gridRef.current;
-    const ro = new ResizeObserver(() => syncStrip());
-    if (grid) ro.observe(grid);
-    if (sc) ro.observe(sc);
-    window.addEventListener("resize", syncStrip);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", syncStrip);
-    };
-  }, [tab, selected.length, cmp.dense, syncStrip]);
-
-  const panBy = useCallback((dir: 1 | -1) => {
-    const sc = scrollRef.current;
-    if (!sc) return;
-    sc.scrollBy({ left: dir * Math.max(260, sc.clientWidth * 0.7), behavior: "smooth" });
-  }, []);
-
   function add(id: string) {
     addComparator(id, MAX_COLUMNS);
   }
@@ -351,94 +299,42 @@ export function NuevoComparador() {
             <EmptyComparator />
           ) : (
             <div className={`relative ${dense ? "cmp-dense" : ""}`}>
-              {/* Compact frozen strip — fades in once the big headers are gone.
-                  It shares the table's grid template and mirrors its horizontal
-                  scroll, so every chip stays exactly above its column. */}
+              {/* Compact frozen strip — fades in once the big headers are gone. */}
               <div
                 aria-hidden={!stuck}
                 style={{ top: stickyTop }}
                 className={[
-                  "no-print sticky z-[80] transition-all duration-300 ease-spring",
+                  "no-print sticky z-[80] flex items-center gap-2 overflow-x-auto rounded-2xl transition-all duration-300",
                   stuck
-                    ? "pointer-events-auto translate-y-0 opacity-100"
-                    : "pointer-events-none -translate-y-3 opacity-0",
+                    ? "pointer-events-auto opacity-100"
+                    : "pointer-events-none -translate-y-2 opacity-0",
                 ].join(" ")}
               >
-                <div
-                  ref={stripScrollRef}
-                  className="cmp-strip-scroll overflow-x-hidden px-1"
-                >
+                <span className="glass-heavy shrink-0 rounded-2xl px-3 py-2 text-xs font-bold uppercase tracking-wide text-ink-soft">
+                  Comparativa
+                </span>
+                {ordered.map((c, idx) => (
                   <div
-                    ref={stripGridRef}
-                    className={dense ? "grid gap-1.5" : "grid gap-3"}
-                    style={{ gridTemplateColumns: columns } as React.CSSProperties}
+                    key={c.id}
+                    className="glass-heavy flex shrink-0 items-center gap-2 rounded-2xl px-3 py-2"
                   >
-                    <div className="sticky left-0 z-[2]">
-                      <span className="glass-heavy block truncate rounded-2xl px-3 py-2 text-xs font-bold uppercase tracking-wide text-ink-soft">
-                        Comparativa
+                    <Avatar name={c.fullName} seed={c.id} size="sm" />
+                    <span className="max-w-[9rem] truncate text-sm font-bold text-ink">
+                      {c.fullName}
+                    </span>
+                    {config.rankingEnabled && (
+                      <span className="shrink-0 rounded-full fill-softer px-1.5 py-0.5 text-[0.65rem] font-black text-ink-soft ring-1 ring-[color:var(--hairline)]">
+                        {idx + 1}.º
                       </span>
-                    </div>
-                    <AnimatePresence initial={false} mode="popLayout">
-                      {ordered.map((c, idx) => (
-                        <StripChip
-                          key={c.id}
-                          candidate={c}
-                          rank={idx + 1}
-                          showRank={config.rankingEnabled}
-                        />
-                      ))}
-                    </AnimatePresence>
+                    )}
                   </div>
-                </div>
+                ))}
               </div>
-
-              {/* On-screen horizontal navigator — a fluid slider + arrows to pan
-                  across the columns when the comparison is wider than the view. */}
-              {scrollNav.max > 4 && (
-                <div className="no-print mb-1 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => panBy(-1)}
-                    disabled={scrollNav.left <= 1}
-                    aria-label="Desplazar a la izquierda"
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-90 disabled:opacity-40"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.round(scrollNav.max)}
-                    value={Math.round(scrollNav.left)}
-                    onChange={(e) => {
-                      const sc = scrollRef.current;
-                      if (sc) sc.scrollLeft = Number(e.target.value);
-                    }}
-                    aria-label="Desplazar la tabla comparativa horizontalmente"
-                    className="cfg-range flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => panBy(1)}
-                    disabled={scrollNav.left >= scrollNav.max - 1}
-                    aria-label="Desplazar a la derecha"
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-90 disabled:opacity-40"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
 
               {/* Horizontal scroll wrapper — the comparison stays usable on
                   phones and tablets, and the label column freezes on the left. */}
-              <div
-                ref={scrollRef}
-                onScroll={syncStrip}
-                className="cmp-scroll -mx-1 overflow-x-auto px-1 pb-2"
-              >
+              <div className="cmp-scroll -mx-1 overflow-x-auto px-1 pb-2">
                 <div
-                  ref={gridRef}
-                  data-cols={ordered.length}
                   className={dense ? "cmp-grid grid gap-1.5" : "cmp-grid grid gap-3"}
                   style={
                     { gridTemplateColumns: columns, "--print-cols": printColumns } as React.CSSProperties
@@ -607,53 +503,6 @@ export function NuevoComparador() {
 
       {tab === "config" && <ComparatorSettings cmp={cmp} />}
     </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* Compact frozen strip chip                                           */
-/* ------------------------------------------------------------------ */
-
-/**
- * A single chip in the compact frozen strip. It lives inside a grid cell that
- * matches its column, so it can fill the column width. The name font shrinks
- * with length and wraps to two lines, so long names are shown in full instead
- * of being clipped.
- */
-function StripChip({
-  candidate,
-  rank,
-  showRank,
-}: {
-  candidate: Candidate;
-  rank: number;
-  showRank: boolean;
-}) {
-  const len = candidate.fullName.length;
-  const nameSize =
-    len > 30 ? "text-[0.6rem]" : len > 20 ? "text-[0.7rem]" : "text-sm";
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: -12, scale: 0.9 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -8, scale: 0.9 }}
-      transition={{ type: "spring", stiffness: 340, damping: 26 }}
-      className="glass-heavy flex min-w-0 items-center gap-2 rounded-2xl px-2.5 py-1.5"
-    >
-      <Avatar name={candidate.fullName} seed={candidate.id} size="sm" />
-      <span
-        className={`min-w-0 flex-1 font-bold leading-tight text-ink line-clamp-2 ${nameSize}`}
-        title={candidate.fullName}
-      >
-        {candidate.fullName}
-      </span>
-      {showRank && (
-        <span className="shrink-0 rounded-full fill-softer px-1.5 py-0.5 text-[0.6rem] font-black text-ink-soft ring-1 ring-[color:var(--hairline)]">
-          {rank}.º
-        </span>
-      )}
-    </motion.div>
   );
 }
 

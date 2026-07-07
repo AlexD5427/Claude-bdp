@@ -15,15 +15,7 @@ import {
   parseDiscArchetypes,
   type DiscArchetype,
 } from "../lib/disc";
-import {
-  emptyAuxiliares,
-  type Auxiliares,
-  type Candidate,
-  type EspejoRow,
-  type RawCandidate,
-  type RawPerfil,
-  type TalentPayload,
-} from "../types";
+import type { Candidate, RawCandidate, TalentPayload } from "../types";
 
 export type DataStatus = "idle" | "loading" | "success" | "error";
 
@@ -32,20 +24,8 @@ export interface TalentDataValue {
   competencias: string[];
   /** DISC archetype catalogue (from the "Auxiliar" sheet, or the fallback). */
   arquetipos: DiscArchetype[];
-  /** Auxiliary catalogues (cargos, gerencias, agencias, …). */
-  auxiliares: Auxiliares;
-  /** Raw rows of the "Perfiles_y_Configuracion" sheet. */
-  perfiles: RawPerfil[];
-  /** Full process history ("Espejo_Base"). */
-  espejoBase: EspejoRow[];
-  /** Latest state per process ("Espejo_Ultimo_Registro"). */
-  espejoUltimo: EspejoRow[];
   status: DataStatus;
   loading: boolean;
-  /** True whenever a network refresh is in flight (even with cached data). */
-  syncing: boolean;
-  /** ISO timestamp of the last successful sync, or null. */
-  lastSyncedAt: string | null;
   error: string | null;
   /** Re-run the GET request. */
   refetch: () => void;
@@ -56,39 +36,6 @@ export interface TalentDataValue {
 }
 
 const TalentDataContext = createContext<TalentDataValue | null>(null);
-
-const CACHE_KEY = "bdp-talent-cache";
-
-interface CachedPayload extends TalentPayload {
-  cachedAt: string;
-}
-
-/** Normalise the loose auxiliares object into a fully-populated shape. */
-function normaliseAuxiliares(raw?: Partial<Auxiliares>): Auxiliares {
-  const base = emptyAuxiliares();
-  if (!raw) return base;
-  const pick = (v: unknown): string[] =>
-    Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean) : [];
-  return {
-    cargos_bdp: pick(raw.cargos_bdp),
-    gerencias_bdp: pick(raw.gerencias_bdp),
-    agencias_bdp: pick(raw.agencias_bdp),
-    modalidad_reclutamiento: pick(raw.modalidad_reclutamiento),
-    estado_proceso: pick(raw.estado_proceso),
-  };
-}
-
-function coercePayload(data: Partial<TalentPayload>): TalentPayload {
-  return {
-    candidatos: Array.isArray(data.candidatos) ? data.candidatos : [],
-    competencias: Array.isArray(data.competencias) ? data.competencias : [],
-    arquetipos_disc: Array.isArray(data.arquetipos_disc) ? data.arquetipos_disc : [],
-    auxiliares: normaliseAuxiliares(data.auxiliares),
-    perfiles: Array.isArray(data.perfiles) ? data.perfiles : [],
-    espejo_base: Array.isArray(data.espejo_base) ? data.espejo_base : [],
-    espejo_ultimo: Array.isArray(data.espejo_ultimo) ? data.espejo_ultimo : [],
-  };
-}
 
 /** Fetch JSON with a timeout + small exponential-backoff retry. */
 async function fetchPayload(
@@ -105,7 +52,13 @@ async function fetchPayload(
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = (await res.json()) as Partial<TalentPayload>;
-    return coercePayload(data);
+    return {
+      candidatos: Array.isArray(data.candidatos) ? data.candidatos : [],
+      competencias: Array.isArray(data.competencias) ? data.competencias : [],
+      arquetipos_disc: Array.isArray(data.arquetipos_disc)
+        ? data.arquetipos_disc
+        : [],
+    };
   } catch (err) {
     if (signal.aborted) throw err;
     if (attempt < 2) {
@@ -117,69 +70,19 @@ async function fetchPayload(
   }
 }
 
-function readCache(): CachedPayload | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedPayload;
-    if (!parsed || !Array.isArray(parsed.candidatos)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(payload: TalentPayload): void {
-  if (typeof window === "undefined") return;
-  try {
-    const cached: CachedPayload = { ...payload, cachedAt: new Date().toISOString() };
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
-  } catch {
-    /* ignore quota / private mode */
-  }
-}
-
 export function TalentDataProvider({ children }: { children: ReactNode }) {
-  // Hydrate synchronously from cache so the first paint already has data
-  // (stale-while-revalidate): the network refresh then runs in the background.
-  const initial = readCache();
-
-  const [raw, setRaw] = useState<RawCandidate[]>(initial?.candidatos ?? []);
-  const [competencias, setCompetencias] = useState<string[]>(
-    initial?.competencias ?? [],
-  );
-  const [arquetiposRaw, setArquetiposRaw] = useState<string[]>(
-    initial?.arquetipos_disc ?? [],
-  );
-  const [auxiliares, setAuxiliares] = useState<Auxiliares>(
-    normaliseAuxiliares(initial?.auxiliares),
-  );
-  const [perfiles, setPerfiles] = useState<RawPerfil[]>(initial?.perfiles ?? []);
-  const [espejoBase, setEspejoBase] = useState<EspejoRow[]>(
-    initial?.espejo_base ?? [],
-  );
-  const [espejoUltimo, setEspejoUltimo] = useState<EspejoRow[]>(
-    initial?.espejo_ultimo ?? [],
-  );
-  const [status, setStatus] = useState<DataStatus>(
-    initial ? "success" : "idle",
-  );
-  const [syncing, setSyncing] = useState(false);
-  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(
-    initial?.cachedAt ?? null,
-  );
+  const [raw, setRaw] = useState<RawCandidate[]>([]);
+  const [competencias, setCompetencias] = useState<string[]>([]);
+  const [arquetiposRaw, setArquetiposRaw] = useState<string[]>([]);
+  const [status, setStatus] = useState<DataStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
-  const hasData = useRef<boolean>(Boolean(initial));
 
   const load = useCallback(() => {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
-    // Only flip to the full-page "loading" state when we have nothing to show.
-    if (!hasData.current) setStatus("loading");
-    setSyncing(true);
+    setStatus("loading");
     setError(null);
 
     fetchPayload(controller.signal)
@@ -188,21 +91,10 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
         setRaw(payload.candidatos);
         setCompetencias(payload.competencias);
         setArquetiposRaw(payload.arquetipos_disc ?? []);
-        setAuxiliares(normaliseAuxiliares(payload.auxiliares));
-        setPerfiles(payload.perfiles ?? []);
-        setEspejoBase(payload.espejo_base ?? []);
-        setEspejoUltimo(payload.espejo_ultimo ?? []);
         setStatus("success");
-        setSyncing(false);
-        setLastSyncedAt(new Date().toISOString());
-        hasData.current = true;
-        writeCache(payload);
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        setSyncing(false);
-        // Keep cached data visible on a background refresh failure.
-        if (hasData.current) return;
         setError(
           err instanceof Error
             ? err.message
@@ -259,33 +151,13 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       candidatos,
       competencias,
       arquetipos,
-      auxiliares,
-      perfiles,
-      espejoBase,
-      espejoUltimo,
       status,
       loading: status === "loading" || status === "idle",
-      syncing,
-      lastSyncedAt,
       error,
       refetch: load,
       submitCandidate,
     }),
-    [
-      candidatos,
-      competencias,
-      arquetipos,
-      auxiliares,
-      perfiles,
-      espejoBase,
-      espejoUltimo,
-      status,
-      syncing,
-      lastSyncedAt,
-      error,
-      load,
-      submitCandidate,
-    ],
+    [candidatos, competencias, arquetipos, status, error, load, submitCandidate],
   );
 
   return (

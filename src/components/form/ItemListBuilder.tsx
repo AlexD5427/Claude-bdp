@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Plus, X } from "lucide-react";
 import type { FormItem } from "../../types";
@@ -10,8 +9,6 @@ interface ItemListBuilderProps {
   items: FormItem[];
   max: number;
   addLabel: string;
-  /** Placeholder for the name input (e.g. "Nombre del Conocimiento Técnico"). */
-  namePlaceholder?: string;
   /** Show the free-text "detalle" field (Conocimientos Técnicos). */
   withDetalle?: boolean;
   emptyHint: string;
@@ -24,12 +21,6 @@ interface ItemListBuilderProps {
  * A reusable "0/N" list builder used by both A1 (Conocimientos Técnicos, with
  * a detail field) and A2 (Manejo de Herramientas). Each row captures a name, a
  * level (Bajo / Medio / Alto) and — optionally — a free-text detail.
- *
- * Keyboard-first flow: while the list is empty the "Agregar" button sits in the
- * header; once there are items it relocates to the bottom-right (after the last
- * row), so a Tab from the last "Detalle" lands on it and another Tab jumps to
- * the next section's "Agregar". Adding a row auto-focuses its name field, and
- * the remove (✕) button is kept out of the tab order.
  */
 export function ItemListBuilder({
   title,
@@ -37,7 +28,6 @@ export function ItemListBuilder({
   items,
   max,
   addLabel,
-  namePlaceholder = "Nombre",
   withDetalle = false,
   emptyHint,
   onAdd,
@@ -45,30 +35,6 @@ export function ItemListBuilder({
   onRemove,
 }: ItemListBuilderProps) {
   const atLimit = items.length >= max;
-  const nameRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const prevCount = useRef(items.length);
-
-  // When a new row appears, move focus to its name field for uninterrupted
-  // keyboard entry (pressing the Add button flows straight into typing).
-  useEffect(() => {
-    if (items.length > prevCount.current) {
-      const last = items[items.length - 1];
-      if (last) requestAnimationFrame(() => nameRefs.current[last.uid]?.focus());
-    }
-    prevCount.current = items.length;
-  }, [items]);
-
-  const AddButton = (
-    <button
-      type="button"
-      onClick={onAdd}
-      disabled={atLimit}
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-3 py-1.5 text-xs font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-300 hover:-translate-y-0.5 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      <Plus className="h-3.5 w-3.5" />
-      {addLabel}
-    </button>
-  );
 
   return (
     <div className="rounded-2xl fill-soft p-4 ring-1 ring-[color:var(--hairline)]">
@@ -82,8 +48,15 @@ export function ItemListBuilder({
           </h4>
           {subtitle && <p className="text-xs text-ink-faint">{subtitle}</p>}
         </div>
-        {/* While empty, the Add button lives in the header. */}
-        {items.length === 0 && AddButton}
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={atLimit}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-3 py-1.5 text-xs font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-300 hover:-translate-y-0.5 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {addLabel}
+        </button>
       </header>
 
       {items.length === 0 ? (
@@ -105,10 +78,9 @@ export function ItemListBuilder({
               >
                 <div className="flex items-center gap-2">
                   <input
-                    ref={(el) => (nameRefs.current[item.uid] = el)}
                     value={item.nombre}
                     onChange={(e) => onChange(item.uid, { nombre: e.target.value })}
-                    placeholder={namePlaceholder}
+                    placeholder="Nombre"
                     className="min-w-0 flex-1 rounded-lg fill-softer px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-faint outline-none ring-1 ring-[color:var(--hairline)] focus:ring-2 focus:ring-cyan-400/70"
                   />
                   <div className="relative">
@@ -131,7 +103,6 @@ export function ItemListBuilder({
                   <button
                     type="button"
                     aria-label="Quitar"
-                    tabIndex={-1}
                     onClick={() => onRemove(item.uid)}
                     className="grid h-7 w-7 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:bg-rose-500/80 hover:text-white active:scale-90"
                   >
@@ -149,10 +120,6 @@ export function ItemListBuilder({
               </motion.div>
             ))}
           </AnimatePresence>
-
-          {/* Once there are rows, the Add button moves to the bottom-right so
-              keyboard Tab order flows list → Agregar → next section. */}
-          <div className="flex justify-end pt-0.5">{AddButton}</div>
         </div>
       )}
     </div>

@@ -1,22 +1,5 @@
 # Backend de KPIs — pestaña «Dashboard y KPIs»
 
-> **⭐ Script vigente (péguelo TODO): [`Code.gs`](./Code.gs).**
-> `Code.gs` es ahora el **script único y autoritativo** del Web App y reemplaza
-> por completo al anterior (incluye lo de `Documentacion.gs`). Novedades:
-> lee la hoja de postulantes por nombre **`Registro_Postulantes`** (con respaldo
-> a la primera pestaña); devuelve los catálogos de la hoja **`Auxiliar`**
-> (`cargos_bdp`, `gerencias_bdp`, `agencias_bdp`, `modalidad_reclutamiento`,
-> `estado_proceso`) además de `competencias` y `arquetipo_disc`; enlaza
-> **`Espejo_Base`** y **`Espejo_Ultimo_Registro`**; agrega el sistema de
-> **perfiles** (`Perfiles_y_Configuracion`: login, guardado de configuración y
-> bitácora `log_actividad_perfil`); y **cachea el `GET`** por tramos para que la
-> carga deje de tardar >10 s. `Documentacion.gs` queda como referencia histórica.
->
-> **Despliegue:** Extensiones → Apps Script → pegue `Code.gs` → Implementar →
-> Administrar implementaciones → Editar → **Nueva versión** ("Cualquiera con el
-> enlace"). Para los recordatorios por correo ejecute una vez
-> `instalarTriggersDocumentacion()`.
-
 > **Novedad (módulo Documentación + DISC):** el archivo
 > [`Documentacion.gs`](./Documentacion.gs) es un **reemplazo directo** del script
 > del Web App actual. Es retrocompatible (mismo `GET`/`POST` de postulantes) y

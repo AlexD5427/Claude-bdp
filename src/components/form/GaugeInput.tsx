@@ -50,7 +50,7 @@ function bandColor(v: number | null): { stroke: string; text: string } {
  */
 export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [focused, setFocused] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const dragging = useRef(false);
   const v = value ?? 0;
@@ -96,12 +96,11 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function commitDraft(text: string) {
-    const n = Number.parseInt(text.replace(/[^0-9]/g, ""), 10);
+  function commitDraft() {
+    const n = Number.parseInt(draft.replace(/[^0-9]/g, ""), 10);
     if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100, n)));
+    setEditing(false);
   }
-
-  const display = focused ? draft : value === null ? "" : String(value);
 
   return (
     <div className="glass glow flex flex-col items-center rounded-2xl p-4 print-avoid-break">
@@ -119,7 +118,16 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={value ?? 0}
-        tabIndex={-1}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+            e.preventDefault();
+            onChange(Math.min(100, v + 1));
+          } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+            e.preventDefault();
+            onChange(Math.max(0, v - 1));
+          }
+        }}
       >
         <svg
           ref={svgRef}
@@ -193,47 +201,34 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
         </svg>
       </div>
 
-      {/* Centre read-out / manual entry — an always-present numeric field so the
-          dial is reachable by Tab and can be typed straight away (keyboard-only
-          navigation). Arrow keys nudge the value; the dial can still be dragged. */}
+      {/* Centre read-out / manual entry — sits below the dial, off the needle. */}
       <div className="mt-1 flex justify-center">
-        <div className="relative flex items-center">
+        {editing ? (
           <input
-            value={display}
+            autoFocus
+            value={draft}
             inputMode="numeric"
-            aria-label={`${label} (porcentaje)`}
-            placeholder="—"
-            onFocus={(e) => {
-              setDraft(value === null ? "" : String(value));
-              setFocused(true);
-              // Select all so the operator can overwrite immediately.
-              requestAnimationFrame(() => e.target.select());
-            }}
-            onChange={(e) => {
-              const t = e.target.value.replace(/[^0-9]/g, "").slice(0, 3);
-              setDraft(t);
-              commitDraft(t);
-            }}
-            onBlur={() => setFocused(false)}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commitDraft}
             onKeyDown={(e) => {
-              if (e.key === "ArrowUp") {
-                e.preventDefault();
-                const next = Math.min(100, v + 1);
-                onChange(next);
-                setDraft(String(next));
-              } else if (e.key === "ArrowDown") {
-                e.preventDefault();
-                const next = Math.max(0, v - 1);
-                onChange(next);
-                setDraft(String(next));
-              }
+              if (e.key === "Enter") commitDraft();
+              if (e.key === "Escape") setEditing(false);
             }}
-            className={`w-16 rounded-xl bg-transparent px-1 py-0.5 text-center text-2xl font-black leading-none outline-none transition-all focus:bg-white/80 focus:text-corp-ink focus:ring-2 focus:ring-cyan-400 ${text}`}
+            className="w-16 rounded-lg bg-white/80 px-2 py-0.5 text-center text-lg font-black text-corp-ink outline-none ring-2 ring-cyan-400"
           />
-          {!focused && value !== null && (
-            <span className={`pointer-events-none -ml-1 text-lg font-black ${text}`}>%</span>
-          )}
-        </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(value === null ? "" : String(value));
+              setEditing(true);
+            }}
+            title="Clic para ingresar manualmente"
+            className={`rounded-xl px-3 py-0.5 text-2xl font-black leading-none drop-shadow-sm transition-transform hover:scale-110 ${text}`}
+          >
+            {value === null ? "—" : `${value}%`}
+          </button>
+        )}
       </div>
     </div>
   );

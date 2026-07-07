@@ -7,7 +7,6 @@ import { useDocStore } from "../lib/docStore";
 import { computeDocKpis } from "../lib/docReport";
 import { usePointerGlow } from "../hooks/usePointerGlow";
 import { computeAllKpiValues, getModuleKpis, type KpiSpec } from "../lib/kpis";
-import { useFilteredData } from "../lib/useFilteredData";
 import { deltaVsPrev, history, useKpiRecorder } from "../lib/kpiHistory";
 import { Sparkline, TrendBadge } from "./charts";
 import { KpiDetailModal } from "./KpiDetailModal";
@@ -19,22 +18,11 @@ import type { ModuleId } from "../types";
  * recruitment KPIs best suited to it. Each tile carries a sparkline + a
  * month-over-month trend, and opens a historical drill-down on click.
  * The Dashboard module renders its own hero KPIs, so the bar hides there.
- *
- * All values honour the universal filters (see {@link ../lib/filtersStore}).
  */
 export function KpiBar({ module }: { module: ModuleId }) {
-  const { competencias } = useTalentData();
-  const { candidatos, filteredIds, active } = useFilteredData();
-  const hiringAll = useHiring();
+  const { candidatos, competencias } = useTalentData();
+  const hiring = useHiring();
   const docState = useDocStore();
-
-  const hiring = useMemo(
-    () =>
-      active
-        ? Object.fromEntries(Object.entries(hiringAll).filter(([id]) => filteredIds.has(id)))
-        : hiringAll,
-    [active, hiringAll, filteredIds],
-  );
 
   const values = useMemo(
     () => computeAllKpiValues(candidatos, competencias, hiring),
@@ -61,7 +49,7 @@ export function KpiBar({ module }: { module: ModuleId }) {
   if (module === "dashboard" || specs.length === 0) return null;
 
   return (
-    <div className="mx-auto grid w-full grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       {specs.map((spec, i) => (
         <KpiWidget key={spec.key} spec={spec} raw={merged[spec.key]} index={i} />
       ))}

@@ -12,8 +12,6 @@ interface DiscInfoButtonProps {
   /** Small (table cells) or default. */
   size?: "sm" | "md";
   className?: string;
-  /** Override the natural tab order (e.g. -1 to skip it in keyboard flow). */
-  tabIndex?: number;
 }
 
 /**
@@ -27,7 +25,6 @@ export function DiscInfoButton({
   archetype,
   size = "md",
   className = "",
-  tabIndex,
 }: DiscInfoButtonProps) {
   const { arquetipos } = useTalentData();
   const [open, setOpen] = useState(false);
@@ -43,7 +40,6 @@ export function DiscInfoButton({
     <>
       <button
         type="button"
-        tabIndex={tabIndex}
         aria-label={`¿Qué significa ${resolved.label}?`}
         title={`¿Qué significa ${resolved.label}?`}
         onClick={(e) => {

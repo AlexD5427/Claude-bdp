@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { PortalDropdown } from "./PortalDropdown";
 import { DiscInfoButton } from "./DiscInfoButton";
@@ -28,182 +28,109 @@ function Dot({ code }: { code: string }) {
 }
 
 /**
- * A premium DISC archetype picker, now a **typeable combobox**: the operator
- * can Tab into it, type part of an archetype ("dir", "ana"…) to filter, move
- * through matches with ↑/↓ and select with Enter — all without a mouse. When it
- * isn't focused it collapses to a colour-coded chip (D·red, I·amber, S·green,
- * C·blue) and reveals a "!" button explaining the archetype. The option list is
- * drawn in a portal so it never gets clipped inside the modal.
- *
- * The `<input>` ref is forwarded so the intake form can drive focus order.
+ * A premium DISC archetype picker. Instead of a plain dropdown it shows the
+ * current selection as a colour-coded **chip** (D·red, I·amber, S·green,
+ * C·blue), defaults to "N/A", and — once a real archetype is chosen — reveals a
+ * small "!" button that opens a pop-up explaining what the archetype means. The
+ * option list is drawn in a portal so it never gets clipped inside the modal.
  */
-export const DiscSelect = forwardRef<HTMLInputElement, DiscSelectProps>(
-  function DiscSelect({ label, hint, value, onChange, archetypes }, ref) {
-    const [open, setOpen] = useState(false);
-    const [query, setQuery] = useState("");
-    const [focused, setFocused] = useState(false);
-    const [active, setActive] = useState(0);
-    const wrapRef = useRef<HTMLDivElement>(null);
+export function DiscSelect({
+  label,
+  hint,
+  value,
+  onChange,
+  archetypes,
+}: DiscSelectProps) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
 
-    const selected = useMemo(
-      () => resolveDiscArchetype(archetypes, value),
-      [archetypes, value],
-    );
-    const isNA = !value || value.toUpperCase() === NA || !selected;
-    const chipAccent = discAccent(selected?.code ?? "");
+  const selected = useMemo(
+    () => resolveDiscArchetype(archetypes, value),
+    [archetypes, value],
+  );
+  const isNA = !value || value.toUpperCase() === NA || !selected;
+  const chipAccent = discAccent(selected?.code ?? "");
 
-    const options = useMemo(
-      () => [NA, ...archetypes.map((a) => a.label)],
-      [archetypes],
-    );
+  const options = useMemo(() => [NA, ...archetypes.map((a) => a.label)], [archetypes]);
 
-    const suggestions = useMemo(() => {
-      const q = query.trim().toLowerCase();
-      if (!q) return options;
-      return options.filter((o) => o.toLowerCase().includes(q));
-    }, [options, query]);
-
-    useEffect(() => setActive(0), [query, open]);
-
-    function choose(opt: string) {
-      onChange(opt);
-      setQuery("");
-      setOpen(false);
-      setFocused(false);
-    }
-
-    function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-      if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
-        setOpen(true);
-        return;
-      }
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActive((a) => Math.min(a + 1, suggestions.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActive((a) => Math.max(a - 1, 0));
-      } else if (e.key === "Enter") {
-        if (suggestions[active]) {
-          e.preventDefault();
-          choose(suggestions[active]);
-        }
-      } else if (e.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    // When the field is focused the operator types freely; otherwise we show
-    // the human-readable selected label (or an empty box for N/A).
-    const display = focused
-      ? query
-      : isNA
-        ? ""
-        : selected!.label;
-
-    return (
-      <div>
-        <span className="mb-1.5 flex items-center justify-between gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-            {label}
-          </span>
-          {hint && <span className="text-[0.65rem] text-ink-faint">{hint}</span>}
+  return (
+    <div>
+      <span className="mb-1.5 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+          {label}
         </span>
+        {hint && <span className="text-[0.65rem] text-ink-faint">{hint}</span>}
+      </span>
 
-        <div className="flex items-center gap-2">
-          <div ref={wrapRef} className="relative min-w-0 flex-1">
-            <div className="glass flex items-center gap-2 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-cyan-400/70">
-              {/* Colour dot reflecting the current selection. */}
-              {isNA ? (
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400/60" />
-              ) : (
-                <Dot code={selected!.code} />
-              )}
-              <input
-                ref={ref}
-                type="text"
-                value={display}
-                onFocus={() => {
-                  setFocused(true);
-                  setQuery("");
-                  setOpen(true);
-                }}
-                onBlur={() => setFocused(false)}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setOpen(true);
-                }}
-                onKeyDown={onKeyDown}
-                placeholder={isNA ? "N/A · escriba para buscar…" : "Buscar arquetipo…"}
-                role="combobox"
-                aria-expanded={open}
-                aria-autocomplete="list"
-                autoComplete="off"
-                className="w-full bg-transparent text-sm font-semibold text-ink placeholder:font-normal placeholder:text-ink-faint outline-none"
-              />
-              <ChevronDown
-                className={`ml-auto h-4 w-4 shrink-0 text-ink-soft transition-transform ${open ? "rotate-180" : ""}`}
-              />
-            </div>
-
-            <PortalDropdown open={open} anchorRef={wrapRef} onClose={() => setOpen(false)}>
-              <ul role="listbox" className="glass-heavy w-full rounded-2xl p-1.5">
-                {suggestions.length === 0 && (
-                  <li className="px-3 py-2 text-sm text-ink-faint">Sin coincidencias.</li>
+      <div className="flex items-center gap-2">
+        <div ref={wrapRef} className="relative min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            className="glass flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left outline-none transition-all focus-within:ring-2 focus-within:ring-cyan-400/70"
+          >
+            {isNA ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full fill-softer px-2.5 py-1 text-xs font-bold text-ink-soft ring-1 ring-[color:var(--hairline)]">
+                <span className="h-2.5 w-2.5 rounded-full bg-slate-400/60" />
+                N/A
+              </span>
+            ) : (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ring-1 shadow-glass ${chipAccent.chip}`}
+              >
+                {selected!.code && (
+                  <span className="grid h-4 min-w-4 place-items-center rounded-full bg-white/25 px-1 text-[0.6rem] font-black">
+                    {selected!.code}
+                  </span>
                 )}
-                {suggestions.map((opt, i) => {
-                  const isActiveOpt = i === active;
-                  const isSelected = (value || NA) === opt;
-                  const code = opt === NA ? "" : extractDiscCode(opt);
-                  return (
-                    <li key={opt} role="option" aria-selected={isSelected}>
-                      <button
-                        type="button"
-                        onMouseEnter={() => setActive(i)}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          choose(opt);
-                        }}
-                        className={[
-                          "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors",
-                          isActiveOpt
-                            ? "bg-gradient-to-br from-[#00b0d8]/30 to-[#005baa]/30 text-ink"
-                            : "text-ink-soft hover:fill-soft",
-                        ].join(" ")}
-                      >
-                        {opt === NA ? (
-                          <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400/60" />
-                        ) : (
-                          <Dot code={code} />
-                        )}
-                        <span className="truncate">{opt}</span>
-                        {isSelected && <Check className="ml-auto h-4 w-4 shrink-0 text-cyan-400" />}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </PortalDropdown>
-          </div>
+                {selected!.label.replace(/\s*\([^)]*\)\s*/g, "").trim()}
+              </span>
+            )}
+            <ChevronDown
+              className={`ml-auto h-4 w-4 shrink-0 text-ink-soft transition-transform ${open ? "rotate-180" : ""}`}
+            />
+          </button>
 
-          {/* The "!" info button, only when a real archetype is selected. It is
-              kept out of the keyboard tab order so Tab flows straight on. */}
-          {!isNA && <DiscInfoButton archetype={selected} tabIndex={-1} />}
-
-          {/* Preserve the coloured chip affordance beside the field. */}
-          {!isNA && !focused && (
-            <span
-              className={`hidden shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ring-1 shadow-glass sm:inline-flex ${chipAccent.chip}`}
-            >
-              {selected!.code && (
-                <span className="grid h-4 min-w-4 place-items-center rounded-full bg-white/25 px-1 text-[0.6rem] font-black">
-                  {selected!.code}
-                </span>
-              )}
-            </span>
-          )}
+          <PortalDropdown open={open} anchorRef={wrapRef} onClose={() => setOpen(false)}>
+            <ul role="listbox" className="glass-heavy w-full rounded-2xl p-1.5">
+              {options.map((opt) => {
+                const active = (value || NA) === opt;
+                const code = opt === NA ? "" : extractDiscCode(opt);
+                return (
+                  <li key={opt} role="option" aria-selected={active}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange(opt);
+                        setOpen(false);
+                      }}
+                      className={[
+                        "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                        active
+                          ? "bg-gradient-to-br from-[#00b0d8]/30 to-[#005baa]/30 text-ink"
+                          : "text-ink-soft hover:fill-soft",
+                      ].join(" ")}
+                    >
+                      {opt === NA ? (
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400/60" />
+                      ) : (
+                        <Dot code={code} />
+                      )}
+                      <span className="truncate">{opt}</span>
+                      {active && <Check className="ml-auto h-4 w-4 shrink-0 text-cyan-400" />}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </PortalDropdown>
         </div>
+
+        {/* The "!" info button, only when a real archetype is selected. */}
+        {!isNA && <DiscInfoButton archetype={selected} />}
       </div>
-    );
-  },
-);
+    </div>
+  );
+}
