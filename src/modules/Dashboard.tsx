@@ -334,7 +334,7 @@ function renderWidget(id: string, ctx: DashCtx): React.ReactNode {
                     type="button"
                     onClick={() => openProfile(c.id)}
                     title={`Ver perfil de ${c.fullName}`}
-                    className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
+                    className="group flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
                   >
                     <Avatar name={c.fullName} seed={c.id} size="sm" />
                     <div className="min-w-0 flex-1">

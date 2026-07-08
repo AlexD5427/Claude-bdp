@@ -28,6 +28,21 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   (conocimientos, herramientas y competencias), escalas de confiabilidad y
   observaciones por etiquetas. Incluye **autoguardado local**, **recuperación de
   borrador** ante caídas y **confirmación de salida**.
+- **Perfil de Postulante (Vista Completa):** panel a pantalla completa que
+  **centraliza toda la información de una persona** en un solo lugar, accesible
+  desde **cualquier módulo** (comparador, procesos, postulantes, documentación,
+  dashboard). Siete pestañas animadas: **Resumen**, **Trayectoria**
+  (académica/laboral visual), **Evaluaciones** (anillos + radar + competencias),
+  **Currículum 3D** (motor Three.js con tarjeta que sigue al cursor y respaldo
+  estático), **Referencias** (panel de referencias laborales con formulario y
+  comentarios estructurados), **Documentación** (flujo del expediente) e
+  **Historial** (línea de tiempo unificada). Accesibilidad de primer nivel
+  (diálogo, Escape, foco) y escalable para enlazar más fuentes de datos.
+- **Edición global de postulantes:** un botón **Editar** disponible en todos los
+  lugares donde aparece un postulante abre el cuestionario **precargado**, con el
+  identificador bloqueado y los **campos modificados resaltados en ámbar**; al
+  **Guardar Cambios** se actualiza Google Sheets (`action:"update"`), se refresca
+  toda la base y se registra el cambio (quién, cuándo y qué) en la bitácora.
 - **Módulo — Dashboard (personalizable):** tablero *bento* editable — el modo
   **Personalizar** permite **añadir/quitar indicadores**, **redimensionar** cada
   bloque (1–4 columnas) y **arrastrarlos** para reordenarlos; la disposición se
@@ -38,17 +53,19 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   y su orden) y las preferencias de vista **se conservan durante la sesión** al
   cambiar de módulo. Se organiza en tres pestañas:
   - **Comparativa:** informe seccionado con encabezados congelados, orden por
-    **Nota CAP**, contorno de **empate**, **ranking** (1.º/2.º/3.º) y un **chip
-    de perfil** rediseñado — nivel académico y su conector en una línea y la
-    **carrera debajo**. Cada sección (Resultados, Competencias, Conocimientos,
-    Herramientas, Integridad, Observaciones) **se contrae/despliega**. Cuadrícula
-    con **desplazamiento horizontal** para móviles y la impresión ajusta a una
-    hoja.
-  - **Gráficos:** generador **interactivo** — se eligen candidatos y métricas
-    (notas + ajuste por competencia) y se dibujan **barras agrupadas, radar o
-    dona** animados, más una tabla de datos, con una paleta de alto contraste.
-  - **Configuración (por sesión):** mostrar/ocultar «Ajuste y Brecha», modo
-    compacto y la **visibilidad de cada sección** de la tabla comparativa.
+    **Nota CAP** con **filtro ascendente/descendente**, **ranking** configurable
+    (chapa **dorada** con efectos para el 1.º y **plateada** para el resto) que
+    puede mostrarse en la **tarjeta**, en una **fila** dedicada o en **ambas**, y
+    un **chip de perfil** rediseñado — nombres **en mayúsculas**, nivel académico
+    y su conector en una línea y la **carrera debajo**. La **columna congelada**
+    es opaca (sin solapamiento al desplazar) y sus etiquetas largas se **revelan
+    con una marquesina** suave. Un **ayudante de navegación fijo** (d-pad)
+    aparece al comparar muchos candidatos. Cada sección se **contrae/despliega**.
+  - **Gráficos:** generador **interactivo** — se eligen candidatos y métricas y
+    se dibujan **barras agrupadas, barras horizontales, líneas multiserie, radar
+    o dona** animados, con leyendas y una tabla de datos de alto contraste.
+  - **Configuración (por sesión):** «Ajuste y Brecha», modo compacto, visibilidad
+    de secciones y los controles de **ranking, orden y ayudante de navegación**.
 - **Módulo — Documentación:** expediente editable por persona contratada (ligado
   al identificador), con **checklist de documentos** por estado (presentado /
   pendiente / con observación / no aplica), páginas, observaciones y prórrogas;

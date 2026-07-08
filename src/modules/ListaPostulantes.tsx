@@ -121,7 +121,7 @@ function CandidateCard({
           type="button"
           onClick={() => openProfile(candidate.id)}
           title={`Ver perfil de ${candidate.fullName}`}
-          className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
+          className="group flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
         >
           <Avatar name={candidate.fullName} seed={candidate.id} size="md" />
           <div className="min-w-0 flex-1">

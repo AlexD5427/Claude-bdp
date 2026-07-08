@@ -600,6 +600,12 @@
     grid-template-columns: var(--print-cols) !important;
     gap: 0.4rem !important;
   }
+  /* The frozen-column underlay must be white on paper (its screen value is the
+     dark app base, which would otherwise print as a black block). */
+  .cmp-freeze {
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
 
   /* ---- Fit-to-page legibility for the printed comparativa ----
      Names and chips must show in full (never clipped), and everything shrinks
