@@ -3,6 +3,8 @@ import { motion } from "framer-motion";
 import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { Avatar } from "../components/Avatar";
+import { CandidateActions } from "../components/CandidateActions";
+import { openProfile } from "../lib/profileViewerStore";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
 import { RegistrationForm } from "./RegistrationForm";
 import { usePointerGlow } from "../hooks/usePointerGlow";
@@ -115,15 +117,23 @@ function CandidateCard({
       className="glass glow liquid-streak magnetic rounded-3xl p-4 print-avoid-break"
     >
       <div className="flex items-center gap-3">
-        <Avatar name={candidate.fullName} seed={candidate.id} size="md" />
-        <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-bold text-ink">
-            {candidate.fullName}
-          </h3>
-          <p className="truncate text-xs text-ink-soft">
-            {candidate.cargo_bdp || "Cargo no especificado"}
-          </p>
-        </div>
+        <button
+          type="button"
+          onClick={() => openProfile(candidate.id)}
+          title={`Ver perfil de ${candidate.fullName}`}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
+        >
+          <Avatar name={candidate.fullName} seed={candidate.id} size="md" />
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-base font-bold text-ink transition-colors group-hover:text-cyan-400">
+              {candidate.fullName}
+            </h3>
+            <p className="truncate text-xs text-ink-soft">
+              {candidate.cargo_bdp || "Cargo no especificado"}
+            </p>
+          </div>
+        </button>
+        <CandidateActions id={candidate.id} name={candidate.fullName} />
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[0.7rem]">

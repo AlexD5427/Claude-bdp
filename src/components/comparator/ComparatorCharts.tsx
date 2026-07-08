@@ -1,9 +1,19 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { BarChart3, Radar, PieChart, Table2, Sparkles } from "lucide-react";
+import {
+  BarChart3,
+  BarChartHorizontal,
+  LineChart as LineChartIcon,
+  Radar,
+  PieChart,
+  Table2,
+  Sparkles,
+} from "lucide-react";
 import { Avatar } from "../Avatar";
 import {
   GroupedBarChart,
+  HorizontalBars,
+  LineChart,
   RadarChart,
   DonutChart,
   SERIES_PALETTE,
@@ -15,11 +25,12 @@ import type { Candidate } from "../../types";
 /**
  * Interactive analytics for the comparator. The operator picks *which*
  * candidates and *which* metrics to plot, and the panel renders an animated,
- * dependency-free chart (grouped bars, a radial radar or a donut) plus a live
- * data table — all built from the candidates already in the comparison.
+ * dependency-free chart (grouped bars, horizontal bars, a line comparison, a
+ * radial radar or a donut) plus a live data table — all built from the
+ * candidates already in the comparison.
  */
 
-type ChartType = "barras" | "radar" | "dona";
+type ChartType = "barras" | "barrasH" | "linea" | "radar" | "dona";
 
 interface Metric {
   id: string;
@@ -37,6 +48,8 @@ const BASE_METRICS: Metric[] = [
 
 const CHART_TYPES: { id: ChartType; label: string; icon: typeof BarChart3 }[] = [
   { id: "barras", label: "Barras", icon: BarChart3 },
+  { id: "barrasH", label: "Barras H.", icon: BarChartHorizontal },
+  { id: "linea", label: "Líneas", icon: LineChartIcon },
   { id: "radar", label: "Radar", icon: Radar },
   { id: "dona", label: "Dona", icon: PieChart },
 ];
@@ -200,6 +213,10 @@ export function ComparatorCharts({ candidates }: { candidates: Candidate[] }) {
             series={series}
             height={280}
           />
+        ) : chartType === "barrasH" ? (
+          <HorizontalBars categories={pickedMetrics.map((m) => m.label)} series={series} />
+        ) : chartType === "linea" ? (
+          <LineChart categories={pickedMetrics.map((m) => m.label)} series={series} height={300} />
         ) : chartType === "radar" ? (
           <RadarChart axes={pickedMetrics.map((m) => m.label)} series={series} size={340} />
         ) : (

@@ -15,7 +15,7 @@ export function CandidateEditModal() {
 
   return (
     <RegistrationForm
-      open={Boolean(editingId)}
+      open={Boolean(editingId) && Boolean(candidate)}
       editing={candidate}
       onClose={closeEdit}
     />

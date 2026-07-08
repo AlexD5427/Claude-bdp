@@ -299,6 +299,180 @@ function round(v: number): number {
   return Math.round(v * 10) / 10;
 }
 
+/**
+ * Grouped **horizontal** bars — one row per category, one bar per series. Reads
+ * better than vertical bars when there are many metrics or long labels, and
+ * every bar animates its width in with a spring and shows its value inline.
+ */
+export function HorizontalBars({
+  categories,
+  series,
+  unit = "",
+  max: maxProp,
+}: {
+  categories: string[];
+  series: Series[];
+  unit?: string;
+  max?: number;
+}) {
+  const max =
+    maxProp ?? Math.max(1, ...series.flatMap((s) => s.values.map((v) => (Number.isFinite(v) ? v : 0))));
+  return (
+    <div className="space-y-3">
+      {categories.map((cat, ci) => (
+        <div key={cat}>
+          <div className="mb-1 truncate text-xs font-semibold text-ink-soft" title={cat}>
+            {cat}
+          </div>
+          <div className="space-y-1">
+            {series.map((s, si) => {
+              const raw = s.values[ci];
+              const v = Number.isFinite(raw) ? raw : 0;
+              const color = s.color ?? CHART_PALETTE[si % CHART_PALETTE.length];
+              return (
+                <div key={s.label} className="flex items-center gap-2">
+                  <div className="relative h-5 flex-1 overflow-hidden rounded-full fill-soft">
+                    <motion.div
+                      className="flex h-full items-center justify-end rounded-full pr-2"
+                      style={{ background: `linear-gradient(90deg, ${color}bb, ${color})` }}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.max((v / max) * 100, 4)}%` }}
+                      transition={{ type: "spring", stiffness: 120, damping: 20, delay: 0.03 * (ci + si) }}
+                      title={`${s.label} · ${cat}: ${round(v)}${unit}`}
+                    >
+                      <span className="text-[0.6rem] font-black text-white drop-shadow">{round(v)}</span>
+                    </motion.div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <Legend series={series} />
+    </div>
+  );
+}
+
+/**
+ * A multi-series line chart across categories (metrics on the X axis, one line
+ * per candidate). Lines draw in with an animated stroke and each vertex is a
+ * hover dot with a tooltip — great for spotting who leads on each metric.
+ */
+export function LineChart({
+  categories,
+  series,
+  height = 280,
+  max = 100,
+  unit = "",
+}: {
+  categories: string[];
+  series: Series[];
+  height?: number;
+  max?: number;
+  unit?: string;
+}) {
+  const w = 640;
+  const padX = 40;
+  const padY = 28;
+  const n = categories.length;
+  if (n < 2) {
+    return (
+      <p className="rounded-2xl border border-dashed border-[color:var(--hairline)] px-4 py-6 text-center text-sm text-ink-faint">
+        Seleccione al menos 2 métricas para dibujar el gráfico de líneas.
+      </p>
+    );
+  }
+  const stepX = (w - padX * 2) / (n - 1);
+  const yFor = (v: number) => padY + (1 - Math.max(0, Math.min(1, v / max))) * (height - padY * 2);
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${w} ${height}`} className="w-full overflow-visible" style={{ maxHeight: height + 20 }}>
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+          <line
+            key={t}
+            x1={padX}
+            x2={w - padX}
+            y1={padY + t * (height - padY * 2)}
+            y2={padY + t * (height - padY * 2)}
+            stroke="var(--hairline)"
+            strokeWidth="1"
+          />
+        ))}
+        {series.map((s, si) => {
+          const color = s.color ?? CHART_PALETTE[si % CHART_PALETTE.length];
+          const pts = categories.map((_, i) => ({ x: padX + i * stepX, y: yFor(s.values[i] ?? 0) }));
+          const line = pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+          return (
+            <g key={s.label}>
+              <motion.path
+                d={line}
+                fill="none"
+                stroke={color}
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ duration: 1, ease: "easeInOut", delay: si * 0.12 }}
+              />
+              {pts.map((p, i) => (
+                <motion.circle
+                  key={i}
+                  cx={p.x}
+                  cy={p.y}
+                  r={3.4}
+                  fill={color}
+                  stroke="var(--app-base)"
+                  strokeWidth="1.5"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.5 + si * 0.12 + i * 0.05 }}
+                  className="cursor-pointer transition-[r] hover:[r:6]"
+                >
+                  <title>{`${s.label} · ${categories[i]}: ${round(s.values[i] ?? 0)}${unit}`}</title>
+                </motion.circle>
+              ))}
+            </g>
+          );
+        })}
+        {categories.map((cat, i) => (
+          <text
+            key={cat}
+            x={padX + i * stepX}
+            y={height - 6}
+            textAnchor="middle"
+            className="fill-[color:var(--ink-faint)]"
+            style={{ fontSize: 9 }}
+          >
+            {cat.length > 12 ? `${cat.slice(0, 11)}…` : cat}
+          </text>
+        ))}
+      </svg>
+      <Legend series={series} />
+    </div>
+  );
+}
+
+/** A shared, wrapping legend for the multi-series charts. */
+function Legend({ series }: { series: Series[] }) {
+  return (
+    <ul className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+      {series.map((s, si) => (
+        <li key={s.label} className="flex items-center gap-1.5 text-xs">
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ background: s.color ?? CHART_PALETTE[si % CHART_PALETTE.length] }}
+          />
+          <span className="text-ink-soft">{s.label}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+
 /** Vertical bars with a spring grow-in. */
 export function BarChart({
   data,

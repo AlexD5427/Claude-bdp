@@ -219,6 +219,50 @@ export function Configuracion() {
               onChange={(v) => setConfig({ staticAvatars: v })}
             />
           </div>
+
+          {/* One-click performance presets for lower-powered devices. */}
+          <div className="sm:col-span-2 flex flex-col gap-2 rounded-2xl fill-softer p-4 ring-1 ring-[color:var(--hairline)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-ink">Rendimiento en equipos lentos</div>
+              <p className="text-xs text-ink-soft">
+                Aplica un preajuste que reduce el movimiento, usa avatares estáticos y baja el
+                motor 3D para una experiencia más fluida.
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setConfig({
+                    reduceMotion: true,
+                    staticAvatars: true,
+                    enableThree: false,
+                    threeQuality: "baja",
+                    showRefreshButton: true,
+                  })
+                }
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-4 py-2 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all hover:-translate-y-0.5 active:scale-95"
+              >
+                <Gauge className="h-4 w-4" />
+                Modo ligero
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setConfig({
+                    reduceMotion: false,
+                    staticAvatars: false,
+                    enableThree: true,
+                    threeQuality: "auto",
+                  })
+                }
+                className="inline-flex items-center gap-2 rounded-full fill-softer px-4 py-2 text-sm font-bold text-ink ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-95"
+              >
+                <Sparkles className="h-4 w-4" />
+                Máxima calidad
+              </button>
+            </div>
+          </div>
         </div>
       </Section>
 
