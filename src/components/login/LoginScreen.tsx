@@ -73,16 +73,14 @@ export function LoginScreen() {
           </div>
         </motion.div>
 
-        {/* Glass console holding the profiles / focused login */}
+        {/* Profiles / focused login — floating directly on the aurora, no box. */}
         <div className="flex w-full max-w-5xl flex-1 flex-col items-center justify-center py-8">
           <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ type: "spring", stiffness: 200, damping: 24, delay: 0.08 }}
-            className="glass-heavy glow relative w-full overflow-hidden rounded-[2rem] px-5 py-8 sm:px-10 sm:py-10"
+            className="relative w-full px-2 py-4 sm:px-6"
           >
-            {/* Top specular sweep */}
-            <span className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white/15 to-transparent" />
             <AnimatePresence mode="wait">
               {focused ? (
                 <FocusedProfile
@@ -213,14 +211,14 @@ function ProfileGrid({
       transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
       className="w-full"
     >
-      <h1 className="mb-1 text-center text-2xl font-black tracking-tight text-ink sm:text-3xl">
-        ¿Quién ingresa?
+      <h1 className="mb-1 text-center text-3xl font-thin tracking-tight text-ink sm:text-5xl">
+        ¿Quién <span className="font-black text-cyan-400">ingresa</span>?
       </h1>
-      <p className="mb-8 text-center text-sm text-ink-soft">
+      <p className="mb-10 text-center text-sm font-light tracking-wide text-ink-soft">
         Seleccione su perfil para acceder al sistema de reclutamiento.
       </p>
       <motion.div
-        className="grid grid-cols-2 gap-5 sm:grid-cols-3 md:grid-cols-4"
+        className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-8 md:grid-cols-4"
         initial="hidden"
         animate="show"
         variants={{ hidden: {}, show: { transition: { staggerChildren: 0.07 } } }}
@@ -255,19 +253,31 @@ function ProfileTile({
         hidden: { opacity: 0, y: 24, scale: 0.9 },
         show: { opacity: 1, y: 0, scale: 1, transition: { type: "spring", stiffness: 240, damping: 20 } },
       }}
-      whileHover={{ y: -6 }}
-      whileTap={{ scale: 0.97 }}
+      whileHover={{ y: -8 }}
+      whileTap={{ scale: 0.96 }}
       style={{ rotateX: rx, rotateY: ry, transformPerspective: 900 }}
-      className="group glass glow relative flex flex-col items-center gap-3 rounded-3xl p-4 outline-none transition-shadow duration-300 hover:shadow-glow-cyan focus-visible:ring-2 focus-visible:ring-cyan-300"
+      className="group relative flex flex-col items-center gap-3 rounded-3xl p-2 outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
     >
-      <motion.div layoutId={`avatar-${p.id}`} className="grid place-items-center [transform:translateZ(30px)]">
-        <ProfileAvatar nombre={p.nombre} avatar={p.avatar} size="md" staticMode={staticMode} />
+      {/* Reactive halo — a soft glow that blooms behind the avatar on hover. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-[38%] h-32 w-32 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-400/0 blur-2xl transition-all duration-500 group-hover:bg-cyan-400/30"
+      />
+      <motion.div
+        layoutId={`avatar-${p.id}`}
+        className="relative grid place-items-center [transform:translateZ(30px)]"
+      >
+        {/* A translucent ring that lights up on hover, à la Netflix. */}
+        <span className="pointer-events-none absolute -inset-1.5 rounded-[1.75rem] ring-1 ring-white/10 transition-all duration-500 group-hover:-inset-2.5 group-hover:ring-2 group-hover:ring-cyan-300/70" />
+        <div className="transition-transform duration-500 ease-spring group-hover:scale-105">
+          <ProfileAvatar nombre={p.nombre} avatar={p.avatar} size="lg" staticMode={staticMode} />
+        </div>
       </motion.div>
       <div className="text-center [transform:translateZ(18px)]">
-        <div className="text-sm font-black text-ink transition-colors group-hover:text-cyan-400 sm:text-base">
+        <div className="text-sm font-bold tracking-tight text-ink transition-colors group-hover:text-cyan-400 sm:text-base">
           {p.nombre}
         </div>
-        <div className="mt-0.5 text-[0.7rem] leading-tight text-ink-soft">{p.cargo}</div>
+        <div className="mt-0.5 text-[0.7rem] font-light leading-tight text-ink-soft">{p.cargo}</div>
       </div>
     </motion.button>
   );

@@ -54,6 +54,13 @@ export interface TalentDataValue {
   submitCandidate: (
     candidate: RawCandidate,
   ) => Promise<{ ok: boolean; message: string }>;
+  /**
+   * POST an edit for an existing candidate (matched by identificador), reflect
+   * it locally at once and then re-sync the whole database in the background.
+   */
+  updateCandidate: (
+    candidate: RawCandidate,
+  ) => Promise<{ ok: boolean; message: string }>;
 }
 
 const TalentDataContext = createContext<TalentDataValue | null>(null);
@@ -294,6 +301,41 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const updateCandidate = useCallback(
+    async (candidate: RawCandidate) => {
+      const id = String(candidate.identificador ?? "").trim();
+      const matches = (c: RawCandidate) =>
+        String(c.identificador ?? "").trim() === id;
+      // Optimistically patch the matching row so the UI reflects the edit at
+      // once (fast), then re-sync the whole database (efficient + complete).
+      const applyLocal = () =>
+        setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
+      try {
+        await fetch(SCRIPT_URL, {
+          method: "POST",
+          redirect: "follow",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          // `action: "update"` routes to the sheet upsert that edits the exact
+          // row (matched by identificador) column by column.
+          body: JSON.stringify({ action: "update", ...candidate }),
+        });
+        applyLocal();
+        // The POST invalidates the backend cache, so a full refetch now returns
+        // fresh data and repaints every module from a single source of truth.
+        load();
+        return { ok: true, message: "Postulante actualizado correctamente." };
+      } catch {
+        applyLocal();
+        return {
+          ok: false,
+          message:
+            "Se actualizó localmente, pero la sincronización con el servidor falló.",
+        };
+      }
+    },
+    [load],
+  );
+
   const candidatos = useMemo(
     () => raw.map((c, i) => normaliseCandidate(c, i)),
     [raw],
@@ -320,6 +362,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       error,
       refetch: load,
       submitCandidate,
+      updateCandidate,
     }),
     [
       candidatos,
@@ -335,6 +378,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       error,
       load,
       submitCandidate,
+      updateCandidate,
     ],
   );
 

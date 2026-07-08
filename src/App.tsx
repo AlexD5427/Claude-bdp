@@ -9,6 +9,8 @@ import { KpiBar } from "./components/KpiBar";
 import { FilterBar } from "./components/FilterBar";
 import { RefreshButton } from "./components/RefreshButton";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { CandidateProfileViewer } from "./components/profile/CandidateProfileViewer";
+import { CandidateEditModal } from "./components/CandidateEditModal";
 import { LoginScreen } from "./components/login/LoginScreen";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { TalentDataProvider, useTalentData } from "./context/TalentDataContext";
@@ -147,6 +149,10 @@ function AppShell() {
           </motion.section>
         </ErrorBoundary>
       </main>
+
+      {/* Global overlays — reachable from every module. */}
+      <CandidateProfileViewer />
+      <CandidateEditModal />
     </div>
   );
 }

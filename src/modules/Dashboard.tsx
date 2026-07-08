@@ -50,6 +50,7 @@ import { Modal } from "../components/Modal";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
 import { Avatar } from "../components/Avatar";
 import { extractProceso } from "../lib/candidates";
+import { openProfile } from "../lib/profileViewerStore";
 import { useFilteredData } from "../lib/useFilteredData";
 import { distributionBy, type ProcesoAttrs } from "../lib/procesos";
 import {
@@ -329,11 +330,20 @@ function renderWidget(id: string, ctx: DashCtx): React.ReactNode {
                   transition={{ delay: 0.1 + i * 0.06 }}
                   className="flex items-center gap-3 rounded-2xl fill-soft px-3 py-2 ring-1 ring-[color:var(--hairline)]"
                 >
-                  <Avatar name={c.fullName} seed={c.id} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-ink">{c.fullName}</div>
-                    <div className="truncate text-[0.7rem] text-ink-faint">{c.identificador || "Sin ID"}</div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openProfile(c.id)}
+                    title={`Ver perfil de ${c.fullName}`}
+                    className="group flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
+                  >
+                    <Avatar name={c.fullName} seed={c.id} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-ink transition-colors hover:text-cyan-400">
+                        {c.fullName}
+                      </div>
+                      <div className="truncate text-[0.7rem] text-ink-faint">{c.identificador || "Sin ID"}</div>
+                    </div>
+                  </button>
                   <span className="shrink-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-2.5 py-0.5 text-[0.7rem] font-bold text-white">
                     Proc. {extractProceso(c.identificador)}
                   </span>

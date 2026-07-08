@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { EmptyState } from "../components/States";
 import { Avatar } from "../components/Avatar";
+import { CandidateActions } from "../components/CandidateActions";
 import { DocIntakeForm } from "../components/doc/DocIntakeForm";
 import { DocSettingsModal } from "../components/doc/DocSettingsModal";
 import { DocDossierDetail } from "../components/doc/DocDossierDetail";
@@ -229,6 +230,11 @@ function DossierCard({
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-[0.7rem] font-black ring-1 ${r.healthTone}`}>
           {r.healthLabel}
         </span>
+      </div>
+
+      {/* Quick access to the person's full profile / edit (stops card open). */}
+      <div className="mt-2 flex justify-end no-print" onClick={(e) => e.stopPropagation()}>
+        <CandidateActions id={dossier.identificador} name={dossier.nombre} />
       </div>
 
       {/* Progress */}

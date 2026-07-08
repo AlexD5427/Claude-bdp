@@ -48,6 +48,7 @@ var CONFIG = {
   HOJA_ESPEJO_ULTIMO: 'Espejo_Ultimo_Registro',
   HOJA_DOCS: 'Documentación',
   HOJA_AVISOS: 'Avisos Documentación',
+  HOJA_REFERENCIAS: 'Referencias_Laborales',
   CACHE_KEY: 'bdp_payload_v3',
   CACHE_SEGUNDOS: 45,        // vida de la caché del GET completo
   MAX_LOG_ENTRADAS: 400,     // tope de entradas de bitácora por perfil
@@ -118,6 +119,7 @@ function doPost(e) {
   switch (data.type) {
     case 'documentacion':        resp = handleDocumentacion_(ss, data); break;
     case 'documentacion_email':  resp = handleDocEmail_(ss, data); break;
+    case 'referencia_laboral':   resp = handleReferencia_(ss, data); break;
     case 'perfil_login':         resp = handlePerfilLogin_(ss, data); break;
     case 'perfil_config':        resp = handlePerfilConfig_(ss, data); break;
     case 'perfil_log':           resp = handlePerfilLog_(ss, data); break;
@@ -128,8 +130,14 @@ function doPost(e) {
       resp = handlePostulante_(ss, data); break;  // alta/edición/baja
   }
 
-  // Cualquier escritura de postulantes/perfiles invalida la caché del GET.
-  invalidarCache_();
+  // Only writes that change the data served by the GET should invalidate its
+  // cache. Bitácora/login/config writes don't touch candidatos/perfiles/etc.,
+  // so keeping the cache warm for them makes edits feel fast without serving
+  // stale data after a real change.
+  var MUTATES = { documentacion: 1, referencia_laboral: 1 };
+  var esMutacion = MUTATES[data.type] || data.type === undefined; // undefined = postulante CRUD
+  if (esMutacion) invalidarCache_();
+
   return ContentService.createTextOutput(JSON.stringify(resp))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -524,6 +532,59 @@ function handleDocEmail_(ss, data) {
     data.cc || '', data.subject || '', data.kind || 'manual', data.missingCount || 0]);
   return { status: 'success', message: 'Aviso registrado' };
 }
+
+/* ================ REFERENCIAS LABORALES (perfil) =============== */
+/* Persiste el Panel de Referencias Laborales del perfil de postulante.
+ * Cuerpo: { type:"referencia_laboral", action:"upsert"|"delete",
+ *           identificador, referencia:{ id, ... } } */
+
+var REF_HEADERS = [
+  'identificador', 'ref_id', 'creado_en', 'autor', 'referencia_nombre',
+  'referencia_cargo', 'empresa', 'relacion', 'contacto', 'calificacion',
+  'recomienda', 'verificada', 'comentario', 'fortalezas', 'aspectos',
+];
+
+function hojaReferencias_(ss) {
+  var sh = ss.getSheetByName(CONFIG.HOJA_REFERENCIAS);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.HOJA_REFERENCIAS);
+    sh.appendRow(REF_HEADERS);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function handleReferencia_(ss, data) {
+  var sh = hojaReferencias_(ss);
+  var ref = data.referencia || {};
+  var id = data.identificador || '';
+  if (data.action === 'delete') {
+    var all = sh.getDataRange().getValues();
+    for (var i = all.length - 1; i >= 1; i--) {
+      if (String(all[i][1]) == String(ref.id)) sh.deleteRow(i + 1);
+    }
+    return { status: 'success', message: 'Referencia eliminada' };
+  }
+  if (!ref.id) return { status: 'error', message: 'Falta el id de la referencia' };
+  var fila = [
+    id, ref.id, ref.createdAt || new Date().toISOString(), ref.author || '',
+    ref.refereeName || '', ref.refereeRole || '', ref.company || '',
+    ref.relationship || '', ref.contact || '', ref.rating || 0,
+    ref.recommends || '', ref.verified ? 'Sí' : 'No', ref.comment || '',
+    (ref.strengths || []).join(' | '), (ref.concerns || []).join(' | '),
+  ];
+  // Upsert por ref_id.
+  var vals = sh.getDataRange().getValues();
+  for (var r = 1; r < vals.length; r++) {
+    if (String(vals[r][1]) == String(ref.id)) {
+      sh.getRange(r + 1, 1, 1, REF_HEADERS.length).setValues([fila]);
+      return { status: 'success', message: 'Referencia actualizada' };
+    }
+  }
+  sh.appendRow(fila);
+  return { status: 'success', message: 'Referencia agregada' };
+}
+
 
 function enviarRecordatoriosDocumentacion() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();

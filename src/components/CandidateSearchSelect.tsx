@@ -3,6 +3,7 @@ import { Search, Plus, X, Users } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { PortalDropdown } from "./PortalDropdown";
 import { extractProceso } from "../lib/candidates";
+import { openProfile } from "../lib/profileViewerStore";
 import type { Candidate } from "../types";
 
 interface CandidateSearchSelectProps {
@@ -179,7 +180,14 @@ export function CandidateSearchSelect({
               className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] py-1 pl-1 pr-2.5 text-sm font-semibold text-white ring-1 ring-white/40 shadow-glow-cyan"
             >
               <Avatar name={c.fullName} seed={c.id} size="sm" />
-              <span className="max-w-[12rem] truncate">{c.fullName}</span>
+              <button
+                type="button"
+                onClick={() => openProfile(c.id)}
+                title={`Ver perfil de ${c.fullName}`}
+                className="max-w-[12rem] truncate outline-none hover:underline"
+              >
+                {c.fullName}
+              </button>
               <button
                 type="button"
                 aria-label={`Quitar ${c.fullName}`}

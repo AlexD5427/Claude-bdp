@@ -78,6 +78,15 @@ export function academicParts(
   return { top: `${nivel} ${academicConnector(nivel)}`, bottom: carrera };
 }
 
+/**
+ * Standardised, UPPERCASE rendering of a person's name. The comparator's
+ * personal-data chip always shows names in caps so every column reads uniformly,
+ * regardless of how the operator typed them into the intake form.
+ */
+export function upperName(name: string): string {
+  return name.toLocaleUpperCase("es-BO");
+}
+
 /** Human civil-status label, or null when unknown. */
 export function civilStatus(raw: unknown): string | null {
   const v = asText(raw);
@@ -102,56 +111,23 @@ export function capScore(c: Candidate): number | null {
 }
 
 /**
- * Sort candidates by Nota CAP descending (highest first), keeping the ones
- * without a CAP score at the end in their original order. Returns a new array.
+ * Sort candidates by Nota CAP, keeping the ones without a CAP score at the end
+ * in their original order. `order` picks the direction: `"desc"` (default) puts
+ * the highest CAP on the left; `"asc"` reverses it. Returns a new array.
  */
-export function sortByCapDesc(list: Candidate[]): Candidate[] {
+export function sortByCap(
+  list: Candidate[],
+  order: "desc" | "asc" = "desc",
+): Candidate[] {
+  const dir = order === "asc" ? -1 : 1;
   return [...list].sort((a, b) => {
     const ca = capScore(a);
     const cb = capScore(b);
     if (ca === null && cb === null) return 0;
     if (ca === null) return 1;
     if (cb === null) return -1;
-    return cb - ca;
+    return (cb - ca) * dir;
   });
-}
-
-/**
- * Assign a tie group id to each candidate whose Nota CAP is within `threshold`
- * of an adjacent (already CAP-sorted) candidate. Candidates sharing a group id
- * are considered "tied" and get the contrasting outline. Returns a map keyed by
- * candidate id → group id (only for candidates that are actually in a tie).
- */
-export function tieGroups(
-  sorted: Candidate[],
-  threshold: number,
-): Record<string, number> {
-  const groups: Record<string, number> = {};
-  let group = 0;
-  let i = 0;
-  while (i < sorted.length) {
-    const base = capScore(sorted[i]);
-    if (base === null) {
-      i++;
-      continue;
-    }
-    // Extend the run while consecutive CAP scores stay within the threshold.
-    let j = i + 1;
-    const members = [sorted[i]];
-    while (j < sorted.length) {
-      const next = capScore(sorted[j]);
-      const prev = capScore(sorted[j - 1]);
-      if (next === null || prev === null || Math.abs(prev - next) > threshold) break;
-      members.push(sorted[j]);
-      j++;
-    }
-    if (members.length > 1) {
-      group += 1;
-      for (const m of members) groups[m.id] = group;
-    }
-    i = j;
-  }
-  return groups;
 }
 
 /** Ordinal Spanish rank label: 1 → "1er lugar", 2 → "2do lugar", … */

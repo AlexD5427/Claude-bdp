@@ -4,6 +4,8 @@ import { Workflow, Users } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
 import { Avatar } from "../components/Avatar";
+import { CandidateActions } from "../components/CandidateActions";
+import { openProfile } from "../lib/profileViewerStore";
 import { groupByProceso } from "../lib/candidates";
 
 /**
@@ -69,13 +71,21 @@ export function Procesos() {
                 key={c.id}
                 className="flex items-center gap-3 rounded-2xl fill-soft px-3 py-2 ring-1 ring-[color:var(--hairline)]"
               >
-                <Avatar name={c.fullName} seed={c.id} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink">
-                  {c.fullName}
-                </span>
-                <span className="shrink-0 text-xs text-ink-soft">
-                  {c.cargo_bdp || "—"}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => openProfile(c.id)}
+                  title={`Ver perfil de ${c.fullName}`}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left outline-none"
+                >
+                  <Avatar name={c.fullName} seed={c.id} size="sm" />
+                  <span className="min-w-0 flex-1 truncate text-sm font-semibold text-ink transition-colors hover:text-cyan-400">
+                    {c.fullName}
+                  </span>
+                  <span className="hidden shrink-0 text-xs text-ink-soft sm:inline">
+                    {c.cargo_bdp || "—"}
+                  </span>
+                </button>
+                <CandidateActions id={c.id} name={c.fullName} />
               </li>
             ))}
           </ul>

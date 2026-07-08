@@ -43,6 +43,7 @@ import {
   type ThreeQuality,
   type DockPosition,
   type DockSize,
+  type RankPlacement,
 } from "../lib/configStore";
 
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.06 } } };
@@ -126,16 +127,6 @@ export function Configuracion() {
             suffix="%"
             onChange={(v) => setConfig({ capApprovalThreshold: v })}
           />
-          <RangeField
-            label="Tolerancia de empate (CAP)"
-            hint="Diferencia máxima de CAP para marcar empate con contorno."
-            value={config.tieThreshold}
-            min={0}
-            max={10}
-            step={0.5}
-            suffix=" pts"
-            onChange={(v) => setConfig({ tieThreshold: v })}
-          />
           <StepperField
             label="Máx. candidatos a comparar"
             hint="Columnas simultáneas (hasta 10)"
@@ -147,14 +138,14 @@ export function Configuracion() {
           <div className="space-y-2">
             <Toggle
               title="Ordenar por Nota CAP"
-              subtitle="Mayor puntaje a la izquierda."
+              subtitle="Ordena las columnas por el puntaje CAP."
               icon={<Trophy className="h-4 w-4" />}
               checked={config.sortByCapDesc}
               onChange={(v) => setConfig({ sortByCapDesc: v })}
             />
             <Toggle
               title="Mostrar ranking"
-              subtitle="Medalla 1.º / 2.º / 3.º en cada columna."
+              subtitle="Chapa dorada al 1.º y plateada al resto."
               icon={<Sparkles className="h-4 w-4" />}
               checked={config.rankingEnabled}
               onChange={(v) => setConfig({ rankingEnabled: v })}
@@ -162,6 +153,20 @@ export function Configuracion() {
           </div>
         </div>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <SegmentedField
+            label="Orden por defecto (Nota CAP)"
+            hint="Mayor CAP a la izquierda por defecto"
+            value={config.comparatorOrder === "desc" ? "Mayor → menor" : "Menor → mayor"}
+            onChange={(v) => setConfig({ comparatorOrder: v === "Menor → mayor" ? "asc" : "desc" })}
+            options={["Mayor → menor", "Menor → mayor"]}
+          />
+          <SegmentedField
+            label="Ubicación del ranking"
+            hint="Dónde aparece la chapa de lugar"
+            value={RANK_PLACEMENT_LABELS[config.rankPlacement]}
+            onChange={(v) => setConfig({ rankPlacement: LABEL_TO_RANK_PLACEMENT[v] ?? "ambos" })}
+            options={Object.values(RANK_PLACEMENT_LABELS)}
+          />
           <SegmentedField
             label="Tamaño de papel (impresión)"
             value={config.defaultPaper === "Letter" ? "Carta" : "Oficio"}
@@ -213,6 +218,50 @@ export function Configuracion() {
               checked={config.staticAvatars}
               onChange={(v) => setConfig({ staticAvatars: v })}
             />
+          </div>
+
+          {/* One-click performance presets for lower-powered devices. */}
+          <div className="sm:col-span-2 flex flex-col gap-2 rounded-2xl fill-softer p-4 ring-1 ring-[color:var(--hairline)] sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-bold text-ink">Rendimiento en equipos lentos</div>
+              <p className="text-xs text-ink-soft">
+                Aplica un preajuste que reduce el movimiento, usa avatares estáticos y baja el
+                motor 3D para una experiencia más fluida.
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setConfig({
+                    reduceMotion: true,
+                    staticAvatars: true,
+                    enableThree: false,
+                    threeQuality: "baja",
+                    showRefreshButton: true,
+                  })
+                }
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-4 py-2 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all hover:-translate-y-0.5 active:scale-95"
+              >
+                <Gauge className="h-4 w-4" />
+                Modo ligero
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setConfig({
+                    reduceMotion: false,
+                    staticAvatars: false,
+                    enableThree: true,
+                    threeQuality: "auto",
+                  })
+                }
+                className="inline-flex items-center gap-2 rounded-full fill-softer px-4 py-2 text-sm font-bold text-ink ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-95"
+              >
+                <Sparkles className="h-4 w-4" />
+                Máxima calidad
+              </button>
+            </div>
           </div>
         </div>
       </Section>
@@ -441,6 +490,15 @@ const DOCK_POSITION_LABELS: Record<DockPosition, string> = {
 const LABEL_TO_DOCK_POSITION: Record<string, DockPosition> = Object.fromEntries(
   Object.entries(DOCK_POSITION_LABELS).map(([k, v]) => [v, k as DockPosition]),
 ) as Record<string, DockPosition>;
+
+const RANK_PLACEMENT_LABELS: Record<RankPlacement, string> = {
+  tarjeta: "Tarjeta",
+  fila: "Fila",
+  ambos: "Ambos",
+};
+const LABEL_TO_RANK_PLACEMENT: Record<string, RankPlacement> = Object.fromEntries(
+  Object.entries(RANK_PLACEMENT_LABELS).map(([k, v]) => [v, k as RankPlacement]),
+) as Record<string, RankPlacement>;
 
 const DOCK_SIZE_LABELS: Record<DockSize, string> = {
   sm: "Pequeño",
