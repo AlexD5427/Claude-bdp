@@ -52,7 +52,24 @@ N/A donde corresponde.
 | --- | --- | --- |
 | `kpi_snapshot` | `{ type, month:"YYYY-MM", values:{ key:number\|null } }` | Reescribe las filas del periodo en «Dashboard y KPIs». |
 | `hiring_status` | `{ type, identificador, status, firstSeenAt, contratadoAt?, bajaAt? }` | Upsert en «Estados de Contratación». |
+| `referencia_laboral` | `{ type, action:"upsert"\|"delete", identificador, referencia:{ id, … } }` | Upsert/borrado en «Referencias_Laborales» (Panel de Referencias del perfil). |
+| _(con `action:"update"`)_ | objeto postulante + `action:"update"` | **Edición global** de un postulante: reescribe su fila (por `identificador`) columna por columna. |
 | _(sin type)_ | objeto postulante | Alta de postulante (comportamiento actual). |
+
+> **Edición de postulantes (nuevo).** El botón «Editar» —disponible en todos los
+> módulos y en la vista de perfil— abre el formulario de registro precargado y,
+> al guardar, envía `POST { action:"update", …campos }`. El script localiza la
+> fila por `identificador` y actualiza sólo las celdas correspondientes; el
+> frontend refresca toda la base al terminar y registra el cambio (quién, cuándo
+> y qué campos) en la bitácora del perfil (`log_actividad_perfil`).
+
+> **Referencias laborales (nuevo).** La pestaña «Referencias» del perfil guarda
+> localmente y sincroniza *best-effort* con la hoja **`Referencias_Laborales`**
+> (`type:"referencia_laboral"`). El `GET` aún no las devuelve; la fuente de
+> verdad de lectura es el navegador (como en Documentación/Hiring), y la hoja
+> queda como respaldo durable y auditable. Las escrituras de bitácora/login/
+> configuración ya **no** invalidan la caché del `GET`, así que las ediciones se
+> sienten instantáneas sin servir datos viejos.
 
 ## 2 · Esquema de hojas
 

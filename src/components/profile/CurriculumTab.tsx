@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileText, Sparkles } from "lucide-react";
 import type { Candidate } from "../../types";
 import { academicLine, bdpRole, worksAtBdp } from "../../lib/candidateDisplay";
@@ -21,12 +21,13 @@ export function CurriculumTab({ candidate }: { candidate: Candidate }) {
   const config = useConfig();
   const { theme } = useTheme();
   const mountRef = useRef<HTMLDivElement>(null);
+  const [webglFailed, setWebglFailed] = useState(false);
 
   const prefersReduced =
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const enable3D = config.enableThree && !config.reduceMotion && !prefersReduced;
+  const enable3D = config.enableThree && !config.reduceMotion && !prefersReduced && !webglFailed;
 
   // Stable snapshot of what the CV card should render.
   const cv = useMemo(
@@ -59,7 +60,8 @@ export function CurriculumTab({ candidate }: { candidate: Candidate }) {
         try {
           renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
         } catch {
-          return; // WebGL unavailable — the static CV below remains.
+          setWebglFailed(true); // WebGL unavailable — show the static CV instead.
+          return;
         }
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
         renderer.setSize(width, height);
@@ -198,7 +200,7 @@ export function CurriculumTab({ candidate }: { candidate: Candidate }) {
         };
       })
       .catch(() => {
-        /* three failed to load — the static CV below remains. */
+        setWebglFailed(true); // three failed to load — show the static CV.
       });
 
     return () => {
