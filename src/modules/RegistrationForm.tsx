@@ -12,6 +12,7 @@ import {
   Save,
   BadgeCheck,
   Keyboard,
+  Pencil,
 } from "lucide-react";
 import { Modal } from "../components/Modal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -38,7 +39,9 @@ import {
   NIVEL_RIESGO_ETIQUETADO_OPTIONS,
 } from "../constants";
 import { buildSavedCompetency, parseDecimal } from "../lib/competency";
-import type { FormCompetency, FormItem, RawCandidate } from "../types";
+import { worksAtBdp } from "../lib/candidateDisplay";
+import { asText } from "../lib/candidates";
+import type { Candidate, FormCompetency, FormItem, RawCandidate } from "../types";
 
 /** Semantic colour for the labelled "Riesgo Bajo/Medio/Alto" options. */
 function riesgoTone(opt: string): SegmentTone | undefined {
@@ -153,6 +156,143 @@ interface RegistrationFormProps {
   open: boolean;
   onClose: () => void;
   onSaved?: () => void;
+  /**
+   * When provided, the form runs in EDIT mode for this candidate: it is
+   * pre-filled with the candidate's data, the identificador is locked, the
+   * modified fields are highlighted and the primary action becomes
+   * "Guardar Cambios" (persisting the edit to Google Sheets).
+   */
+  editing?: Candidate | null;
+}
+
+/** Reverse the intake mapping: turn a stored candidate into editable form state. */
+function candidateToForm(c: Candidate): FormState {
+  const trabaja = worksAtBdp(c.trabaja_bdp)
+    ? "Sí"
+    : asText(c.trabaja_bdp)
+      ? "No"
+      : "";
+  return {
+    identificador: asText(c.identificador),
+    nombres: asText(c.nombres),
+    apellido_paterno: asText(c.apellido_paterno),
+    apellido_materno: asText(c.apellido_materno),
+    edad: asText(c.edad),
+    departamento_residencia: asText(c.departamento_residencia),
+    localidad_residencia: asText(c.localidad_residencia),
+    estado_civil: asText(c.estado_civil),
+    nivel_academico: asText(c.nivel_academico),
+    carrera: asText(c.carrera),
+    trabaja_bdp: trabaja,
+    cargo_bdp: asText(c.cargo_bdp),
+    nota_cap: parseDecimal(c.nota_cap),
+    nota_curriculum: parseDecimal(c.nota_curriculum),
+    nota_conocimiento: parseDecimal(c.nota_conocimiento),
+    nota_competencias: parseDecimal(c.nota_competencias),
+    perfil_disc: asText(c.perfil_disc) || "N/A",
+    conocimientos: c.conocimientosList.map((it) => ({
+      uid: newUid(),
+      nombre: it.nombre ?? "",
+      nivel: it.nivel ?? "",
+      detalle: it.detalle ?? "",
+    })),
+    herramientas: c.herramientasList.map((it) => ({
+      uid: newUid(),
+      nombre: it.nombre ?? "",
+      nivel: it.nivel ?? "",
+      detalle: it.detalle ?? "",
+    })),
+    competencias: c.competenciasList.map((s) => ({
+      uid: newUid(),
+      name: s.name,
+      esperadoText: s.esperado === null ? "" : String(s.esperado),
+      obtenidoText: s.obtenido === null ? "" : String(s.obtenido),
+    })),
+    nivel_general_confiabilidad: asText(c.nivel_general_confiabilidad),
+    nivel_integridad: asText(c.nivel_integridad),
+    riesgo_robo: asText(c.riesgo_robo),
+    riesgo_mentira: asText(c.riesgo_mentira),
+    observaciones: asText(c.observaciones)
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean),
+  };
+}
+
+/** Compare two form states field by field, returning the set of changed keys. */
+function changedKeys(a: FormState, b: FormState): Set<keyof FormState> {
+  const set = new Set<keyof FormState>();
+  (Object.keys(a) as (keyof FormState)[]).forEach((k) => {
+    const av = a[k];
+    const bv = b[k];
+    const same =
+      typeof av === "object" || typeof bv === "object"
+        ? JSON.stringify(stripUids(av)) === JSON.stringify(stripUids(bv))
+        : av === bv;
+    if (!same) set.add(k);
+  });
+  return set;
+}
+
+/** Drop the volatile `uid` field so list comparisons only look at real data. */
+function stripUids(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((v) =>
+      v && typeof v === "object"
+        ? Object.fromEntries(Object.entries(v).filter(([k]) => k !== "uid"))
+        : v,
+    );
+  }
+  return value;
+}
+
+/** Human labels for the activity log's change summary. */
+const FIELD_LABELS: Partial<Record<keyof FormState, string>> = {
+  nombres: "Nombres",
+  apellido_paterno: "Apellido paterno",
+  apellido_materno: "Apellido materno",
+  edad: "Edad",
+  departamento_residencia: "Departamento",
+  localidad_residencia: "Localidad",
+  estado_civil: "Estado civil",
+  nivel_academico: "Nivel académico",
+  carrera: "Carrera",
+  trabaja_bdp: "Trabaja en BDP",
+  cargo_bdp: "Cargo BDP",
+  nota_cap: "Nota CAP",
+  nota_curriculum: "Nota Currículum",
+  nota_conocimiento: "Nota Conocimientos",
+  nota_competencias: "Nota Competencias",
+  perfil_disc: "Arquetipo DISC",
+  conocimientos: "Conocimientos técnicos",
+  herramientas: "Herramientas",
+  competencias: "Competencias",
+  nivel_general_confiabilidad: "Confiabilidad",
+  nivel_integridad: "Integridad",
+  riesgo_robo: "Riesgo de robo",
+  riesgo_mentira: "Riesgo de mentira",
+  observaciones: "Observaciones",
+};
+
+/**
+ * Wraps a field in a breathing amber halo while editing, the moment its value
+ * differs from the pristine baseline — so the operator always sees exactly what
+ * they changed before saving.
+ */
+function EditHL({ on, children }: { on: boolean; children: React.ReactNode }) {
+  if (!on) return <>{children}</>;
+  return (
+    <motion.div
+      initial={{ boxShadow: "0 0 0 0 rgba(251,191,36,0)" }}
+      animate={{
+        boxShadow: "0 0 0 2px rgba(251,191,36,0.75), 0 0 18px rgba(251,191,36,0.35)",
+      }}
+      transition={{ duration: 0.3 }}
+      className="rounded-2xl"
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 /**
@@ -164,13 +304,32 @@ interface RegistrationFormProps {
  *   · Reliability scales and comma-separated observation tags.
  *   · Live local autosave + crash recovery, and an exit-confirmation guard.
  */
-export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormProps) {
-  const { competencias, arquetipos, auxiliares, submitCandidate } = useTalentData();
+export function RegistrationForm({ open, onClose, onSaved, editing }: RegistrationFormProps) {
+  const { competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
+    useTalentData();
+  const isEdit = Boolean(editing);
   const [form, setForm] = useState<FormState>({ ...EMPTY });
+  const [baseline, setBaseline] = useState<FormState | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [confirmExit, setConfirmExit] = useState(false);
   const [assistedNav, setAssistedNav] = useState(false);
+
+  // Pre-fill the form when the modal opens in edit mode, capturing the pristine
+  // baseline so we can highlight exactly what the operator changes.
+  useEffect(() => {
+    if (!open || !editing) return;
+    const filled = candidateToForm(editing);
+    setForm(filled);
+    setBaseline(filled);
+    setFeedback(null);
+  }, [open, editing]);
+
+  // The set of fields whose value differs from the pristine baseline (edit only).
+  const changed = useMemo(
+    () => (isEdit && baseline ? changedKeys(baseline, form) : new Set<keyof FormState>()),
+    [isEdit, baseline, form],
+  );
 
   // Refs for keyboard-only navigation: the form scope (for the assisted glow)
   // and the identificador field (auto-focused + selected on open).
@@ -181,22 +340,28 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
 
   // On open, the identificador is immediately ready to receive text.
   useEffect(() => {
-    if (!open) return;
+    if (!open || isEdit) return; // the identificador is locked while editing
     const t = window.setTimeout(() => {
       identificadorRef.current?.focus();
       identificadorRef.current?.select();
     }, 260); // after the modal's entrance spring settles
     return () => window.clearTimeout(t);
-  }, [open]);
+  }, [open, isEdit]);
 
   const { recoveredDraft, savedAt, clearDraft } = useFormDraft(
     DRAFT_KEY,
     form,
     hasContent,
+    !isEdit, // never autosave/recover a draft while editing an existing record
   );
   const [showRecovery, setShowRecovery] = useState(recoveredDraft !== null);
 
-  const dirty = useMemo(() => hasContent(form), [form]);
+  // "Dirty" means there's something to lose on close: unsaved content when
+  // creating, or at least one modified field when editing.
+  const dirty = useMemo(
+    () => (isEdit ? changed.size > 0 : hasContent(form)),
+    [isEdit, changed, form],
+  );
 
   // Warn the browser before an accidental tab close while editing. The draft is
   // already persisted, so even if they leave, recovery kicks in next time.
@@ -350,6 +515,27 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
 
     setSubmitting(true);
     setFeedback(null);
+
+    if (isEdit) {
+      const result = await updateCandidate(candidate);
+      setSubmitting(false);
+      setFeedback({ kind: result.ok ? "ok" : "warn", message: result.message });
+      if (result.ok) {
+        // Record who edited what, and how, in the per-profile activity log.
+        const resumen = [...changed]
+          .map((k) => FIELD_LABELS[k] ?? String(k))
+          .join(", ");
+        logActivity({
+          modulo: "postulantes",
+          accion: "Editó postulante",
+          detalle: `${candidate.identificador} · Campos: ${resumen || "sin cambios"}`,
+        });
+        onSaved?.();
+        onClose();
+      }
+      return;
+    }
+
     const result = await submitCandidate(candidate);
     setSubmitting(false);
     setFeedback({ kind: result.ok ? "ok" : "warn", message: result.message });
@@ -371,23 +557,38 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
       <Modal
         open={open}
         onRequestClose={requestClose}
-        ariaLabel="Cuestionario de Registro de Postulante"
+        ariaLabel={isEdit ? "Editar Postulante" : "Cuestionario de Registro de Postulante"}
       >
         <form ref={formRef} onSubmit={handleSubmit}>
           {/* ---- Sticky header ---- */}
           <div className="sticky top-0 z-20 flex items-center gap-3 rounded-t-3xl border-b border-[color:var(--hairline)] bg-[color:var(--glass-bg-heavy)] px-5 py-4 backdrop-blur-xl sm:px-7">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glass ring-1 ring-white/30">
-              <UserPlus className="h-6 w-6 text-white drop-shadow-md" />
+              {isEdit ? (
+                <Pencil className="h-6 w-6 text-white drop-shadow-md" />
+              ) : (
+                <UserPlus className="h-6 w-6 text-white drop-shadow-md" />
+              )}
             </div>
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-lg font-black tracking-tight text-ink sm:text-xl">
-                Cuestionario de Registro de Postulante
+                {isEdit ? "Editar Postulante" : "Cuestionario de Registro de Postulante"}
               </h2>
               <p className="flex items-center gap-1.5 text-xs text-ink-soft">
-                <Save className="h-3 w-3" />
-                {savedAt
-                  ? `Borrador guardado localmente · ${new Date(savedAt).toLocaleTimeString("es-BO", { hour: "2-digit", minute: "2-digit" })}`
-                  : "El avance se guarda automáticamente en este equipo."}
+                {isEdit ? (
+                  <>
+                    <Sparkles className="h-3 w-3 text-cyan-400" />
+                    {changed.size > 0
+                      ? `${changed.size} campo(s) modificado(s) · se resaltan en ámbar`
+                      : "Modifique los campos necesarios; se resaltarán al cambiar."}
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-3 w-3" />
+                    {savedAt
+                      ? `Borrador guardado localmente · ${new Date(savedAt).toLocaleTimeString("es-BO", { hour: "2-digit", minute: "2-digit" })}`
+                      : "El avance se guarda automáticamente en este equipo."}
+                  </>
+                )}
               </p>
             </div>
             {/* Assisted keyboard navigation switch — sits just left of the ✕. */}
@@ -423,79 +624,104 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                     ref={identificadorRef}
                     label="Identificador Único"
                     required
-                    hint="CI - Nro Proceso - Año · único obligatorio"
+                    hint={
+                      isEdit
+                        ? "Clave del registro · no editable"
+                        : "CI - Nro Proceso - Año · único obligatorio"
+                    }
                     value={form.identificador}
                     onChange={(v) => setField("identificador", v)}
                     placeholder="CI - Nro Proceso - Año"
+                    readOnly={isEdit}
                   />
                 </div>
-                <TextField
-                  label="Edad"
-                  type="number"
-                  value={form.edad}
-                  onChange={(v) => setField("edad", v)}
-                  placeholder="Edad"
-                />
-                <SelectField
-                  label="Estado Civil"
-                  value={form.estado_civil}
-                  onChange={(v) => setField("estado_civil", v)}
-                  options={ESTADO_CIVIL_OPTIONS}
-                />
-                <TextField
-                  label="Nombres"
-                  value={form.nombres}
-                  onChange={(v) => setField("nombres", v)}
-                  placeholder="Nombres"
-                />
-                <TextField
-                  label="Apellido Paterno"
-                  value={form.apellido_paterno}
-                  onChange={(v) => setField("apellido_paterno", v)}
-                  placeholder="Apellido Paterno"
-                />
-                <TextField
-                  label="Apellido Materno"
-                  value={form.apellido_materno}
-                  onChange={(v) => setField("apellido_materno", v)}
-                  placeholder="Apellido Materno"
-                />
+                <EditHL on={changed.has("edad")}>
+                  <TextField
+                    label="Edad"
+                    type="number"
+                    value={form.edad}
+                    onChange={(v) => setField("edad", v)}
+                    placeholder="Edad"
+                  />
+                </EditHL>
+                <EditHL on={changed.has("estado_civil")}>
+                  <SelectField
+                    label="Estado Civil"
+                    value={form.estado_civil}
+                    onChange={(v) => setField("estado_civil", v)}
+                    options={ESTADO_CIVIL_OPTIONS}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("nombres")}>
+                  <TextField
+                    label="Nombres"
+                    value={form.nombres}
+                    onChange={(v) => setField("nombres", v)}
+                    placeholder="Nombres"
+                  />
+                </EditHL>
+                <EditHL on={changed.has("apellido_paterno")}>
+                  <TextField
+                    label="Apellido Paterno"
+                    value={form.apellido_paterno}
+                    onChange={(v) => setField("apellido_paterno", v)}
+                    placeholder="Apellido Paterno"
+                  />
+                </EditHL>
+                <EditHL on={changed.has("apellido_materno")}>
+                  <TextField
+                    label="Apellido Materno"
+                    value={form.apellido_materno}
+                    onChange={(v) => setField("apellido_materno", v)}
+                    placeholder="Apellido Materno"
+                  />
+                </EditHL>
                 {/* Nivel Académico + Carrera share a paired cell so Carrera
                     always sits immediately to the right of Nivel Académico. */}
                 <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
-                  <SelectField
-                    label="Nivel Académico"
-                    value={form.nivel_academico}
-                    onChange={(v) => setField("nivel_academico", v)}
-                    options={NIVEL_ACADEMICO_OPTIONS}
-                  />
-                  <TextField
-                    label="Carrera"
-                    hint="Formación / profesión"
-                    value={form.carrera}
-                    onChange={(v) => setField("carrera", v)}
-                    placeholder="Ej. Ingeniería Comercial"
-                  />
+                  <EditHL on={changed.has("nivel_academico")}>
+                    <SelectField
+                      label="Nivel Académico"
+                      value={form.nivel_academico}
+                      onChange={(v) => setField("nivel_academico", v)}
+                      options={NIVEL_ACADEMICO_OPTIONS}
+                    />
+                  </EditHL>
+                  <EditHL on={changed.has("carrera")}>
+                    <TextField
+                      label="Carrera"
+                      hint="Formación / profesión"
+                      value={form.carrera}
+                      onChange={(v) => setField("carrera", v)}
+                      placeholder="Ej. Ingeniería Comercial"
+                    />
+                  </EditHL>
                 </div>
-                <SelectField
-                  label="Departamento de Residencia"
-                  value={form.departamento_residencia}
-                  onChange={(v) => setField("departamento_residencia", v)}
-                  options={DEPARTAMENTO_OPTIONS}
-                />
-                <TextField
-                  label="Localidad de Residencia"
-                  value={form.localidad_residencia}
-                  onChange={(v) => setField("localidad_residencia", v)}
-                  placeholder="Localidad"
-                />
-                <div className="sm:col-span-2">
-                  <SegmentedField
-                    label="¿El postulante trabaja actualmente en BDP?"
-                    value={form.trabaja_bdp}
-                    onChange={(v) => setField("trabaja_bdp", v)}
-                    options={["No", "Sí"]}
+                <EditHL on={changed.has("departamento_residencia")}>
+                  <SelectField
+                    label="Departamento de Residencia"
+                    value={form.departamento_residencia}
+                    onChange={(v) => setField("departamento_residencia", v)}
+                    options={DEPARTAMENTO_OPTIONS}
                   />
+                </EditHL>
+                <EditHL on={changed.has("localidad_residencia")}>
+                  <TextField
+                    label="Localidad de Residencia"
+                    value={form.localidad_residencia}
+                    onChange={(v) => setField("localidad_residencia", v)}
+                    placeholder="Localidad"
+                  />
+                </EditHL>
+                <div className="sm:col-span-2">
+                  <EditHL on={changed.has("trabaja_bdp")}>
+                    <SegmentedField
+                      label="¿El postulante trabaja actualmente en BDP?"
+                      value={form.trabaja_bdp}
+                      onChange={(v) => setField("trabaja_bdp", v)}
+                      options={["No", "Sí"]}
+                    />
+                  </EditHL>
                 </div>
                 <AnimatePresence initial={false}>
                   {form.trabaja_bdp === "Sí" && (
@@ -506,14 +732,16 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ type: "spring", stiffness: 260, damping: 26 }}
                     >
-                      <TextAutocomplete
-                        label="Cargo actual del Postulante"
-                        hint="Sugerencias en vivo de cargos_bdp · admite texto libre"
-                        value={form.cargo_bdp}
-                        onChange={(v) => setField("cargo_bdp", v)}
-                        options={auxiliares.cargos_bdp}
-                        placeholder="Escriba para buscar el cargo…"
-                      />
+                      <EditHL on={changed.has("cargo_bdp")}>
+                        <TextAutocomplete
+                          label="Cargo actual del Postulante"
+                          hint="Sugerencias en vivo de cargos_bdp · admite texto libre"
+                          value={form.cargo_bdp}
+                          onChange={(v) => setField("cargo_bdp", v)}
+                          options={auxiliares.cargos_bdp}
+                          placeholder="Escriba para buscar el cargo…"
+                        />
+                      </EditHL>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -527,39 +755,49 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
               subtitle="Use los deslizadores de velocímetro o haga clic en el número del centro para ingreso manual (0 % a 100 %)."
             >
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <GaugeInput
-                  label="Nota CAP"
-                  hint="Adecuación al puesto"
-                  value={form.nota_cap}
-                  onChange={(v) => setField("nota_cap", v)}
-                />
-                <GaugeInput
-                  label="Nota Currículum"
-                  hint="Hoja de vida"
-                  value={form.nota_curriculum}
-                  onChange={(v) => setField("nota_curriculum", v)}
-                />
-                <GaugeInput
-                  label="Nota Conocimientos"
-                  hint="Evaluación técnica"
-                  value={form.nota_conocimiento}
-                  onChange={(v) => setField("nota_conocimiento", v)}
-                />
-                <GaugeInput
-                  label="Nota Competencias"
-                  hint="Nivel general"
-                  value={form.nota_competencias}
-                  onChange={(v) => setField("nota_competencias", v)}
-                />
+                <EditHL on={changed.has("nota_cap")}>
+                  <GaugeInput
+                    label="Nota CAP"
+                    hint="Adecuación al puesto"
+                    value={form.nota_cap}
+                    onChange={(v) => setField("nota_cap", v)}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("nota_curriculum")}>
+                  <GaugeInput
+                    label="Nota Currículum"
+                    hint="Hoja de vida"
+                    value={form.nota_curriculum}
+                    onChange={(v) => setField("nota_curriculum", v)}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("nota_conocimiento")}>
+                  <GaugeInput
+                    label="Nota Conocimientos"
+                    hint="Evaluación técnica"
+                    value={form.nota_conocimiento}
+                    onChange={(v) => setField("nota_conocimiento", v)}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("nota_competencias")}>
+                  <GaugeInput
+                    label="Nota Competencias"
+                    hint="Nivel general"
+                    value={form.nota_competencias}
+                    onChange={(v) => setField("nota_competencias", v)}
+                  />
+                </EditHL>
               </div>
               <div className="mt-4 max-w-md">
-                <DiscSelect
-                  label="Arquetipo DISC"
-                  hint="Arquetipo de comportamiento"
-                  value={form.perfil_disc}
-                  onChange={(v) => setField("perfil_disc", v)}
-                  archetypes={arquetipos}
-                />
+                <EditHL on={changed.has("perfil_disc")}>
+                  <DiscSelect
+                    label="Arquetipo DISC"
+                    hint="Arquetipo de comportamiento"
+                    value={form.perfil_disc}
+                    onChange={(v) => setField("perfil_disc", v)}
+                    archetypes={arquetipos}
+                  />
+                </EditHL>
               </div>
             </Section>
 
@@ -569,31 +807,42 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
               title="A · Conocimientos, Herramientas y Competencias"
             >
               <div className="space-y-4">
-                <ItemListBuilder
-                  title="A1. Conocimientos Técnicos"
-                  items={form.conocimientos}
-                  max={MAX_CONOCIMIENTOS}
-                  addLabel="Agregar"
-                  namePlaceholder="Nombre del Conocimiento Técnico"
-                  withDetalle
-                  emptyHint="No se agregaron conocimientos técnicos aún."
-                  onAdd={() => addItem("conocimientos")}
-                  onChange={(uid, patch) => updateItem("conocimientos", uid, patch)}
-                  onRemove={(uid) => removeItem("conocimientos", uid)}
-                />
-                <ItemListBuilder
-                  title="A2. Manejo de Herramientas u otros"
-                  items={form.herramientas}
-                  max={MAX_HERRAMIENTAS}
-                  addLabel="Agregar"
-                  emptyHint="No se agregaron herramientas aún."
-                  onAdd={() => addItem("herramientas")}
-                  onChange={(uid, patch) => updateItem("herramientas", uid, patch)}
-                  onRemove={(uid) => removeItem("herramientas", uid)}
-                />
+                <EditHL on={changed.has("conocimientos")}>
+                  <ItemListBuilder
+                    title="A1. Conocimientos Técnicos"
+                    items={form.conocimientos}
+                    max={MAX_CONOCIMIENTOS}
+                    addLabel="Agregar"
+                    namePlaceholder="Nombre del Conocimiento Técnico"
+                    withDetalle
+                    emptyHint="No se agregaron conocimientos técnicos aún."
+                    onAdd={() => addItem("conocimientos")}
+                    onChange={(uid, patch) => updateItem("conocimientos", uid, patch)}
+                    onRemove={(uid) => removeItem("conocimientos", uid)}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("herramientas")}>
+                  <ItemListBuilder
+                    title="A2. Manejo de Herramientas u otros"
+                    items={form.herramientas}
+                    max={MAX_HERRAMIENTAS}
+                    addLabel="Agregar"
+                    emptyHint="No se agregaron herramientas aún."
+                    onAdd={() => addItem("herramientas")}
+                    onChange={(uid, patch) => updateItem("herramientas", uid, patch)}
+                    onRemove={(uid) => removeItem("herramientas", uid)}
+                  />
+                </EditHL>
 
                 {/* A3 — Competencias o Habilidades */}
-                <div className="rounded-2xl fill-soft p-4 ring-1 ring-[color:var(--hairline)]">
+                <div
+                  className={[
+                    "rounded-2xl fill-soft p-4 ring-1 ring-[color:var(--hairline)]",
+                    changed.has("competencias")
+                      ? "ring-2 ring-amber-400/70 shadow-[0_0_18px_rgba(251,191,36,0.35)]"
+                      : "",
+                  ].join(" ")}
+                >
                   <header className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <h4 className="text-sm font-bold text-ink">
@@ -648,42 +897,52 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
               title="B · Confiabilidad del Postulante"
             >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <SegmentedField
-                  label="Confiabilidad e Integridad"
-                  value={form.nivel_general_confiabilidad}
-                  onChange={(v) => setField("nivel_general_confiabilidad", v)}
-                  options={CONFIABILIDAD_OPTIONS}
-                />
-                <SegmentedField
-                  label="Nivel de Integridad"
-                  value={form.nivel_integridad}
-                  onChange={(v) => setField("nivel_integridad", v)}
-                  options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
-                  toneFor={riesgoTone}
-                />
-                <SegmentedField
-                  label="Nivel de Robo (Riesgo)"
-                  value={form.riesgo_robo}
-                  onChange={(v) => setField("riesgo_robo", v)}
-                  options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
-                  toneFor={riesgoTone}
-                />
-                <SegmentedField
-                  label="Nivel de Mentira (Riesgo)"
-                  value={form.riesgo_mentira}
-                  onChange={(v) => setField("riesgo_mentira", v)}
-                  options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
-                  toneFor={riesgoTone}
-                />
+                <EditHL on={changed.has("nivel_general_confiabilidad")}>
+                  <SegmentedField
+                    label="Confiabilidad e Integridad"
+                    value={form.nivel_general_confiabilidad}
+                    onChange={(v) => setField("nivel_general_confiabilidad", v)}
+                    options={CONFIABILIDAD_OPTIONS}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("nivel_integridad")}>
+                  <SegmentedField
+                    label="Nivel de Integridad"
+                    value={form.nivel_integridad}
+                    onChange={(v) => setField("nivel_integridad", v)}
+                    options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+                    toneFor={riesgoTone}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("riesgo_robo")}>
+                  <SegmentedField
+                    label="Nivel de Robo (Riesgo)"
+                    value={form.riesgo_robo}
+                    onChange={(v) => setField("riesgo_robo", v)}
+                    options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+                    toneFor={riesgoTone}
+                  />
+                </EditHL>
+                <EditHL on={changed.has("riesgo_mentira")}>
+                  <SegmentedField
+                    label="Nivel de Mentira (Riesgo)"
+                    value={form.riesgo_mentira}
+                    onChange={(v) => setField("riesgo_mentira", v)}
+                    options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+                    toneFor={riesgoTone}
+                  />
+                </EditHL>
               </div>
               <div className="mt-4">
-                <TagInput
-                  label="Observaciones"
-                  hint="Separe por comas para generar etiquetas"
-                  tags={form.observaciones}
-                  onChange={(t) => setField("observaciones", t)}
-                  placeholder="Escriba una observación y pulse Enter o coma…"
-                />
+                <EditHL on={changed.has("observaciones")}>
+                  <TagInput
+                    label="Observaciones"
+                    hint="Separe por comas para generar etiquetas"
+                    tags={form.observaciones}
+                    onChange={(t) => setField("observaciones", t)}
+                    placeholder="Escriba una observación y pulse Enter o coma…"
+                  />
+                </EditHL>
               </div>
             </Section>
           </div>
@@ -723,13 +982,18 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
               </button>
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={submitting || (isEdit && changed.size === 0)}
                 className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-6 py-3 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-500 ease-spring hover:-translate-y-1 hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Guardando…
+                  </>
+                ) : isEdit ? (
+                  <>
+                    <Save className="h-4 w-4" />
+                    Guardar Cambios
                   </>
                 ) : (
                   <>
@@ -760,7 +1024,7 @@ export function RegistrationForm({ open, onClose, onSaved }: RegistrationFormPro
 
       {/* Draft recovery */}
       <ConfirmDialog
-        open={open && showRecovery}
+        open={open && showRecovery && !isEdit}
         tone="info"
         title="Registro encontrado"
         message="Detectamos un borrador sin terminar de un registro anterior. ¿Desea continuar donde lo dejó o descartarlo e iniciar de nuevo?"

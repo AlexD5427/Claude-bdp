@@ -1,63 +1,66 @@
-import { MapPin, HeartHandshake, CalendarDays, X, Building2, UserPlus, Trophy, Medal } from "lucide-react";
+import { motion } from "framer-motion";
+import { MapPin, HeartHandshake, CalendarDays, X, Building2, UserPlus } from "lucide-react";
 import type { Candidate } from "../types";
 import {
   academicParts,
   bdpRole,
   capScore,
   civilStatus,
-  rankLabel,
+  upperName,
   worksAtBdp,
 } from "../lib/candidateDisplay";
+import { openProfile } from "../lib/profileViewerStore";
+import { CandidateActions } from "./CandidateActions";
+import { RankBadge } from "./RankBadge";
 
 /**
  * A rich candidate profile card painted with the corporate blue gradient.
- * Used inside the comparator's column headers. Text stays white because it
- * sits on a saturated gradient in both themes. An optional ✕ removes the
- * column straight from the header.
+ * Used inside the comparator's column headers and the "Cara a Cara" duel.
  *
- * The card is context-aware and fully fluid:
- *   · the initials avatar is gone — the name now owns the header and **wraps by
- *     word** so it is always shown in full, at any column width, without a
- *     marquee or letter-level clipping;
- *   · under it we render the academic profile ("Licenciatura en …");
- *   · a BDP staff member unfolds a gold "Personal BDP" strip with their current
+ *   · The name owns the header (no avatar), **always in UPPERCASE** so every
+ *     column reads uniformly, and it doubles as a button that opens the full
+ *     profile panel.
+ *   · Under it we render the academic profile ("Licenciatura en …").
+ *   · A BDP staff member unfolds a gold "Personal BDP" strip with their current
  *     position; an external applicant gets a matching cyan "Candidato nuevo"
- *     strip instead, so the card never has an empty gap;
- *   · a CAP-ranking badge sits at the bottom-right — a special gold trophy for
- *     the highest Nota CAP (1st place) and a silver plate for everyone else —
- *     and tied CAP scores get a soft contrasting outline.
+ *     strip instead.
+ *   · A CAP-ranking badge can sit at the bottom-right — a spectacular gold
+ *     plate for 1st place and a silver plate for everyone else.
+ *   · A discreet actions cluster (Ver perfil · Editar) is always available.
  */
 export function CandidateProfileCard({
   candidate,
   onRemove,
   rank,
-  tie = false,
-  showRank = true,
+  showRankBadge = true,
 }: {
   candidate: Candidate;
   onRemove?: () => void;
   /** 1-based position in the CAP ranking. */
   rank?: number;
-  /** Whether this candidate ties on Nota CAP with a neighbour. */
-  tie?: boolean;
-  showRank?: boolean;
+  /** Whether to paint the ranking badge on this card. */
+  showRankBadge?: boolean;
 }) {
   const academico = academicParts(candidate.nivel_academico, candidate.carrera);
   const empleadoBdp = worksAtBdp(candidate.trabaja_bdp);
   const cargoBdp = bdpRole(candidate.cargo_bdp);
   const civil = civilStatus(candidate.estado_civil);
   const cap = capScore(candidate);
+  const showBadge = showRankBadge && rank !== undefined;
 
   return (
-    <div
-      className={[
-        "relative flex h-full flex-col overflow-hidden rounded-3xl bg-gradient-to-br from-[#004a8f] via-[#005baa] to-[#00b0d8] p-4 shadow-glass ring-1 ring-white/30 print-avoid-break",
-        tie ? "cmp-tie" : "",
-      ].join(" ")}
-    >
+    <div className="relative flex h-full flex-col overflow-hidden rounded-3xl bg-gradient-to-br from-[#004a8f] via-[#005baa] to-[#00b0d8] p-4 shadow-glass ring-1 ring-white/30 print-avoid-break">
       {/* Specular highlight */}
       <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/25 to-transparent" />
 
+      {/* Actions (top-left) + remove (top-right) */}
+      <div className="absolute left-2.5 top-2.5 z-10">
+        <CandidateActions
+          id={candidate.id}
+          name={candidate.fullName}
+          variant="onGradient"
+        />
+      </div>
       {onRemove && (
         <button
           type="button"
@@ -69,18 +72,19 @@ export function CandidateProfileCard({
         </button>
       )}
 
-      {tie && (
-        <span className="absolute left-3 top-2.5 z-10 rounded-full bg-white/20 px-2 py-0.5 text-[0.6rem] font-black uppercase tracking-wide text-white ring-1 ring-white/40 backdrop-blur-sm">
-          Empate CAP
-        </span>
-      )}
-
-      {/* Header — name owns the space now (no avatar). Wraps by word so the
-          full name always shows, at any width. */}
-      <div className={`relative pr-8 ${tie ? "mt-4" : ""}`}>
-        <h3 className="wrap-words text-lg font-black leading-tight text-white drop-shadow-md">
-          {candidate.fullName}
-        </h3>
+      {/* Header — name owns the space (no avatar), always UPPERCASE, and opens
+          the full profile on click. Wraps by word so it always shows in full. */}
+      <div className="relative mt-9 pr-1">
+        <button
+          type="button"
+          onClick={() => openProfile(candidate.id)}
+          title={`Ver perfil completo de ${candidate.fullName}`}
+          className="block w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-white/70 rounded-lg"
+        >
+          <h3 className="wrap-words text-lg font-black uppercase leading-tight tracking-tight text-white drop-shadow-md transition-colors hover:text-cyan-100">
+            {upperName(candidate.fullName)}
+          </h3>
+        </button>
         {academico ? (
           <div className="mt-0.5 leading-snug">
             <p className="wrap-words text-xs font-medium text-white/85">{academico.top}</p>
@@ -143,41 +147,20 @@ export function CandidateProfileCard({
           </span>
         </div>
 
-        {showRank && rank !== undefined && <CapRankBadge rank={rank} cap={cap} />}
+        {showBadge && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.7, rotate: -8 }}
+            animate={{ opacity: 1, scale: 1, rotate: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 18 }}
+          >
+            <RankBadge rank={rank} cap={cap} />
+          </motion.div>
+        )}
       </div>
 
       <div className="relative mt-auto pt-3 text-[0.65rem] font-semibold text-white/70">
         <span className="wrap-words">Ref: {candidate.identificador || "Sin identificador"}</span>
       </div>
-    </div>
-  );
-}
-
-/**
- * The CAP-ranking badge shown at the bottom-right of each column. The highest
- * Nota CAP (1st place) gets a special gold trophy plate; every other position
- * gets a silver plate. The Nota CAP value rides along inside the badge.
- */
-function CapRankBadge({ rank, cap }: { rank: number; cap: number | null }) {
-  const first = rank === 1;
-  const shell = first
-    ? "from-amber-200 via-amber-300 to-amber-500 text-[#4a3200] ring-amber-100/80 shadow-[0_0_20px_rgba(251,191,36,0.65)]"
-    : "from-slate-50 via-slate-200 to-slate-400 text-slate-700 ring-white/80 shadow-[0_3px_12px_rgba(148,163,184,0.55)]";
-  const Icon = first ? Trophy : Medal;
-  return (
-    <div
-      className={`flex w-[3.6rem] shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-gradient-to-br ${shell} px-1.5 py-2 text-center ring-1`}
-      title={`${rankLabel(rank)}${cap !== null ? ` · Nota CAP ${cap}%` : ""}`}
-      aria-label={`${rankLabel(rank)}${cap !== null ? `, Nota CAP ${cap} por ciento` : ""}`}
-    >
-      <Icon className="h-4 w-4" />
-      <span className="text-sm font-black leading-none">{rank}.º</span>
-      <span className="text-[0.5rem] font-bold uppercase leading-none opacity-80">lugar</span>
-      {cap !== null && (
-        <span className="mt-0.5 rounded-full bg-black/15 px-1.5 py-0.5 text-[0.6rem] font-black leading-none">
-          CAP {cap}%
-        </span>
-      )}
     </div>
   );
 }

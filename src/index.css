@@ -55,8 +55,6 @@
     /* Cursor spotlight tint */
     --spotlight: rgba(0, 176, 216, 0.16);
 
-    /* Comparator "tie" outline — a warm gold that contrasts on Midnight blue. */
-    --tie-ring: rgba(251, 191, 36, 0.92);
   }
 
   /* ---- LIGHT THEME ("Daylight" · institutional) ------------ */
@@ -95,8 +93,6 @@
 
     --spotlight: rgba(0, 91, 170, 0.12);
 
-    /* On Daylight, a vivid violet contrasts against the corporate blues. */
-    --tie-ring: rgba(124, 58, 237, 0.85);
   }
 
   html,
@@ -373,26 +369,6 @@
     }
   }
 
-  /* Comparator tie flag — a soft, breathing contrasting outline that reads on
-     both themes without clashing with the blue profile card. */
-  .cmp-tie {
-    outline: 2px solid var(--tie-ring);
-    outline-offset: 3px;
-    box-shadow:
-      var(--glass-shadow),
-      0 0 0 1px var(--tie-ring),
-      0 0 22px -4px var(--tie-ring);
-    animation: tie-pulse 2.6s ease-in-out infinite;
-  }
-  @keyframes tie-pulse {
-    0%,
-    100% {
-      outline-color: color-mix(in srgb, var(--tie-ring) 70%, transparent);
-    }
-    50% {
-      outline-color: var(--tie-ring);
-    }
-  }
 }
 
 @layer utilities {
@@ -559,6 +535,31 @@
   border-radius: 1rem;
 }
 
+/* Frozen first column — an OPAQUE surface so the columns that scroll sideways
+   never bleed through it (the old translucent glass let content show behind the
+   pinned labels, which read as an overlap). The solid base is theme-aware and a
+   soft right-edge shadow marks the freeze boundary. */
+.cmp-freeze {
+  background-color: var(--app-base);
+  box-shadow: 10px 0 18px -12px rgba(0, 0, 0, 0.45);
+}
+
+/* MarqueeText — a there-and-back reveal for clipped labels. The distance is fed
+   through --cmp-shift; the rests at 0–14 % and 50–64 % keep it calm. */
+@keyframes cmp-marquee {
+  0%,
+  14% {
+    transform: translateX(0);
+  }
+  50%,
+  64% {
+    transform: translateX(var(--cmp-shift, 0));
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
 /* When the dock glides to the left edge (see dockOverrideStore), nudge the
    comparator content right on wide screens so the vertical dock never overlaps
    the frozen label column. Animated so it feels connected to the dock's move. */
@@ -598,11 +599,6 @@
   .cmp-grid {
     grid-template-columns: var(--print-cols) !important;
     gap: 0.4rem !important;
-  }
-  .cmp-tie {
-    outline-width: 1.5px !important;
-    box-shadow: none !important;
-    animation: none !important;
   }
 
   /* ---- Fit-to-page legibility for the printed comparativa ----

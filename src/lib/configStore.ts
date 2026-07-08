@@ -90,6 +90,11 @@ export type ThreeQuality = "auto" | "alta" | "media" | "baja";
 export type PaperSize = "Letter" | "Legal";
 export type PaperOrientation = "portrait" | "landscape";
 
+/** Where the CAP ranking badge is surfaced in the comparator. */
+export type RankPlacement = "tarjeta" | "fila" | "ambos";
+/** Sort direction for the comparator columns (highest CAP left = "desc"). */
+export type ComparatorOrder = "desc" | "asc";
+
 /** Where the floating dock lives on screen. */
 export type DockPosition = "top" | "bottom" | "left" | "right";
 /** The dock's overall scale. */
@@ -103,10 +108,15 @@ export interface AppConfig {
 
   /* Evaluación y comparador */
   capApprovalThreshold: number;
-  tieThreshold: number;
   maxComparador: number;
   rankingEnabled: boolean;
+  /** Where the ranking badge appears: profile card, dedicated row, or both. */
+  rankPlacement: RankPlacement;
   sortByCapDesc: boolean;
+  /** Default column order when sorting by Nota CAP. */
+  comparatorOrder: ComparatorOrder;
+  /** Show the floating navigation helper when the grid overflows. */
+  comparatorNavHelper: boolean;
   defaultPaper: PaperSize;
   defaultOrientation: PaperOrientation;
 
@@ -284,10 +294,12 @@ export function defaultConfig(): AppConfig {
     reclutador: "",
 
     capApprovalThreshold: 80,
-    tieThreshold: 2,
     maxComparador: 10,
     rankingEnabled: true,
+    rankPlacement: "ambos",
     sortByCapDesc: true,
+    comparatorOrder: "desc",
+    comparatorNavHelper: true,
     defaultPaper: "Letter",
     defaultOrientation: "portrait",
 

@@ -28,9 +28,12 @@ export const TextField = forwardRef<
     onChange: (v: string) => void;
     placeholder?: string;
     type?: string;
+    /** Read-only fields (e.g. the identificador while editing) can't be typed
+     *  into but stay legible and copyable. */
+    readOnly?: boolean;
   }
 >(function TextField(
-  { label, required, hint, value, onChange, placeholder, type = "text" },
+  { label, required, hint, value, onChange, placeholder, type = "text", readOnly = false },
   ref,
 ) {
   return (
@@ -42,7 +45,9 @@ export const TextField = forwardRef<
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={fieldClass}
+        readOnly={readOnly}
+        aria-readonly={readOnly}
+        className={`${fieldClass} ${readOnly ? "cursor-not-allowed opacity-70" : ""}`}
       />
     </label>
   );

@@ -43,6 +43,7 @@ import {
   type ThreeQuality,
   type DockPosition,
   type DockSize,
+  type RankPlacement,
 } from "../lib/configStore";
 
 const container = { hidden: {}, show: { transition: { staggerChildren: 0.06 } } };
@@ -126,16 +127,6 @@ export function Configuracion() {
             suffix="%"
             onChange={(v) => setConfig({ capApprovalThreshold: v })}
           />
-          <RangeField
-            label="Tolerancia de empate (CAP)"
-            hint="Diferencia máxima de CAP para marcar empate con contorno."
-            value={config.tieThreshold}
-            min={0}
-            max={10}
-            step={0.5}
-            suffix=" pts"
-            onChange={(v) => setConfig({ tieThreshold: v })}
-          />
           <StepperField
             label="Máx. candidatos a comparar"
             hint="Columnas simultáneas (hasta 10)"
@@ -147,14 +138,14 @@ export function Configuracion() {
           <div className="space-y-2">
             <Toggle
               title="Ordenar por Nota CAP"
-              subtitle="Mayor puntaje a la izquierda."
+              subtitle="Ordena las columnas por el puntaje CAP."
               icon={<Trophy className="h-4 w-4" />}
               checked={config.sortByCapDesc}
               onChange={(v) => setConfig({ sortByCapDesc: v })}
             />
             <Toggle
               title="Mostrar ranking"
-              subtitle="Medalla 1.º / 2.º / 3.º en cada columna."
+              subtitle="Chapa dorada al 1.º y plateada al resto."
               icon={<Sparkles className="h-4 w-4" />}
               checked={config.rankingEnabled}
               onChange={(v) => setConfig({ rankingEnabled: v })}
@@ -162,6 +153,20 @@ export function Configuracion() {
           </div>
         </div>
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <SegmentedField
+            label="Orden por defecto (Nota CAP)"
+            hint="Mayor CAP a la izquierda por defecto"
+            value={config.comparatorOrder === "desc" ? "Mayor → menor" : "Menor → mayor"}
+            onChange={(v) => setConfig({ comparatorOrder: v === "Menor → mayor" ? "asc" : "desc" })}
+            options={["Mayor → menor", "Menor → mayor"]}
+          />
+          <SegmentedField
+            label="Ubicación del ranking"
+            hint="Dónde aparece la chapa de lugar"
+            value={RANK_PLACEMENT_LABELS[config.rankPlacement]}
+            onChange={(v) => setConfig({ rankPlacement: LABEL_TO_RANK_PLACEMENT[v] ?? "ambos" })}
+            options={Object.values(RANK_PLACEMENT_LABELS)}
+          />
           <SegmentedField
             label="Tamaño de papel (impresión)"
             value={config.defaultPaper === "Letter" ? "Carta" : "Oficio"}
@@ -441,6 +446,15 @@ const DOCK_POSITION_LABELS: Record<DockPosition, string> = {
 const LABEL_TO_DOCK_POSITION: Record<string, DockPosition> = Object.fromEntries(
   Object.entries(DOCK_POSITION_LABELS).map(([k, v]) => [v, k as DockPosition]),
 ) as Record<string, DockPosition>;
+
+const RANK_PLACEMENT_LABELS: Record<RankPlacement, string> = {
+  tarjeta: "Tarjeta",
+  fila: "Fila",
+  ambos: "Ambos",
+};
+const LABEL_TO_RANK_PLACEMENT: Record<string, RankPlacement> = Object.fromEntries(
+  Object.entries(RANK_PLACEMENT_LABELS).map(([k, v]) => [v, k as RankPlacement]),
+) as Record<string, RankPlacement>;
 
 const DOCK_SIZE_LABELS: Record<DockSize, string> = {
   sm: "Pequeño",

@@ -13,13 +13,16 @@ export function useFormDraft<T>(
   key: string,
   state: T,
   hasContent: (state: T) => boolean,
+  /** When false the hook is inert (no read, no write) — e.g. while editing an
+   *  existing record, where a "recovered draft" would be misleading. */
+  enabled = true,
 ): {
   recoveredDraft: T | null;
   savedAt: number | null;
   clearDraft: () => void;
 } {
   const [recoveredDraft] = useState<T | null>(() => {
-    if (typeof window === "undefined") return null;
+    if (!enabled || typeof window === "undefined") return null;
     try {
       const raw = window.localStorage.getItem(key);
       if (!raw) return null;
@@ -35,6 +38,7 @@ export function useFormDraft<T>(
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       // Only ever *write* meaningful drafts. We deliberately never auto-remove
@@ -54,7 +58,7 @@ export function useFormDraft<T>(
       if (timer.current) clearTimeout(timer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, state]);
+  }, [key, state, enabled]);
 
   function clearDraft() {
     try {

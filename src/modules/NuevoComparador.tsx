@@ -12,6 +12,7 @@ import {
   RectangleVertical,
   Minimize2,
   ChevronDown,
+  ChevronUp,
   ChevronLeft,
   ChevronRight,
   GitCompareArrows,
@@ -20,6 +21,10 @@ import {
   Eye,
   RotateCcw,
   Search,
+  Trophy,
+  ArrowDownWideNarrow,
+  ArrowUpWideNarrow,
+  Move,
 } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
@@ -28,15 +33,24 @@ import { CandidateSearchSelect } from "../components/CandidateSearchSelect";
 import { CompetencyChip } from "../components/CompetencyChip";
 import { LevelBadge } from "../components/LevelBadge";
 import { Avatar } from "../components/Avatar";
+import { RankChip } from "../components/RankBadge";
+import { MarqueeText } from "../components/MarqueeText";
+import { openProfile } from "../lib/profileViewerStore";
 import { DiscInfoButton } from "../components/DiscInfoButton";
 import { CompetencyInfoButton } from "../components/CompetencyInfoButton";
 import { Toggle } from "../components/form/Controls";
+import { SegmentedField } from "../components/form/Fields";
 import { ComparatorCharts } from "../components/comparator/ComparatorCharts";
 import { discAccent } from "../lib/discAccent";
 import { extractDiscCode } from "../lib/disc";
 import { parseDecimal, ajusteBand } from "../lib/competency";
-import { sortByCapDesc, tieGroups } from "../lib/candidateDisplay";
-import { useConfig } from "../lib/configStore";
+import { sortByCap, capScore, upperName } from "../lib/candidateDisplay";
+import {
+  useConfig,
+  setConfig,
+  type RankPlacement,
+  type ComparatorOrder,
+} from "../lib/configStore";
 import { setDockOverride } from "../lib/dockOverrideStore";
 import {
   useComparator,
@@ -85,9 +99,9 @@ interface ConfRow {
 }
 const CONF_ROWS: ConfRow[] = [
   { key: "nivel_general_confiabilidad", label: "Confiabilidad e Integridad", sub: "Mide la honestidad y el compromiso con las normas", tone: reliabilityTone },
-  // "Nivel de Integridad" is now a labelled risk scale ("Riesgo Bajo/Medio/Alto"),
+  // "Nivel de Integridad" is a labelled risk scale ("Riesgo Bajo/Medio/Alto"),
   // so a lower risk reads as better — same semantics as the other risk rows.
-  { key: "nivel_integridad", label: "Integridad (Riesgo)", sub: "Riesgo asociado a la integridad del postulante", tone: riskTone },
+  { key: "nivel_integridad", label: "Integridad", sub: "Riesgo asociado a la integridad del postulante", tone: riskTone },
   { key: "riesgo_robo", label: "Riesgo de robo", sub: "Probabilidad de cometer o justificar sustracciones", tone: riskTone },
   { key: "riesgo_mentira", label: "Riesgo de Mentira", sub: "Tendencia a exagerar o distorsionar la verdad", tone: riskTone },
 ];
@@ -130,18 +144,19 @@ export function NuevoComparador() {
     [selectedIds, candidatos],
   );
 
-  // Columns are ordered by Nota CAP (highest → left) so the strongest candidate
-  // leads the audit. Toggleable from Configuración; the added order is what we
-  // persist, so turning the sort off restores the operator's own order.
+  // Columns are ordered by Nota CAP so the strongest candidate leads the audit.
+  // The direction (highest → left by default) is a quick filter in the toolbar
+  // and defaults from Configuración; turning the sort off restores the added
+  // order the operator chose.
   const ordered = useMemo(
-    () => (config.sortByCapDesc ? sortByCapDesc(selected) : selected),
-    [selected, config.sortByCapDesc],
+    () => (config.sortByCapDesc ? sortByCap(selected, config.comparatorOrder) : selected),
+    [selected, config.sortByCapDesc, config.comparatorOrder],
   );
 
-  const ties = useMemo(
-    () => tieGroups(ordered, config.tieThreshold),
-    [ordered, config.tieThreshold],
-  );
+  // Ranking visibility & placement (profile card / dedicated row / both).
+  const rankingOn = config.rankingEnabled;
+  const showRankCard = rankingOn && (config.rankPlacement === "tarjeta" || config.rankPlacement === "ambos");
+  const showRankRow = rankingOn && (config.rankPlacement === "fila" || config.rankPlacement === "ambos");
 
   const competencyRows = useMemo(() => {
     const names: string[] = [];
@@ -300,6 +315,37 @@ export function NuevoComparador() {
               Compacto
             </button>
 
+            {/* Order filter — highest CAP left (desc) by default. */}
+            <button
+              type="button"
+              onClick={() =>
+                setConfig({ comparatorOrder: config.comparatorOrder === "desc" ? "asc" : "desc" })
+              }
+              disabled={!config.sortByCapDesc}
+              title={
+                config.sortByCapDesc
+                  ? config.comparatorOrder === "desc"
+                    ? "Orden: mayor CAP a la izquierda (clic para invertir)"
+                    : "Orden: menor CAP a la izquierda (clic para invertir)"
+                  : "Active «Ordenar por Nota CAP» en Configuración para ordenar"
+              }
+              className={[
+                "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold ring-1 transition-all active:scale-95",
+                config.sortByCapDesc
+                  ? "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft"
+                  : "fill-softer text-ink-faint ring-[color:var(--hairline)] opacity-60",
+              ].join(" ")}
+            >
+              {config.comparatorOrder === "desc" ? (
+                <ArrowDownWideNarrow className="h-4 w-4" />
+              ) : (
+                <ArrowUpWideNarrow className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">
+                {config.comparatorOrder === "desc" ? "Mayor → menor" : "Menor → mayor"}
+              </span>
+            </button>
+
             <div className="flex-1" />
 
             <div className="glass flex items-center gap-1 rounded-full p-1 text-xs font-semibold text-ink-soft">
@@ -392,7 +438,7 @@ export function NuevoComparador() {
                     className={dense ? "grid gap-1.5" : "grid gap-3"}
                     style={{ gridTemplateColumns: columns } as React.CSSProperties}
                   >
-                    <div className="sticky left-0 z-[2]">
+                    <div className="cmp-freeze sticky left-0 z-[2] rounded-2xl">
                       <span className="glass-heavy block truncate rounded-2xl px-3 py-2 text-xs font-bold uppercase tracking-wide text-ink-soft">
                         Comparativa
                       </span>
@@ -403,7 +449,7 @@ export function NuevoComparador() {
                           key={c.id}
                           candidate={c}
                           rank={idx + 1}
-                          showRank={config.rankingEnabled}
+                          showRank={rankingOn}
                         />
                       ))}
                     </AnimatePresence>
@@ -482,14 +528,26 @@ export function NuevoComparador() {
                           candidate={c}
                           onRemove={() => remove(c.id)}
                           rank={idx + 1}
-                          tie={Boolean(ties[c.id])}
-                          showRank={config.rankingEnabled}
+                          showRankBadge={showRankCard}
                         />
                       </motion.div>
                     </div>
                   ))}
 
                   <div ref={sentinelRef} style={{ gridColumn: "1 / -1", height: 1 }} />
+
+                  {/* ===== Ranking row (dedicated placement) ===== */}
+                  {showRankRow && (
+                    <RowFragment label="Ranking" sub="Posición por Nota CAP">
+                      {ordered.map((c, idx) => (
+                        <Cell key={c.id + "-rank"}>
+                          <div className="flex min-h-[64px] items-center justify-center rounded-2xl fill-softer ring-1 ring-[color:var(--hairline)]">
+                            <RankChip rank={idx + 1} cap={capScore(c)} />
+                          </div>
+                        </Cell>
+                      ))}
+                    </RowFragment>
+                  )}
 
                   {/* ===== Resultados de Evaluación ===== */}
                   <Section id="resultados" cmp={cmp} icon={<Award className="h-4 w-4" />}>
@@ -622,6 +680,18 @@ export function NuevoComparador() {
               </div>
             </div>
           )}
+
+          {/* Fixed navigation helper — appears once the comparison grows past a
+              handful of candidates, so panning across (and down) the audit stays
+              effortless. Toggleable from the comparator's Configuración tab. */}
+          {config.comparatorNavHelper && selected.length > 4 && (
+            <ComparatorNavHelper
+              onPan={panBy}
+              canLeft={scrollNav.left > 1}
+              canRight={scrollNav.left < scrollNav.max - 1}
+              horizontal={scrollNav.max > 4}
+            />
+          )}
         </>
       )}
 
@@ -656,7 +726,8 @@ function StripChip({
   rank: number;
   showRank: boolean;
 }) {
-  const len = candidate.fullName.length;
+  const upper = upperName(candidate.fullName);
+  const len = upper.length;
   const nameSize =
     len > 30 ? "text-[0.6rem]" : len > 20 ? "text-[0.7rem]" : "text-sm";
   return (
@@ -668,18 +739,93 @@ function StripChip({
       transition={{ type: "spring", stiffness: 340, damping: 26 }}
       className="glass-heavy flex min-w-0 items-center gap-2 rounded-2xl px-2.5 py-1.5"
     >
-      <Avatar name={candidate.fullName} seed={candidate.id} size="sm" />
-      <span
-        className={`wrap-words min-w-0 flex-1 font-bold leading-tight text-ink line-clamp-3 ${nameSize}`}
-        title={candidate.fullName}
+      <button
+        type="button"
+        onClick={() => openProfile(candidate.id)}
+        title={`Ver perfil de ${candidate.fullName}`}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none"
       >
-        {candidate.fullName}
-      </span>
-      {showRank && (
-        <span className="shrink-0 rounded-full fill-softer px-1.5 py-0.5 text-[0.6rem] font-black text-ink-soft ring-1 ring-[color:var(--hairline)]">
-          {rank}.º
+        <Avatar name={candidate.fullName} seed={candidate.id} size="sm" />
+        <span
+          className={`wrap-words min-w-0 flex-1 font-bold uppercase leading-tight text-ink line-clamp-3 ${nameSize}`}
+          title={candidate.fullName}
+        >
+          {upper}
         </span>
-      )}
+      </button>
+      {showRank && <RankChip rank={rank} cap={capScore(candidate)} className="shrink-0" />}
+    </motion.div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Fixed navigation helper (d-pad)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A discreet, fixed d-pad that pans the audit grid horizontally and scrolls the
+ * page vertically. It floats at the right edge, out of the way, and only mounts
+ * when the comparison has enough candidates to warrant it. Buttons for the axis
+ * that can't move any further dim out.
+ */
+function ComparatorNavHelper({
+  onPan,
+  canLeft,
+  canRight,
+  horizontal,
+}: {
+  onPan: (dir: 1 | -1) => void;
+  canLeft: boolean;
+  canRight: boolean;
+  horizontal: boolean;
+}) {
+  const scrollV = (dir: 1 | -1) =>
+    window.scrollBy({ top: dir * window.innerHeight * 0.8, behavior: "smooth" });
+
+  const cell =
+    "grid h-9 w-9 place-items-center rounded-xl fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft hover:text-cyan-400 active:scale-90 disabled:opacity-30 disabled:hover:text-ink-soft";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 24, scale: 0.9 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 24 }}
+      transition={{ type: "spring", stiffness: 260, damping: 22 }}
+      className="no-print fixed right-3 top-1/2 z-[85] hidden -translate-y-1/2 sm:block"
+    >
+      <div className="glass-heavy grid grid-cols-3 gap-1 rounded-2xl p-1.5 shadow-glass ring-1 ring-white/20">
+        <span className="col-start-2 grid place-items-center">
+          <button type="button" aria-label="Subir" onClick={() => scrollV(-1)} className={cell}>
+            <ChevronUp className="h-4 w-4" />
+          </button>
+        </span>
+        <button
+          type="button"
+          aria-label="Desplazar a la izquierda"
+          onClick={() => onPan(-1)}
+          disabled={!horizontal || !canLeft}
+          className={`col-start-1 row-start-2 ${cell}`}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="col-start-2 row-start-2 grid place-items-center text-ink-faint">
+          <Move className="h-3.5 w-3.5" />
+        </span>
+        <button
+          type="button"
+          aria-label="Desplazar a la derecha"
+          onClick={() => onPan(1)}
+          disabled={!horizontal || !canRight}
+          className={`col-start-3 row-start-2 ${cell}`}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+        <span className="col-start-2 row-start-3 grid place-items-center">
+          <button type="button" aria-label="Bajar" onClick={() => scrollV(1)} className={cell}>
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </span>
+      </div>
     </motion.div>
   );
 }
@@ -807,6 +953,18 @@ function EmptyComparator({ charts = false }: { charts?: boolean }) {
 /* ------------------------------------------------------------------ */
 
 function ComparatorSettings({ cmp }: { cmp: ReturnType<typeof useComparator> }) {
+  const config = useConfig();
+  const RANK_LABELS: Record<RankPlacement, string> = {
+    tarjeta: "Tarjeta",
+    fila: "Fila",
+    ambos: "Ambos",
+  };
+  const labelToRank: Record<string, RankPlacement> = {
+    Tarjeta: "tarjeta",
+    Fila: "fila",
+    Ambos: "ambos",
+  };
+  const orderLabel = (o: ComparatorOrder) => (o === "desc" ? "Mayor → menor" : "Menor → mayor");
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -814,6 +972,60 @@ function ComparatorSettings({ cmp }: { cmp: ReturnType<typeof useComparator> }) 
       transition={{ type: "spring", stiffness: 220, damping: 26 }}
       className="space-y-4"
     >
+      {/* Ranking & navigation */}
+      <div className="glass glow rounded-3xl p-5">
+        <header className="mb-4 flex items-center gap-2.5">
+          <span className="grid h-9 w-9 place-items-center rounded-xl fill-softer text-cyan-400 ring-1 ring-[color:var(--hairline)]">
+            <Trophy className="h-5 w-5" />
+          </span>
+          <div>
+            <h3 className="text-base font-black tracking-tight text-ink">Ranking y navegación</h3>
+            <p className="text-xs text-ink-soft">
+              Chapa de lugar (dorada al 1.º, plateada al resto) y ayudas de desplazamiento.
+            </p>
+          </div>
+        </header>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Toggle
+            title="Ordenar por Nota CAP"
+            subtitle="Ordena las columnas por el puntaje CAP."
+            checked={config.sortByCapDesc}
+            onChange={(v) => setConfig({ sortByCapDesc: v })}
+          />
+          <Toggle
+            title="Mostrar ranking"
+            subtitle="Muestra la chapa de posición en el comparador."
+            checked={config.rankingEnabled}
+            onChange={(v) => setConfig({ rankingEnabled: v })}
+          />
+          <Toggle
+            title="Ayudante de navegación"
+            subtitle="D-pad flotante al comparar muchos candidatos."
+            icon={<Move className="h-4 w-4" />}
+            checked={config.comparatorNavHelper}
+            onChange={(v) => setConfig({ comparatorNavHelper: v })}
+          />
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <SegmentedField
+            label="Ubicación del ranking"
+            hint="Dónde aparece la chapa de lugar"
+            value={RANK_LABELS[config.rankPlacement]}
+            onChange={(v) => setConfig({ rankPlacement: labelToRank[v] ?? "ambos" })}
+            options={["Tarjeta", "Fila", "Ambos"]}
+          />
+          <SegmentedField
+            label="Orden por Nota CAP"
+            hint="Dirección por defecto de las columnas"
+            value={orderLabel(config.comparatorOrder)}
+            onChange={(v) =>
+              setConfig({ comparatorOrder: v === "Menor → mayor" ? "asc" : "desc" })
+            }
+            options={["Mayor → menor", "Menor → mayor"]}
+          />
+        </div>
+      </div>
+
       <div className="glass glow rounded-3xl p-5">
         <header className="mb-4 flex items-center gap-2.5">
           <span className="grid h-9 w-9 place-items-center rounded-xl fill-softer text-cyan-400 ring-1 ring-[color:var(--hairline)]">
@@ -988,13 +1200,13 @@ function RowFragment({
 }) {
   return (
     <>
-      <div className="sticky left-0 z-[40] flex items-center" role="rowheader">
+      <div className="cmp-freeze sticky left-0 z-[40] flex items-center rounded-xl" role="rowheader">
         <span
           className="glass flex w-full items-center gap-1.5 rounded-xl px-3 py-2 print-avoid-break"
           title={label}
         >
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-xs font-bold text-ink">{label}</span>
+            <MarqueeText text={label} className="text-xs font-bold text-ink" />
             {sub && <span className="truncate text-[0.65rem] text-ink-faint">{sub}</span>}
           </span>
           {info}
