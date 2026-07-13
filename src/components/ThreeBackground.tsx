@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useConfig, type ThreeQuality } from "../lib/configStore";
+import { getDeviceProfile } from "../shared/device";
+import { getHeavyOverlayCount, subscribeHeavyOverlay } from "../shared/heavyOverlayStore";
 
 /**
  * The Three.js visual engine — an optimized WebGL layer that lifts the Liquid
@@ -32,7 +34,20 @@ export function ThreeBackground() {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  const active = config.enableThree && !config.reduceMotion && !prefersReduced;
+  // Low-power hardware is the main cause of the "page freezes" reports: a
+  // full-screen fragment shader running every frame can saturate a weak GPU.
+  // We disable the WebGL layer there and fall back to the (much cheaper) CSS
+  // mesh, unless the operator has explicitly forced a non-auto quality.
+  const device = getDeviceProfile();
+  const lowPower = device.tier === "low";
+  const autoQuality = config.threeQuality === "auto";
+
+  const active =
+    config.enableThree &&
+    !config.reduceMotion &&
+    !prefersReduced &&
+    device.webglAvailable &&
+    !(lowPower && autoQuality);
   const quality = config.threeQuality;
 
   useEffect(() => {
@@ -124,9 +139,23 @@ export function ThreeBackground() {
       let lastTheme = themeRef.current;
       const start = performance.now();
 
-      const loop = () => {
+      // Cap the render rate. The organic flow reads the same at ~36 fps as at
+      // 60, but the throttle roughly halves GPU/main-thread cost — the single
+      // biggest lever against jank on mid-range machines. High-tier devices get
+      // a slightly higher ceiling.
+      const targetFps = device.tier === "high" ? 48 : 32;
+      const frameBudget = 1000 / targetFps;
+      let lastFrame = 0;
+      // Pause the loop while a heavy overlay (builder, wizard) is open so the
+      // two don't fight over the compositor.
+      let overlayPaused = getHeavyOverlayCount() > 0;
+
+      const loop = (now: number) => {
         if (!running) return;
-        const now = performance.now();
+        raf = requestAnimationFrame(loop);
+        if (overlayPaused) return;
+        if (now - lastFrame < frameBudget) return;
+        lastFrame = now;
         uniforms.uTime.value = (now - start) / 1000;
         current.lerp(target, 0.045);
         uniforms.uPointer.value.copy(current);
@@ -136,9 +165,12 @@ export function ThreeBackground() {
           applyPalette(lastTheme, uniforms);
         }
         renderer.render(scene, camera);
-        raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop);
+
+      const unsubscribeOverlay = subscribeHeavyOverlay(() => {
+        overlayPaused = getHeavyOverlayCount() > 0;
+      });
 
       const onVisibility = () => {
         if (document.hidden) {
@@ -154,6 +186,7 @@ export function ThreeBackground() {
       cleanup = () => {
         running = false;
         cancelAnimationFrame(raf);
+        unsubscribeOverlay();
         window.removeEventListener("resize", resize);
         window.removeEventListener("mousemove", onMove);
         document.removeEventListener("visibilitychange", onVisibility);
@@ -187,13 +220,16 @@ export function ThreeBackground() {
 function pixelRatioCap(quality: ThreeQuality): number {
   switch (quality) {
     case "baja":
-      return 0.75;
+      return 0.6;
     case "media":
-      return 1;
+      return 0.85;
     case "alta":
-      return 2;
+      // Even "alta" is capped below 2×: a full-screen fbm shader at 2× DPR on a
+      // 4K panel renders ~4× the pixels of 1×, which is where thermal throttling
+      // and stutter set in. 1.5× is visually indistinguishable here.
+      return 1.5;
     default:
-      return 1.5; // auto — a balanced default for crisp yet cheap rendering
+      return 1; // auto — device pixels 1:1, the safe balanced default
   }
 }
 
@@ -260,9 +296,11 @@ const FRAG = /* glsl */ `
   }
 
   float fbm(vec2 p) {
+    // Three octaves (down from four): the domain-warped result is visually
+    // near-identical for a background wash but noticeably cheaper per pixel.
     float v = 0.0;
     float a = 0.5;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
       v += a * noise(p);
       p *= 2.0;
       a *= 0.5;
