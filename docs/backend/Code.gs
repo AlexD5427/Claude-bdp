@@ -66,6 +66,15 @@ function doGet(e) {
   var ligero = params.part === 'ligero';
   var noCache = params.nocache === '1' || params.nocache === 'true';
 
+  // ProcessOS / AssessmentOS reads are routed to their dedicated handlers and
+  // return a small JSON envelope ({ status, rows|row }) that the frontend
+  // adapter normalizes. They never build the heavy talent payload.
+  if (params.action) {
+    var ta = handleTalentGet_(SpreadsheetApp.getActiveSpreadsheet(), params);
+    if (ta) return ContentService.createTextOutput(JSON.stringify(ta))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
   if (!noCache && !ligero) {
     var cached = leerCache_();
     if (cached) return ContentService.createTextOutput(cached)
@@ -117,6 +126,8 @@ function doPost(e) {
 
   var resp;
   switch (data.type) {
+    case 'proceso':              resp = handleProceso_(ss, data); break;
+    case 'evaluacion':           resp = handleEvaluacion_(ss, data); break;
     case 'documentacion':        resp = handleDocumentacion_(ss, data); break;
     case 'documentacion_email':  resp = handleDocEmail_(ss, data); break;
     case 'referencia_laboral':   resp = handleReferencia_(ss, data); break;
@@ -133,7 +144,8 @@ function doPost(e) {
   // Only writes that change the data served by the GET should invalidate its
   // cache. Bitácora/login/config writes don't touch candidatos/perfiles/etc.,
   // so keeping the cache warm for them makes edits feel fast without serving
-  // stale data after a real change.
+  // stale data after a real change. Procesos/Evaluaciones use their own sheets
+  // (not the cached payload), so they don't invalidate it.
   var MUTATES = { documentacion: 1, referencia_laboral: 1 };
   var esMutacion = MUTATES[data.type] || data.type === undefined; // undefined = postulante CRUD
   if (esMutacion) invalidarCache_();
@@ -651,4 +663,221 @@ function indexar_(headers) {
   var map = {};
   headers.forEach(function (h, i) { map[String(h).trim()] = i; });
   return map;
+}
+
+/* ============================================================================
+ * PROCESSOS + ASSESSMENTOS  —  hojas "Procesos" y "Evaluaciones"
+ * ----------------------------------------------------------------------------
+ * Persistencia de los módulos Procesos (ProcessOS) y Evaluaciones (AssessmentOS)
+ * del frontend. Ambos usan hojas propias (una fila por entidad; los datos
+ * anidados se guardan como JSON validado en el frontend). El contrato coincide
+ * con el adaptador `google-apps-script` del frontend:
+ *
+ *   GET  ?action=list_procesos            → { status, rows:[...] }
+ *   GET  ?action=get_proceso&id=...        → { status, row:{...} }
+ *   GET  ?action=list_evaluaciones         → { status, rows:[...] }
+ *   GET  ?action=get_evaluacion&id=...     → { status, row:{...} }
+ *
+ *   POST { type:"proceso", action:"create",   row:{...} }
+ *   POST { type:"proceso", action:"update",   row:{...}, expectedEntityVersion }
+ *   POST { type:"proceso", action:"publish"|"pause"|"close"|"archive", id, by }
+ *   POST { type:"proceso", action:"duplicate", id, by }
+ *   (idéntico para type:"evaluacion")
+ *
+ * Detección de actualización obsoleta (stale update): en `update`, si la fila
+ * del servidor tiene VersionEntidad > expectedEntityVersion, se responde
+ * { status:"error", code:"conflict" } y el frontend muestra el conflicto en vez
+ * de sobrescribir. Las versiones publicadas de una evaluación viven dentro de
+ * VersionesPublicadasJson y NUNCA se sobrescriben (el frontend crea versiones).
+ * ==========================================================================*/
+
+var TA_CONFIG = {
+  HOJA_PROCESOS: 'Procesos',
+  HOJA_EVALUACIONES: 'Evaluaciones',
+};
+
+var PROCESO_HEADERS = [
+  'ID', 'ReferenciaExterna', 'Codigo', 'Nombre', 'Slug', 'Descripcion', 'Area',
+  'Departamento', 'UnidadNegocio', 'Ubicacion', 'Modalidad', 'TipoContrato',
+  'NivelExperiencia', 'Vacantes', 'ReclutadoresJson', 'ResponsablesJson',
+  'GerentesJson', 'PropietarioId', 'Estado', 'EstadoPublicacion', 'Visibilidad',
+  'FechaApertura', 'FechaCierre', 'EvaluacionesJson', 'FormularioJson',
+  'ContenidoPublicoJson', 'ConfiguracionJson', 'VersionEsquema', 'VersionEntidad',
+  'CreadoPor', 'FechaCreacion', 'ActualizadoPor', 'FechaActualizacion',
+  'EstadoSincronizacion',
+];
+
+var EVALUACION_HEADERS = [
+  'ID', 'ReferenciaExterna', 'Codigo', 'Nombre', 'Categoria', 'Proposito',
+  'Version', 'VersionMayor', 'VersionMenor', 'Estado', 'EstadoPublicacion',
+  'ProcesosJson', 'DuracionEstimada', 'PoliticaIntentosJson', 'PoliticaTiempoJson',
+  'PoliticaNavegacionJson', 'PoliticaPuntuacionJson', 'PoliticaMonitoreoJson',
+  'PoliticaConsentimientoJson', 'SeccionesJson', 'ReglasJson', 'TemaJson',
+  'ConfiguracionJson', 'VersionesPublicadasJson', 'VersionPublicadaActual',
+  'VersionEsquema', 'VersionEntidad', 'CreadoPor', 'FechaCreacion',
+  'ActualizadoPor', 'FechaActualizacion', 'FechaPublicacion', 'EstadoSincronizacion',
+];
+
+/** Crea (si falta) y devuelve una hoja con sus encabezados congelados. */
+function taHoja_(ss, nombre, headers) {
+  var sh = ss.getSheetByName(nombre);
+  if (!sh) {
+    sh = ss.insertSheet(nombre);
+    sh.appendRow(headers);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/** Lee una hoja de entidad como arreglo de objetos { encabezado: valor }. */
+function taLeerFilas_(sh) {
+  var data = sh.getDataRange().getValues();
+  if (data.length < 2) return [];
+  var headers = data[0].map(function (h) { return String(h).trim(); });
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var vacia = data[r].every(function (v) { return v === '' || v === null; });
+    if (vacia) continue;
+    var obj = {};
+    for (var c = 0; c < headers.length; c++) if (headers[c]) obj[headers[c]] = data[r][c];
+    out.push(obj);
+  }
+  return out;
+}
+
+/** Enruta las lecturas GET de ProcessOS/AssessmentOS. Devuelve null si no aplica. */
+function handleTalentGet_(ss, params) {
+  switch (params.action) {
+    case 'list_procesos':
+      return { status: 'success', rows: taLeerFilas_(taHoja_(ss, TA_CONFIG.HOJA_PROCESOS, PROCESO_HEADERS)) };
+    case 'get_proceso':
+      return { status: 'success', row: taBuscarFila_(ss, TA_CONFIG.HOJA_PROCESOS, PROCESO_HEADERS, params.id) };
+    case 'list_evaluaciones':
+      return { status: 'success', rows: taLeerFilas_(taHoja_(ss, TA_CONFIG.HOJA_EVALUACIONES, EVALUACION_HEADERS)) };
+    case 'get_evaluacion':
+      return { status: 'success', row: taBuscarFila_(ss, TA_CONFIG.HOJA_EVALUACIONES, EVALUACION_HEADERS, params.id) };
+    default:
+      return null;
+  }
+}
+
+function taBuscarFila_(ss, nombre, headers, id) {
+  var sh = taHoja_(ss, nombre, headers);
+  var filas = taLeerFilas_(sh);
+  for (var i = 0; i < filas.length; i++) if (String(filas[i].ID) === String(id)) return filas[i];
+  return null;
+}
+
+/** Escribe (append o update) una fila-objeto en la hoja, alineada a headers. */
+function taEscribirFila_(sh, headers, obj) {
+  var values = sh.getDataRange().getValues();
+  var arr = headers.map(function (h) { return obj[h] !== undefined && obj[h] !== null ? obj[h] : ''; });
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][0]) === String(obj.ID)) {
+      sh.getRange(r + 1, 1, 1, headers.length).setValues([arr]);
+      return;
+    }
+  }
+  sh.appendRow(arr);
+}
+
+/** Handler de escritura para Procesos. */
+function handleProceso_(ss, data) {
+  return taHandleEntity_(ss, TA_CONFIG.HOJA_PROCESOS, PROCESO_HEADERS, data, {
+    prefix: 'PRC',
+    estadoBorrador: 'draft',
+    publicacionNoPublicado: 'unpublished',
+    transiciones: {
+      publish: { Estado: 'published', EstadoPublicacion: 'published' },
+      pause: { Estado: 'paused', EstadoPublicacion: 'paused' },
+      close: { Estado: 'closed', EstadoPublicacion: 'closed' },
+      archive: { Estado: 'archived', EstadoPublicacion: 'archived' },
+    },
+  });
+}
+
+/** Handler de escritura para Evaluaciones. */
+function handleEvaluacion_(ss, data) {
+  return taHandleEntity_(ss, TA_CONFIG.HOJA_EVALUACIONES, EVALUACION_HEADERS, data, {
+    prefix: 'EVL',
+    estadoBorrador: 'draft',
+    publicacionNoPublicado: 'unpublished',
+    transiciones: {
+      publish: { Estado: 'published', EstadoPublicacion: 'published' },
+      pause: { Estado: 'paused', EstadoPublicacion: 'paused' },
+      close: { Estado: 'closed', EstadoPublicacion: 'closed' },
+      archive: { Estado: 'archived', EstadoPublicacion: 'archived' },
+    },
+  });
+}
+
+/** Lógica compartida create/update/transición/duplicate con control de versión. */
+function taHandleEntity_(ss, nombre, headers, data, opts) {
+  var sh = taHoja_(ss, nombre, headers);
+  var action = data.action || 'create';
+
+  if (action === 'create') {
+    var row = data.row || {};
+    if (!row.ID) return { status: 'error', message: 'Falta ID' };
+    row.FechaActualizacion = new Date().toISOString();
+    row.EstadoSincronizacion = 'synced';
+    taEscribirFila_(sh, headers, row);
+    return { status: 'success', row: row };
+  }
+
+  if (action === 'update') {
+    var incoming = data.row || {};
+    var actual = taBuscarFila_(ss, nombre, headers, incoming.ID);
+    // Detección de actualización obsoleta.
+    if (actual && data.expectedEntityVersion !== undefined &&
+        Number(actual.VersionEntidad) > Number(data.expectedEntityVersion)) {
+      return { status: 'error', code: 'conflict', message: 'Otro usuario actualizó este registro.' };
+    }
+    incoming.VersionEntidad = Number(incoming.VersionEntidad || 1) + 1;
+    incoming.FechaActualizacion = new Date().toISOString();
+    incoming.EstadoSincronizacion = 'synced';
+    taEscribirFila_(sh, headers, incoming);
+    return { status: 'success', row: incoming };
+  }
+
+  if (action === 'duplicate') {
+    var src = taBuscarFila_(ss, nombre, headers, data.id);
+    if (!src) return { status: 'error', message: 'No encontrado' };
+    var copia = {};
+    headers.forEach(function (h) { copia[h] = src[h]; });
+    copia.ID = opts.prefix.toLowerCase() + '_' + Utilities.getUuid();
+    copia.Codigo = opts.prefix + '-' + String(src.Codigo || '').slice(0, 10) + '-COPIA';
+    copia.Nombre = String(src.Nombre || '') + ' (copia)';
+    copia.Estado = opts.estadoBorrador;
+    copia.EstadoPublicacion = opts.publicacionNoPublicado;
+    copia.VersionEntidad = 1;
+    // Una copia no arrastra versiones publicadas.
+    if (headers.indexOf('VersionesPublicadasJson') >= 0) copia.VersionesPublicadasJson = '[]';
+    if (headers.indexOf('VersionPublicadaActual') >= 0) copia.VersionPublicadaActual = '';
+    copia.FechaCreacion = new Date().toISOString();
+    copia.FechaActualizacion = copia.FechaCreacion;
+    copia.ActualizadoPor = data.by || '';
+    copia.EstadoSincronizacion = 'synced';
+    taEscribirFila_(sh, headers, copia);
+    return { status: 'success', row: copia };
+  }
+
+  // Transiciones de ciclo de vida (publish/pause/close/archive) + rollback.
+  var patch = opts.transiciones[action];
+  if (patch || action === 'rollback' || action === 'publish') {
+    var fila = taBuscarFila_(ss, nombre, headers, data.id);
+    if (!fila) return { status: 'error', message: 'No encontrado' };
+    if (patch) { Object.keys(patch).forEach(function (k) { fila[k] = patch[k]; }); }
+    if (action === 'publish' && headers.indexOf('FechaPublicacion') >= 0) {
+      fila.FechaPublicacion = new Date().toISOString();
+    }
+    fila.VersionEntidad = Number(fila.VersionEntidad || 1) + 1;
+    fila.ActualizadoPor = data.by || '';
+    fila.FechaActualizacion = new Date().toISOString();
+    fila.EstadoSincronizacion = 'synced';
+    taEscribirFila_(sh, headers, fila);
+    return { status: 'success', row: fila };
+  }
+
+  return { status: 'error', message: 'Acción no reconocida: ' + action };
 }
