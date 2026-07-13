@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, lazy, Suspense } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { MeshBackground } from "./components/MeshBackground";
 import { ThreeBackground } from "./components/ThreeBackground";
@@ -25,15 +25,23 @@ import { Dashboard } from "./modules/Dashboard";
 import { Tablero } from "./modules/Tablero";
 import { CaraACara } from "./modules/CaraACara";
 import { NuevoComparador } from "./modules/NuevoComparador";
-import { ProcesosModule } from "./features/processes";
-import { EvaluacionesModule } from "./features/assessments";
 import { ToastViewport } from "./design-system/liquid-glass/toast";
+import { LoadingState } from "./components/States";
 import { bootstrapPlugins } from "./features/assessments/question-types";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
 import { Documentacion } from "./modules/Documentacion";
 import { Configuracion } from "./modules/Configuracion";
 import { DOCK_ITEMS } from "./constants";
 import type { ModuleId } from "./types";
+
+// Route-level code splitting: the heavy ProcessOS/AssessmentOS bundles (builder,
+// import parsers, zod schemas) load only when their module is opened.
+const ProcesosModule = lazy(() =>
+  import("./features/processes").then((m) => ({ default: m.ProcesosModule })),
+);
+const EvaluacionesModule = lazy(() =>
+  import("./features/assessments").then((m) => ({ default: m.EvaluacionesModule })),
+);
 
 // Register the assessment question plugins once at module load.
 bootstrapPlugins();
@@ -149,8 +157,12 @@ function AppShell() {
             {active === "tablero" && <Tablero />}
             {active === "cara-a-cara" && <CaraACara />}
             {active === "comparador" && <NuevoComparador />}
-            {active === "procesos" && <ProcesosModule />}
-            {active === "evaluaciones" && <EvaluacionesModule />}
+            {(active === "procesos" || active === "evaluaciones") && (
+              <Suspense fallback={<LoadingState />}>
+                {active === "procesos" && <ProcesosModule />}
+                {active === "evaluaciones" && <EvaluacionesModule />}
+              </Suspense>
+            )}
             {active === "postulantes" && <ListaPostulantes />}
             {active === "documentacion" && <Documentacion />}
             {active === "configuracion" && <Configuracion />}
