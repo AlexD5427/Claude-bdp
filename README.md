@@ -91,7 +91,28 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   al arquetipo abre su descripción en todo el sistema (cuestionario y comparador).
 - **Impresión institucional** a Carta / Oficio en todos los módulos, con
   banderola de reporte y aplanado de vidrio para máxima legibilidad.
-- Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1) y **Procesos**.
+- **Módulo — Procesos (ProcessOS):** gestión completa de la operación de
+  reclutamiento con la entidad `RecruitmentProcess` (no solo una vacante).
+  Búsqueda, filtros avanzados, vistas de **tabla / tarjetas / Kanban / resumen**
+  (Kanban con arrastre y alternativa por teclado), editor de diez secciones,
+  contenido público saneado, asignación de evaluaciones, publicación/pausa/
+  cierre/archivo y persistencia en la hoja `Procesos`. Ver
+  [docs/modules/PROCESS_OS.md](docs/modules/PROCESS_OS.md).
+- **Módulo — Evaluaciones (AssessmentOS):** plataforma de autoría de evaluaciones
+  estructuradas (preselección, conocimientos, técnicas, juicio situacional,
+  competencias, guías de entrevista, scorecards, casos, simulaciones). Incluye
+  **constructor visual** con biblioteca de componentes, lienzo e inspector;
+  sistema de **plugins de preguntas** basado en registro; **versionado** mayor/
+  menor con actualizaciones controladas (las versiones publicadas nunca se
+  sobrescriben); **importación desde Excel/CSV/ODS** a borrador revisable;
+  puntuación, rúbricas y validación de lógica; y persistencia en la hoja
+  `Evaluaciones`. Ver [docs/modules/ASSESSMENT_OS.md](docs/modules/ASSESSMENT_OS.md).
+- Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1).
+
+> Documentación técnica de los módulos ProcessOS + AssessmentOS en
+> [`docs/modules/`](docs/modules/) (arquitectura, constructor, plugins,
+> versionado, puntuación y lógica, importación, integración Apps Script, esquema
+> de hojas, migración a Supabase, diseño, accesibilidad, seguridad y pruebas).
 
 ## 🧱 Stack
 
@@ -148,10 +169,15 @@ src/
 ├── components/      # Dock, KPIs, chips, tarjetas, modal, diálogos, formulario
 │   ├── doc/         # Módulo Documentación: alta, expediente, correo, ajustes
 │   └── form/        # Campos, velocímetro (GaugeInput), tags, list builders
+├── content/locale/  # Catálogo de textos es-MX + formateadores
 ├── context/         # useTalentData + useTheme (Context API)
+├── design-system/   # Tokens semánticos, motion y primitivas Liquid Glass
+├── features/        # ProcessOS (processes/) y AssessmentOS (assessments/)
+├── infrastructure/  # Proveedores (mock/Apps Script/Supabase), mappers, sync
 ├── hooks/           # usePointerGlow, useFormDraft (autosave/recuperación)
 ├── lib/             # cálculos, normalización, niveles, impresión, DISC y docStore
-├── modules/         # Tablero, Cara a Cara, Comparador, Procesos, Postulantes, Documentación
+├── modules/         # Tablero, Cara a Cara, Comparador, Postulantes, Documentación
+├── shared/          # Result, ids, envelope, sanitize, store, hooks, flags
 ├── App.tsx          # layout + enrutado de módulos
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 ```
