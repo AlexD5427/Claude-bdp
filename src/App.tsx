@@ -25,19 +25,26 @@ import { Dashboard } from "./modules/Dashboard";
 import { Tablero } from "./modules/Tablero";
 import { CaraACara } from "./modules/CaraACara";
 import { NuevoComparador } from "./modules/NuevoComparador";
-import { Procesos } from "./modules/Procesos";
+import { ProcesosModule } from "./features/processes";
+import { EvaluacionesModule } from "./features/assessments";
+import { ToastViewport } from "./design-system/liquid-glass/toast";
+import { bootstrapPlugins } from "./features/assessments/question-types";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
 import { Documentacion } from "./modules/Documentacion";
 import { Configuracion } from "./modules/Configuracion";
 import { DOCK_ITEMS } from "./constants";
 import type { ModuleId } from "./types";
 
+// Register the assessment question plugins once at module load.
+bootstrapPlugins();
+
 const SUBTITLES: Record<ModuleId, string> = {
   dashboard: "Panel ejecutivo de selección y reclutamiento.",
   tablero: "Visión general del talento y métricas clave.",
   "cara-a-cara": "Duelo 1 vs 1 entre dos postulantes.",
   comparador: "Auditoría comparativa de competencias.",
-  procesos: "Postulantes agrupados por proceso.",
+  procesos: "Operación completa de reclutamiento y selección.",
+  evaluaciones: "Plataforma de autoría de evaluaciones estructuradas.",
   postulantes: "Listado y registro de postulantes.",
   documentacion: "Expedientes de documentación de incorporación.",
   configuracion: "Preferencias del sistema, integraciones y formatos de correo.",
@@ -98,10 +105,10 @@ function AppShell() {
           <FilterBar />
         </div>
 
-        {/* The comparator hides the KPI row entirely (per the redesign): the
-            audit grid is the star there, and the four generic KPIs only added
-            noise and empty space above it. */}
-        {active !== "comparador" && (
+        {/* The comparator and the new ProcessOS/AssessmentOS modules provide
+            their own summaries, so the generic four-KPI row is hidden there to
+            avoid disconnected or duplicated metrics. */}
+        {active !== "comparador" && active !== "procesos" && active !== "evaluaciones" && (
           <div className="print-scope-hide">
             <KpiBar module={active} />
           </div>
@@ -142,7 +149,8 @@ function AppShell() {
             {active === "tablero" && <Tablero />}
             {active === "cara-a-cara" && <CaraACara />}
             {active === "comparador" && <NuevoComparador />}
-            {active === "procesos" && <Procesos />}
+            {active === "procesos" && <ProcesosModule />}
+            {active === "evaluaciones" && <EvaluacionesModule />}
             {active === "postulantes" && <ListaPostulantes />}
             {active === "documentacion" && <Documentacion />}
             {active === "configuracion" && <Configuracion />}
@@ -153,6 +161,7 @@ function AppShell() {
       {/* Global overlays — reachable from every module. */}
       <CandidateProfileViewer />
       <CandidateEditModal />
+      <ToastViewport />
     </div>
   );
 }
