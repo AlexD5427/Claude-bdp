@@ -72,22 +72,6 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   **anillo de avance**, **análisis inteligente** y un **panel de avisos por
   correo** (Gmail/Outlook) totalmente editable con **recordatorios automáticos
   cada 3 días** y copia al auxiliar a cargo.
-- **Módulo — Procesos (ProcessOS):** centro de control de los procesos de
-  reclutamiento (no una simple vacante). Vistas **Tabla**, **Tarjetas**,
-  **Kanban** (con alternativa por teclado), **Postulantes por proceso** (la vista
-  original, preservada) y **Resumen analítico**; filtros combinables y
-  persistentes; **editor multi-sección** (Resumen, Cargo, Publicación,
-  Evaluaciones, Equipo, Configuración, Historial) con estados internos y de
-  publicación separados, vinculación de evaluaciones e historial de cambios.
-- **Módulo — Evaluaciones (AssessmentOS):** plataforma de creación de
-  evaluaciones con **constructor visual** (biblioteca de +30 tipos de pregunta
-  vía registro de *plugins*, lienzo, panel de propiedades, deshacer/rehacer),
-  **versionado** con clasificación de cambios estructurales/no estructurales,
-  motores de **validación, puntuación y lógica**, **vista previa** multi-
-  dispositivo (a través de un DTO público que oculta las respuestas correctas),
-  **biblioteca de plantillas** e **importación desde Excel/CSV/ODS** con reporte
-  de validación. Ver `docs/ARCHITECTURE.md`, `docs/PROCESS_OS.md` y
-  `docs/ASSESSMENT_OS.md`.
 - **Módulo — Configuración:** centro de control del sistema — identidad
   institucional, **reglas de evaluación/comparador** (umbral CAP, tolerancia de
   empate, máximo de columnas, orden y ranking), **apariencia y rendimiento**
@@ -107,7 +91,7 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   al arquetipo abre su descripción en todo el sistema (cuestionario y comparador).
 - **Impresión institucional** a Carta / Oficio en todos los módulos, con
   banderola de reporte y aplanado de vidrio para máxima legibilidad.
-- Módulos adicionales: **Tablero** y **Cara a Cara** (1 vs 1).
+- Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1) y **Procesos**.
 
 ## 🧱 Stack
 

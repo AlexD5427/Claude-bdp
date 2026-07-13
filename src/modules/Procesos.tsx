@@ -1,29 +1,25 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Workflow, Users } from "lucide-react";
-import { useTalentData } from "../../../context/TalentDataContext";
-import { LoadingState, ErrorState, EmptyState } from "../../../components/States";
-import { Avatar } from "../../../components/Avatar";
-import { CandidateActions } from "../../../components/CandidateActions";
-import { openProfile } from "../../../lib/profileViewerStore";
-import { groupByProceso } from "../../../lib/candidates";
+import { useTalentData } from "../context/TalentDataContext";
+import { LoadingState, ErrorState, EmptyState } from "../components/States";
+import { Avatar } from "../components/Avatar";
+import { CandidateActions } from "../components/CandidateActions";
+import { openProfile } from "../lib/profileViewerStore";
+import { groupByProceso } from "../lib/candidates";
 
 /**
- * "Postulantes por proceso" — the original, valuable candidate-grouping view,
- * migrated intact into ProcessOS as one of its view modes. It groups the real
- * candidates (from the Apps Script backend) by the process number embedded in
- * their identificador, and links each person to the full profile viewer. This
- * preserves working functionality while the process registry (above) manages
- * the process definitions themselves.
+ * "Procesos" — candidates grouped by their recruitment process (the middle
+ * segment of the identificador). Each process is a Liquid Glass panel.
  */
-export function ByProcessView() {
+export function Procesos() {
   const { candidatos, loading, error, refetch } = useTalentData();
   const grupos = useMemo(() => groupByProceso(candidatos), [candidatos]);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={refetch} />;
   if (grupos.length === 0) {
-    return <EmptyState message="No hay postulantes agrupados por proceso todavía." />;
+    return <EmptyState message="No hay procesos para mostrar." />;
   }
 
   return (
@@ -33,7 +29,12 @@ export function ByProcessView() {
           key={g.proceso}
           initial={{ opacity: 0, y: 18, scale: 0.97 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: "spring", stiffness: 240, damping: 22, delay: Math.min(i * 0.05, 0.4) }}
+          transition={{
+            type: "spring",
+            stiffness: 240,
+            damping: 22,
+            delay: Math.min(i * 0.05, 0.4),
+          }}
           className="glass liquid-streak rounded-3xl p-5"
         >
           <div className="flex items-center justify-between gap-3">
@@ -42,17 +43,24 @@ export function ByProcessView() {
                 <Workflow className="h-5 w-5 text-white drop-shadow-md" />
               </div>
               <div>
-                <h3 className="text-lg font-black text-ink">Proceso {g.proceso}</h3>
+                <h3 className="text-lg font-black text-ink">
+                  Proceso {g.proceso}
+                </h3>
                 <p className="inline-flex items-center gap-1 text-xs text-ink-soft">
                   <Users className="h-3.5 w-3.5" />
-                  {g.candidatos.length} postulante{g.candidatos.length === 1 ? "" : "s"}
+                  {g.candidatos.length} postulante
+                  {g.candidatos.length === 1 ? "" : "s"}
                 </p>
               </div>
             </div>
             {g.avgCompetencias !== null && (
               <div className="rounded-2xl fill-softer px-3 py-1.5 text-center ring-1 ring-[color:var(--hairline)]">
-                <div className="text-lg font-black leading-none text-ink">{g.avgCompetencias}</div>
-                <div className="text-[0.6rem] uppercase tracking-wide text-ink-faint">Prom. comp.</div>
+                <div className="text-lg font-black leading-none text-ink">
+                  {g.avgCompetencias}
+                </div>
+                <div className="text-[0.6rem] uppercase tracking-wide text-ink-faint">
+                  Prom. comp.
+                </div>
               </div>
             )}
           </div>

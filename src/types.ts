@@ -140,7 +140,6 @@ export type ModuleId =
   | "cara-a-cara"
   | "comparador"
   | "procesos"
-  | "evaluaciones"
   | "postulantes"
   | "documentacion"
   | "configuracion";

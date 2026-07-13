@@ -49,9 +49,6 @@ var CONFIG = {
   HOJA_DOCS: 'Documentación',
   HOJA_AVISOS: 'Avisos Documentación',
   HOJA_REFERENCIAS: 'Referencias_Laborales',
-  // ProcessOS / AssessmentOS — hojas transaccionales (nombres EXACTOS).
-  HOJA_PROCESOS: 'Procesos',
-  HOJA_EVALUACIONES: 'Evaluaciones',
   CACHE_KEY: 'bdp_payload_v3',
   CACHE_SEGUNDOS: 45,        // vida de la caché del GET completo
   MAX_LOG_ENTRADAS: 400,     // tope de entradas de bitácora por perfil
@@ -62,46 +59,12 @@ var CONFIG = {
   TZ: 'America/La_Paz',
 };
 
-/* Encabezados EXACTOS de las hojas ProcessOS / AssessmentOS. Deben coincidir
- * con los mappers del frontend (features/processes/mappers.ts y
- * features/assessments/mappers.ts). Si la hoja no existe, se crea con estos
- * encabezados; si ya existe con otro esquema, se preservan las columnas
- * compatibles y sólo se agregan las faltantes (no destructivo). */
-var PROCESOS_HEADERS = [
-  'ID', 'ReferenciaExterna', 'Codigo', 'Nombre', 'Slug', 'Descripcion', 'Area',
-  'Departamento', 'UnidadNegocio', 'Region', 'Ciudad', 'Agencia', 'Modalidad',
-  'TipoContrato', 'Vacantes', 'ReclutadoresJson', 'ResponsablesJson', 'Estado',
-  'EstadoPublicacion', 'Visibilidad', 'FechaApertura', 'FechaCierre',
-  'EvaluacionesJson', 'FormularioJson', 'ContenidoPublicoJson',
-  'ConfiguracionJson', 'VersionEsquema', 'CreadoPor', 'FechaCreacion',
-  'ActualizadoPor', 'FechaActualizacion', 'SincronizacionEstado',
-];
-var EVALUACIONES_HEADERS = [
-  'ID', 'ReferenciaExterna', 'Codigo', 'Nombre', 'Categoria', 'Proposito',
-  'Version', 'VersionMayor', 'VersionMenor', 'Estado', 'EstadoPublicacion',
-  'ProcesosJson', 'DuracionEstimada', 'PoliticaIntentosJson',
-  'PoliticaTiempoJson', 'PoliticaNavegacionJson', 'PoliticaPuntuacionJson',
-  'PoliticaMonitoreoJson', 'PoliticaConsentimientoJson', 'SeccionesJson',
-  'ReglasJson', 'TemaJson', 'ConfiguracionJson', 'VersionEsquema', 'CreadoPor',
-  'FechaCreacion', 'ActualizadoPor', 'FechaActualizacion', 'FechaPublicacion',
-  'SincronizacionEstado',
-];
-
 /* ============================== GET ============================== */
 
 function doGet(e) {
   var params = (e && e.parameter) || {};
   var ligero = params.part === 'ligero';
   var noCache = params.nocache === '1' || params.nocache === 'true';
-
-  // ProcessOS / AssessmentOS read a single resource sheet as JSON rows. These
-  // are small and change independently, so they bypass the big payload cache.
-  if (params.resource === 'procesos') {
-    return jsonOut_({ procesos: leerHojaObjetos_(SpreadsheetApp.getActiveSpreadsheet(), CONFIG.HOJA_PROCESOS) });
-  }
-  if (params.resource === 'evaluaciones') {
-    return jsonOut_({ evaluaciones: leerHojaObjetos_(SpreadsheetApp.getActiveSpreadsheet(), CONFIG.HOJA_EVALUACIONES) });
-  }
 
   if (!noCache && !ligero) {
     var cached = leerCache_();
@@ -114,11 +77,6 @@ function doGet(e) {
   if (!ligero) guardarCache_(texto);
 
   return ContentService.createTextOutput(texto).setMimeType(ContentService.MimeType.JSON);
-}
-
-/** Small helper: JSON ContentService output. */
-function jsonOut_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
 
 function construirPayload_(ligero) {
@@ -165,8 +123,6 @@ function doPost(e) {
     case 'perfil_login':         resp = handlePerfilLogin_(ss, data); break;
     case 'perfil_config':        resp = handlePerfilConfig_(ss, data); break;
     case 'perfil_log':           resp = handlePerfilLog_(ss, data); break;
-    case 'proceso':              resp = handleProceso_(ss, data); break;
-    case 'evaluacion':           resp = handleEvaluacion_(ss, data); break;
     case 'hiring_status':
     case 'kpi_snapshot':
       resp = { status: 'ignored', type: data.type }; break;
@@ -177,8 +133,7 @@ function doPost(e) {
   // Only writes that change the data served by the GET should invalidate its
   // cache. Bitácora/login/config writes don't touch candidatos/perfiles/etc.,
   // so keeping the cache warm for them makes edits feel fast without serving
-  // stale data after a real change. Procesos/Evaluaciones use their own
-  // (uncached) resource reads, so they don't need to bust the big payload cache.
+  // stale data after a real change.
   var MUTATES = { documentacion: 1, referencia_laboral: 1 };
   var esMutacion = MUTATES[data.type] || data.type === undefined; // undefined = postulante CRUD
   if (esMutacion) invalidarCache_();
@@ -224,118 +179,6 @@ function handlePostulante_(ss, data) {
   var newRow = head.map(function (h) { return data[h] !== undefined ? data[h] : ''; });
   sheet.appendRow(newRow);
   return { status: 'success', message: 'Agregado' };
-}
-
-/* ============ PROCESOS (ProcessOS) — hoja "Procesos" ============ */
-/* Cuerpo esperado del POST:
- *   { type:"proceso", action:"create"|"update"|"delete",
- *     row:{ ...columnas Procesos }, id, idempotencyKey } */
-
-function hojaConEncabezados_(ss, nombre, headers) {
-  var sh = ss.getSheetByName(nombre);
-  if (!sh) {
-    sh = ss.insertSheet(nombre);
-    sh.appendRow(headers);
-    sh.setFrozenRows(1);
-    return sh;
-  }
-  // No destructivo: agregar sólo las columnas faltantes al final.
-  var actuales = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0]
-    .map(function (h) { return String(h).trim(); });
-  var faltantes = headers.filter(function (h) { return actuales.indexOf(h) < 0; });
-  if (faltantes.length && actuales.length && actuales[0] !== '') {
-    sh.getRange(1, sh.getLastColumn() + 1, 1, faltantes.length).setValues([faltantes]);
-  } else if (!actuales.length || actuales[0] === '') {
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sh.setFrozenRows(1);
-  }
-  return sh;
-}
-
-/** Upsert genérico por la primera columna (ID). */
-function upsertPorId_(sh, headers, row) {
-  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
-    .map(function (h) { return String(h).trim(); });
-  var fila = head.map(function (h) { return row[h] !== undefined ? row[h] : ''; });
-  var id = String(row.ID || '');
-  if (!id) return { status: 'error', message: 'Falta ID' };
-  var vals = sh.getDataRange().getValues();
-  for (var r = 1; r < vals.length; r++) {
-    if (String(vals[r][0]) === id) {
-      sh.getRange(r + 1, 1, 1, head.length).setValues([fila]);
-      return { status: 'success', message: 'Actualizado', id: id };
-    }
-  }
-  sh.appendRow(fila);
-  return { status: 'success', message: 'Agregado', id: id };
-}
-
-function borrarPorId_(sh, id) {
-  var vals = sh.getDataRange().getValues();
-  for (var r = vals.length - 1; r >= 1; r--) {
-    if (String(vals[r][0]) === String(id)) { sh.deleteRow(r + 1); return true; }
-  }
-  return false;
-}
-
-function handleProceso_(ss, data) {
-  var sh = hojaConEncabezados_(ss, CONFIG.HOJA_PROCESOS, PROCESOS_HEADERS);
-  if (data.action === 'delete') {
-    return borrarPorId_(sh, data.id)
-      ? { status: 'success', message: 'Proceso eliminado' }
-      : { status: 'error', message: 'No encontrado' };
-  }
-  // create y update comparten el upsert por ID (idempotente ante reintentos).
-  return upsertPorId_(sh, PROCESOS_HEADERS, data.row || {});
-}
-
-/* ======= EVALUACIONES (AssessmentOS) — hoja "Evaluaciones" ======= */
-/* Cuerpo esperado del POST:
- *   { type:"evaluacion", action:"create"|"update"|"publish_version"|"delete",
- *     row:{ ...columnas Evaluaciones }, id, version, idempotencyKey }
- *
- * Versionado: "publish_version" NO sobrescribe versiones publicadas previas.
- * Cada versión publicada se guarda como una fila propia con identidad compuesta
- * ID + Version. El borrador vivo se mantiene como la fila cuya columna
- * EstadoPublicacion no es "published" (o la de mayor Version en borrador). */
-
-function handleEvaluacion_(ss, data) {
-  var sh = hojaConEncabezados_(ss, CONFIG.HOJA_EVALUACIONES, EVALUACIONES_HEADERS);
-  var row = data.row || {};
-
-  if (data.action === 'delete') {
-    // Elimina todas las filas (todas las versiones) de esa evaluación.
-    var vals = sh.getDataRange().getValues();
-    var borradas = 0;
-    for (var r = vals.length - 1; r >= 1; r--) {
-      if (String(vals[r][0]) === String(data.id)) { sh.deleteRow(r + 1); borradas++; }
-    }
-    return { status: 'success', message: 'Evaluación eliminada', filas: borradas };
-  }
-
-  if (data.action === 'publish_version') {
-    // Inserta SIEMPRE una fila nueva (identidad compuesta ID+Version) para
-    // preservar el historial de versiones publicadas; nunca sobrescribe.
-    var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
-      .map(function (h) { return String(h).trim(); });
-    // Si ya existe exactamente ID+Version publicada, actualiza esa fila.
-    var vals2 = sh.getDataRange().getValues();
-    var idxId = head.indexOf('ID'), idxVer = head.indexOf('Version');
-    for (var r2 = 1; r2 < vals2.length; r2++) {
-      if (String(vals2[r2][idxId]) === String(row.ID) &&
-          String(vals2[r2][idxVer]) === String(data.version)) {
-        var fila2 = head.map(function (h) { return row[h] !== undefined ? row[h] : ''; });
-        sh.getRange(r2 + 1, 1, 1, head.length).setValues([fila2]);
-        return { status: 'success', message: 'Versión actualizada', version: data.version };
-      }
-    }
-    var filaNueva = head.map(function (h) { return row[h] !== undefined ? row[h] : ''; });
-    sh.appendRow(filaNueva);
-    return { status: 'success', message: 'Versión publicada', version: data.version };
-  }
-
-  // create / update: upsert del borrador vivo por ID.
-  return upsertPorId_(sh, EVALUACIONES_HEADERS, row);
 }
 
 /* ===================== LECTURA DE HOJAS ========================= */
