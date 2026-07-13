@@ -44,6 +44,10 @@ const store = createStore<ProcessListState>({
 
 let activeRepo: ProcessRepository = resolveProcessRepository();
 let mockSubscribed = false;
+// Monotonic generation guard: a slow/flaky Apps Script response must never
+// clobber a newer refresh's result (which is what made the list flip to an
+// error state after the mock fallback had already populated it).
+let generation = 0;
 
 /** Keep the list live when the mock store mutates (multi-tab / linked edits). */
 function subscribeMockReactivity() {
@@ -57,10 +61,13 @@ function subscribeMockReactivity() {
 
 /** (Re)load the list of process summaries. */
 export async function refresh(signal?: AbortSignal): Promise<void> {
+  const gen = ++generation;
+  const isStale = () => gen !== generation || Boolean(signal?.aborted);
   const current = store.get();
   store.set({ ...current, status: current.summaries.length ? current.status : "loading", error: null });
   try {
     const summaries = await activeRepo.listSummaries(signal);
+    if (isStale()) return;
     store.set({
       status: "ready",
       summaries,
@@ -69,6 +76,7 @@ export async function refresh(signal?: AbortSignal): Promise<void> {
       lastSyncedAt: new Date().toISOString(),
     });
   } catch (err) {
+    if (isStale()) return;
     // Backend not ready (unknown operation) or offline → fall back to mock.
     if (activeRepo.kind === "apps-script") {
       activeRepo = mockProcessRepository;
@@ -81,6 +89,7 @@ export async function refresh(signal?: AbortSignal): Promise<void> {
       }
       try {
         const summaries = await activeRepo.listSummaries();
+        if (isStale()) return;
         store.set({
           status: "ready",
           summaries,
@@ -90,6 +99,7 @@ export async function refresh(signal?: AbortSignal): Promise<void> {
         });
         return;
       } catch (inner) {
+        if (isStale()) return;
         store.set({ ...store.get(), status: "error", error: toAppError(inner).message });
         return;
       }

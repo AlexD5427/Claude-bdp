@@ -34,6 +34,9 @@ const store = createStore<AssessmentListState>({
 
 let activeRepo: AssessmentRepository = resolveAssessmentRepository();
 let mockSubscribed = false;
+// Generation guard: ignore results from a superseded/aborted refresh so a slow
+// Apps Script response can't overwrite a newer mock-fallback result.
+let generation = 0;
 
 function subscribeMockReactivity() {
   if (mockSubscribed) return;
@@ -45,12 +48,16 @@ function subscribeMockReactivity() {
 }
 
 export async function refresh(signal?: AbortSignal): Promise<void> {
+  const gen = ++generation;
+  const isStale = () => gen !== generation || Boolean(signal?.aborted);
   const current = store.get();
   store.set({ ...current, status: current.summaries.length ? current.status : "loading", error: null });
   try {
     const summaries = await activeRepo.listSummaries(signal);
+    if (isStale()) return;
     store.set({ status: "ready", summaries, error: null, provider: activeRepo.kind, lastSyncedAt: new Date().toISOString() });
   } catch (err) {
+    if (isStale()) return;
     if (activeRepo.kind === "apps-script") {
       activeRepo = mockAssessmentRepository;
       subscribeMockReactivity();
@@ -62,9 +69,11 @@ export async function refresh(signal?: AbortSignal): Promise<void> {
       }
       try {
         const summaries = await activeRepo.listSummaries();
+        if (isStale()) return;
         store.set({ status: "ready", summaries, error: null, provider: "mock", lastSyncedAt: new Date().toISOString() });
         return;
       } catch (inner) {
+        if (isStale()) return;
         store.set({ ...store.get(), status: "error", error: toAppError(inner).message });
         return;
       }

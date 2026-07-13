@@ -243,7 +243,7 @@ export function AssessmentBuilder({
   const insertSectionId = doc?.sections.find((s) => s.questions.some((q) => q.id === selectedId))?.id ?? doc?.sections[0]?.id;
 
   return createPortal(
-    <div className="fixed inset-0 z-[130] flex flex-col bg-[color:var(--app-base)] no-print">
+    <div className="fixed inset-0 z-[110] flex flex-col bg-[color:var(--app-base)] no-print">
       {/* Top toolbar */}
       <header className="glass-heavy z-20 flex flex-wrap items-center gap-2 border-b border-[color:var(--hairline)] px-4 py-2.5">
         <button
