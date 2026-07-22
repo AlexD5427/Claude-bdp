@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Moon, Sun, ChevronRight, ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { DOCK_ITEMS } from "../constants";
 import { useTheme } from "../context/ThemeContext";
 import { useConfig, setConfig, type DockPosition, type DockSize } from "../lib/configStore";
 import { useDockOverride } from "../lib/dockOverrideStore";
+import { useToolsOpen, toggleTools } from "../lib/toolsStore";
+import { HerramientasIcon } from "./icons/CustomIcons";
 import { DrawIcon } from "./DrawIcon";
 import { DockProfileChip } from "./DockProfileChip";
 import type { ModuleId } from "../types";
@@ -99,6 +101,7 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
   const { theme, toggle } = useTheme();
   const { dockPosition, dockSize, dockCollapsed } = useConfig();
   const override = useDockOverride();
+  const toolsOpen = useToolsOpen();
   const vp = useViewport();
 
   // The override only takes effect if it differs from the user's own choice.
@@ -184,67 +187,131 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
               const isActive = item.id === active;
               const Icon = item.icon;
               return (
-                <li key={item.id} className="relative">
-                  <button
-                    type="button"
-                    aria-label={item.label}
-                    title={item.label}
-                    aria-current={isActive ? "page" : undefined}
-                    onClick={() => onSelect(item.id)}
-                    className={[
-                      "relative flex flex-col items-center gap-1 rounded-2xl px-1 py-1.5 outline-none transition-transform duration-300 ease-spring hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-cyan-300 active:scale-95",
-                      vertical ? "w-[3rem]" : sz.btn,
-                    ].join(" ")}
-                  >
-                    {isActive && (
-                      <motion.span
-                        layoutId={pillId}
-                        transition={{ type: "spring", stiffness: 380, damping: 30 }}
-                        className="absolute inset-0 rounded-2xl bg-[color:var(--fill-2)] ring-1 ring-[color:var(--hairline)]"
-                      />
-                    )}
-                    <span className={`relative grid place-items-center ${sz.plate}`}>
-                      {isActive && (
-                        <>
-                          <motion.span
-                            layoutId={orbId}
-                            transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                            className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
-                          />
-                          <motion.span
-                            key={`burst-${active}`}
-                            aria-hidden
-                            initial={{ opacity: 0.55, scale: 0.45 }}
-                            animate={{ opacity: 0, scale: 1.75 }}
-                            transition={{ duration: 0.5, ease: "easeOut" }}
-                            className="pointer-events-none absolute inset-0 rounded-full bg-cyan-300/70 blur-[2px]"
-                          />
-                        </>
-                      )}
-                      <DrawIcon
-                        icon={Icon}
-                        active={isActive}
+                <Fragment key={item.id}>
+                  {/* The "Herramientas" quick-panel button sits between
+                      Documentación and Configuración — a shortcut, not a module. */}
+                  {item.id === "configuracion" && (
+                    <li className="relative">
+                      <button
+                        type="button"
+                        aria-label="Herramientas"
+                        title="Herramientas"
+                        aria-haspopup="dialog"
+                        aria-expanded={toolsOpen}
+                        onClick={() => toggleTools()}
                         className={[
-                          sz.icon,
-                          "relative transition-colors duration-300",
-                          isActive ? "text-white drop-shadow-md" : "text-ink-soft",
-                        ].join(" ")}
-                        strokeWidth={isActive ? 2.4 : 2}
-                      />
-                    </span>
-                    {showLabels && (
-                      <span
-                        className={[
-                          "relative max-w-full truncate font-semibold leading-none transition-colors duration-300",
-                          sz.label,
-                          isActive ? "text-ink" : "text-ink-faint",
+                          "relative flex flex-col items-center gap-1 rounded-2xl px-1 py-1.5 outline-none transition-transform duration-300 ease-spring hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-cyan-300 active:scale-95",
+                          vertical ? "w-[3rem]" : sz.btn,
                         ].join(" ")}
                       >
-                        {item.label}
+                        {toolsOpen && (
+                          <motion.span
+                            layoutId={`${pillId}-tools`}
+                            transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                            className="absolute inset-0 rounded-2xl bg-[color:var(--fill-2)] ring-1 ring-[color:var(--hairline)]"
+                          />
+                        )}
+                        <span className={`relative grid place-items-center ${sz.plate}`}>
+                          {toolsOpen && (
+                            <motion.span
+                              layoutId={`${orbId}-tools`}
+                              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                              className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+                            />
+                          )}
+                          <DrawIcon
+                            icon={HerramientasIcon}
+                            active={toolsOpen}
+                            redrawOnHover
+                            className={[
+                              sz.icon,
+                              "relative transition-colors duration-300",
+                              toolsOpen ? "text-white drop-shadow-md" : "text-ink-soft",
+                            ].join(" ")}
+                            strokeWidth={toolsOpen ? 2.4 : 2}
+                          />
+                        </span>
+                        {showLabels && (
+                          <span
+                            className={[
+                              "relative max-w-full truncate font-semibold leading-none transition-colors duration-300",
+                              sz.label,
+                              toolsOpen ? "text-ink" : "text-ink-faint",
+                            ].join(" ")}
+                          >
+                            Herramientas
+                          </span>
+                        )}
+                      </button>
+                    </li>
+                  )}
+                  <li className="relative">
+                    <button
+                      type="button"
+                      aria-label={item.label}
+                      title={item.label}
+                      aria-current={isActive ? "page" : undefined}
+                      onClick={() => onSelect(item.id)}
+                      disabled={toolsOpen}
+                      className={[
+                        "relative flex flex-col items-center gap-1 rounded-2xl px-1 py-1.5 outline-none transition-all duration-300 ease-spring hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-cyan-300 active:scale-95",
+                        vertical ? "w-[3rem]" : sz.btn,
+                        // While Herramientas is open, dim + disable every module
+                        // (including the active one) so navigation is momentarily
+                        // locked behind the panel and only Herramientas stays lit.
+                        toolsOpen ? "opacity-40 cursor-default" : "",
+                      ].join(" ")}
+                    >
+                      {isActive && (
+                        <motion.span
+                          layoutId={pillId}
+                          transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                          className="absolute inset-0 rounded-2xl bg-[color:var(--fill-2)] ring-1 ring-[color:var(--hairline)]"
+                        />
+                      )}
+                      <span className={`relative grid place-items-center ${sz.plate}`}>
+                        {isActive && (
+                          <>
+                            <motion.span
+                              layoutId={orbId}
+                              transition={{ type: "spring", stiffness: 360, damping: 28 }}
+                              className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+                            />
+                            <motion.span
+                              key={`burst-${active}`}
+                              aria-hidden
+                              initial={{ opacity: 0.55, scale: 0.45 }}
+                              animate={{ opacity: 0, scale: 1.75 }}
+                              transition={{ duration: 0.5, ease: "easeOut" }}
+                              className="pointer-events-none absolute inset-0 rounded-full bg-cyan-300/70 blur-[2px]"
+                            />
+                          </>
+                        )}
+                        <DrawIcon
+                          icon={Icon}
+                          active={isActive}
+                          className={[
+                            sz.icon,
+                            "relative transition-colors duration-300",
+                            isActive ? "text-white drop-shadow-md" : "text-ink-soft",
+                          ].join(" ")}
+                          strokeWidth={isActive ? 2.4 : 2}
+                        />
                       </span>
-                    )}
-                  </button>
-                </li>
+                      {showLabels && (
+                        <span
+                          className={[
+                            "relative max-w-full truncate font-semibold leading-none transition-colors duration-300",
+                            sz.label,
+                            isActive ? "text-ink" : "text-ink-faint",
+                          ].join(" ")}
+                        >
+                          {item.label}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                </Fragment>
               );
             })}
           </ul>

@@ -9,8 +9,12 @@
 > `estado_proceso`) además de `competencias` y `arquetipo_disc`; enlaza
 > **`Espejo_Base`** y **`Espejo_Ultimo_Registro`**; agrega el sistema de
 > **perfiles** (`Perfiles_y_Configuracion`: login, guardado de configuración y
-> bitácora `log_actividad_perfil`); y **cachea el `GET`** por tramos para que la
-> carga deje de tardar >10 s. `Documentacion.gs` queda como referencia histórica.
+> bitácora `log_actividad_perfil`); expone el CRUD del módulo **Perfiles de
+> Cargo** (hoja **`perfil_cargo_bdp`**, creada automáticamente con sus 22
+> cabeceras si no existe; `type:"perfil_cargo"` con `create`/`update`/`delete`
+> por número de fila) e incluye `perfiles_cargo` en el `GET`; y **cachea el
+> `GET`** por tramos para que la carga deje de tardar >10 s. `Documentacion.gs`
+> queda como referencia histórica.
 >
 > **Despliegue:** Extensiones → Apps Script → pegue `Code.gs` → Implementar →
 > Administrar implementaciones → Editar → **Nueva versión** ("Cualquiera con el

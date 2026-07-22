@@ -72,6 +72,21 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   **anillo de avance**, **análisis inteligente** y un **panel de avisos por
   correo** (Gmail/Outlook) totalmente editable con **recordatorios automáticos
   cada 3 días** y copia al auxiliar a cargo.
+- **Módulo — Perfiles de Cargo:** creación y gestión completa de los *perfiles de
+  cargo* del banco (crear, editar, ver, eliminar) con métricas/KPIs, buscador y
+  filtros por gestión y área. Persiste en la hoja `perfil_cargo_bdp` respetando su
+  **contrato de texto plano** (viñetas separadas por `" | "`, diez ranuras de
+  imagen `link_img_1…10`) para un segundo frontend de sólo lectura. Formulario a
+  pantalla completa por secciones con **autocompletado en vivo** (`gerencias_bdp` /
+  `cargos_bdp`), **autoguardado de borrador** y recuperación, **verificación humana
+  del enlace de Evaluar**, y un gestor de imágenes con carga por URL,
+  **reordenamiento por arrastre** y **carrusel de vista previa**. Incluye un **visor
+  premium** a pantalla completa (galería + secciones reveladas), distinto del
+  formulario. Ver [docs/perfiles-cargo/EXPLICACION.md](docs/perfiles-cargo/EXPLICACION.md).
+- **Acceso directo — Herramientas:** botón del dock (entre *Documentación* y
+  *Configuración*) que abre un panel translúcido estilo *Quick Settings* de iOS con
+  seis utilidades externas (íconos animados, revelado de texto, apertura en pestaña
+  nueva). Mientras está abierto, atenúa el resto del dock y restringe la navegación.
 - **Módulo — Configuración:** centro de control del sistema — identidad
   institucional, **reglas de evaluación/comparador** (umbral CAP, tolerancia de
   empate, máximo de columnas, orden y ranking), **apariencia y rendimiento**
@@ -168,6 +183,8 @@ La paleta corporativa se construye con `#004a8f` (azul profundo), `#005baa`
 src/
 ├── components/      # Dock, KPIs, chips, tarjetas, modal, diálogos, formulario
 │   ├── doc/         # Módulo Documentación: alta, expediente, correo, ajustes
+│   ├── perfiles/    # Módulo Perfiles de Cargo: formulario, visor, imágenes, tarjeta
+│   ├── tools/       # Panel «Herramientas» (Quick Settings)
 │   └── form/        # Campos, velocímetro (GaugeInput), tags, list builders
 ├── content/locale/  # Catálogo de textos es-MX + formateadores
 ├── context/         # useTalentData + useTheme (Context API)
@@ -176,7 +193,7 @@ src/
 ├── infrastructure/  # Proveedores (mock/Apps Script/Supabase), mappers, sync
 ├── hooks/           # usePointerGlow, useFormDraft (autosave/recuperación)
 ├── lib/             # cálculos, normalización, niveles, impresión, DISC y docStore
-├── modules/         # Tablero, Cara a Cara, Comparador, Postulantes, Documentación
+├── modules/         # Tablero, Cara a Cara, Comparador, Postulantes, Perfiles, Documentación
 ├── shared/          # Result, ids, envelope, sanitize, store, hooks, flags
 ├── App.tsx          # layout + enrutado de módulos
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)

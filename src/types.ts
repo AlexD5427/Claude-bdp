@@ -116,6 +116,8 @@ export interface TalentPayload {
   auxiliares?: Partial<Auxiliares>;
   /** Rows of the "Perfiles_y_Configuracion" sheet. Optional. */
   perfiles?: RawPerfil[];
+  /** Rows of the "perfil_cargo_bdp" sheet (job-profile module). Optional. */
+  perfiles_cargo?: RawPerfilCargo[];
   /** Rows of the "Espejo_Base" sheet (full process history). Optional. */
   espejo_base?: EspejoRow[];
   /** Rows of the "Espejo_Ultimo_Registro" sheet (latest state per process). */
@@ -133,6 +135,44 @@ export interface RawPerfil {
   [key: string]: unknown;
 }
 
+/**
+ * A row of the "perfil_cargo_bdp" sheet, exactly as delivered by the backend.
+ *
+ * These are the *job profiles* ("perfiles de cargo") authored by the Perfiles
+ * module. The header names are fixed by contract with a second, read-only
+ * frontend that renders them, so the accented keys (`formación_complementaria`,
+ * `conocimientos_genéricos`) are preserved verbatim. List-like fields store
+ * plain text where entries are separated by " | " (see `lib/perfilCargo.ts`).
+ */
+export interface RawPerfilCargo {
+  area_cargo?: string;
+  puesto_bdp?: string;
+  gestion_bdp?: string | number;
+  formacion_principal?: string;
+  "formación_complementaria"?: string;
+  experiencia_general?: string;
+  experiencia_especifica?: string;
+  conocimientos_tecnicos?: string;
+  "conocimientos_genéricos"?: string;
+  conductas_requeridas?: string;
+  competencias_requeridas?: string;
+  link_evaluar?: string;
+  link_img_1?: string;
+  link_img_2?: string;
+  link_img_3?: string;
+  link_img_4?: string;
+  link_img_5?: string;
+  link_img_6?: string;
+  link_img_7?: string;
+  link_img_8?: string;
+  link_img_9?: string;
+  link_img_10?: string;
+  /** 1-based row index among data rows — the sheet write key. Injected by the
+   *  backend so edits/deletes target the exact row without an id column. */
+  _fila?: number;
+  [key: string]: unknown;
+}
+
 /** The navigable modules surfaced in the floating dock. */
 export type ModuleId =
   | "dashboard"
@@ -142,6 +182,7 @@ export type ModuleId =
   | "procesos"
   | "evaluaciones"
   | "postulantes"
+  | "perfiles"
   | "documentacion"
   | "configuracion";
 

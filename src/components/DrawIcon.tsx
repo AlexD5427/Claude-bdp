@@ -1,5 +1,14 @@
-import { useEffect, useRef } from "react";
-import type { LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
+
+/**
+ * Any stroke-based icon component that accepts `className` + `strokeWidth`.
+ * Lucide icons satisfy this, and so do the bespoke SVG icons in
+ * `components/icons` — both animate identically through {@link DrawIcon}.
+ */
+export type DrawableIcon = ComponentType<{
+  className?: string;
+  strokeWidth?: number | string;
+}>;
 
 /** SVG geometry elements Lucide uses — all expose `getTotalLength()`. */
 const GEOMETRY = "path, line, polyline, polygon, circle, rect, ellipse";
@@ -16,13 +25,15 @@ function prefersReducedMotion(): boolean {
 }
 
 interface DrawIconProps {
-  icon: LucideIcon;
+  icon: DrawableIcon;
   /** When it flips to `true`, the icon re-draws its strokes from scratch. */
   active: boolean;
   className?: string;
   strokeWidth?: number;
   /** Total stroke-draw duration, in milliseconds. */
   duration?: number;
+  /** Redraw once on mount and again whenever the icon is pointer-entered. */
+  redrawOnHover?: boolean;
 }
 
 /**
@@ -42,10 +53,20 @@ export function DrawIcon({
   className,
   strokeWidth = 2,
   duration = 520,
+  redrawOnHover = false,
 }: DrawIconProps) {
   const ref = useRef<HTMLSpanElement>(null);
+  // A monotonically increasing pulse lets `redrawOnHover` re-trigger the draw
+  // (on mount and on each pointer-enter) without changing the `active` prop.
+  const [pulse, setPulse] = useState(0);
+
+  // Kick off one draw on mount for self-driven (hover) icons.
+  useEffect(() => {
+    if (redrawOnHover) setPulse((p: number) => p + 1);
+  }, [redrawOnHover]);
 
   useEffect(() => {
+    const draw = active || (redrawOnHover && pulse > 0);
     const root = ref.current;
     const svg = root?.querySelector("svg");
     if (!svg) return;
@@ -62,7 +83,7 @@ export function DrawIcon({
     };
 
     // At rest (or for reduced-motion users) keep the icon fully painted.
-    if (!active || prefersReducedMotion()) {
+    if (!draw || prefersReducedMotion()) {
       clear();
       return;
     }
@@ -92,10 +113,14 @@ export function DrawIcon({
     // 4 · Tidy up the inline styles once the animation is done.
     const timer = window.setTimeout(clear, duration + stagger + 80);
     return () => window.clearTimeout(timer);
-  }, [active, duration]);
+  }, [active, duration, pulse, redrawOnHover]);
 
   return (
-    <span ref={ref} className="grid place-items-center">
+    <span
+      ref={ref}
+      className="grid place-items-center"
+      onPointerEnter={redrawOnHover ? () => setPulse((p: number) => p + 1) : undefined}
+    >
       <Icon className={className} strokeWidth={strokeWidth} />
     </span>
   );

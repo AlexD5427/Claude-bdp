@@ -8,8 +8,9 @@ import {
   ListChecks,
   FolderCheck,
   Settings,
-  type LucideIcon,
 } from "lucide-react";
+import { PerfilCargoIcon } from "./components/icons/CustomIcons";
+import type { DrawableIcon } from "./components/DrawIcon";
 import type { ModuleId } from "./types";
 
 /**
@@ -23,7 +24,7 @@ export const SCRIPT_URL =
 export interface DockItem {
   id: ModuleId;
   label: string;
-  icon: LucideIcon;
+  icon: DrawableIcon;
 }
 
 /** Navigation modules — icon + short label, Dashboard leads as the home. */
@@ -35,6 +36,7 @@ export const DOCK_ITEMS: DockItem[] = [
   { id: "procesos", label: "Procesos", icon: Workflow },
   { id: "evaluaciones", label: "Evaluaciones", icon: ClipboardList },
   { id: "postulantes", label: "Postulantes", icon: ListChecks },
+  { id: "perfiles", label: "Perfiles", icon: PerfilCargoIcon },
   { id: "documentacion", label: "Documentación", icon: FolderCheck },
   { id: "configuracion", label: "Configuración", icon: Settings },
 ];
