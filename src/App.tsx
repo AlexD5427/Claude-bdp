@@ -29,8 +29,10 @@ import { ToastViewport } from "./design-system/liquid-glass/toast";
 import { LoadingState } from "./components/States";
 import { bootstrapPlugins } from "./features/assessments/question-types";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
+import { Perfiles } from "./modules/Perfiles";
 import { Documentacion } from "./modules/Documentacion";
 import { Configuracion } from "./modules/Configuracion";
+import { HerramientasPanel } from "./components/tools/HerramientasPanel";
 import { DOCK_ITEMS } from "./constants";
 import type { ModuleId } from "./types";
 
@@ -54,6 +56,7 @@ const SUBTITLES: Record<ModuleId, string> = {
   procesos: "Operación completa de reclutamiento y selección.",
   evaluaciones: "Plataforma de autoría de evaluaciones estructuradas.",
   postulantes: "Listado y registro de postulantes.",
+  perfiles: "Creación y gestión de perfiles de cargo del banco.",
   documentacion: "Expedientes de documentación de incorporación.",
   configuracion: "Preferencias del sistema, integraciones y formatos de correo.",
 };
@@ -164,6 +167,7 @@ function AppShell() {
               </Suspense>
             )}
             {active === "postulantes" && <ListaPostulantes />}
+            {active === "perfiles" && <Perfiles />}
             {active === "documentacion" && <Documentacion />}
             {active === "configuracion" && <Configuracion />}
           </motion.section>
@@ -173,6 +177,7 @@ function AppShell() {
       {/* Global overlays — reachable from every module. */}
       <CandidateProfileViewer />
       <CandidateEditModal />
+      <HerramientasPanel />
       <ToastViewport />
     </div>
   );

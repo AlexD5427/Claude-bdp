@@ -23,6 +23,7 @@ import {
   type EspejoRow,
   type RawCandidate,
   type RawPerfil,
+  type RawPerfilCargo,
   type TalentPayload,
 } from "../types";
 
@@ -37,6 +38,8 @@ export interface TalentDataValue {
   auxiliares: Auxiliares;
   /** Raw rows of the "Perfiles_y_Configuracion" sheet. */
   perfiles: RawPerfil[];
+  /** Raw rows of the "perfil_cargo_bdp" sheet (job profiles). */
+  perfilesCargo: RawPerfilCargo[];
   /** Full process history ("Espejo_Base"). */
   espejoBase: EspejoRow[];
   /** Latest state per process ("Espejo_Ultimo_Registro"). */
@@ -60,6 +63,19 @@ export interface TalentDataValue {
    */
   updateCandidate: (
     candidate: RawCandidate,
+  ) => Promise<{ ok: boolean; message: string }>;
+  /** Append a new job profile row to `perfil_cargo_bdp`, then re-sync. */
+  submitPerfilCargo: (
+    row: RawPerfilCargo,
+  ) => Promise<{ ok: boolean; message: string }>;
+  /** Overwrite the job-profile row at 1-based data index `fila`, then re-sync. */
+  updatePerfilCargo: (
+    fila: number,
+    row: RawPerfilCargo,
+  ) => Promise<{ ok: boolean; message: string }>;
+  /** Delete the job-profile row at 1-based data index `fila` (rows shift up). */
+  deletePerfilCargo: (
+    fila: number,
   ) => Promise<{ ok: boolean; message: string }>;
 }
 
@@ -93,6 +109,7 @@ function coercePayload(data: Partial<TalentPayload>): TalentPayload {
     arquetipos_disc: Array.isArray(data.arquetipos_disc) ? data.arquetipos_disc : [],
     auxiliares: normaliseAuxiliares(data.auxiliares),
     perfiles: Array.isArray(data.perfiles) ? data.perfiles : [],
+    perfiles_cargo: Array.isArray(data.perfiles_cargo) ? data.perfiles_cargo : [],
     espejo_base: Array.isArray(data.espejo_base) ? data.espejo_base : [],
     espejo_ultimo: Array.isArray(data.espejo_ultimo) ? data.espejo_ultimo : [],
   };
@@ -164,6 +181,9 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     normaliseAuxiliares(initial?.auxiliares),
   );
   const [perfiles, setPerfiles] = useState<RawPerfil[]>(initial?.perfiles ?? []);
+  const [perfilesCargo, setPerfilesCargo] = useState<RawPerfilCargo[]>(
+    initial?.perfiles_cargo ?? [],
+  );
   const [espejoBase, setEspejoBase] = useState<EspejoRow[]>(
     initial?.espejo_base ?? [],
   );
@@ -198,6 +218,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
         setArquetiposRaw(payload.arquetipos_disc ?? []);
         setAuxiliares(normaliseAuxiliares(payload.auxiliares));
         setPerfiles(payload.perfiles ?? []);
+        setPerfilesCargo(payload.perfiles_cargo ?? []);
         setEspejoBase(payload.espejo_base ?? []);
         setEspejoUltimo(payload.espejo_ultimo ?? []);
         setStatus("success");
@@ -336,6 +357,53 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [load],
   );
 
+  // ---- Perfiles de Cargo (perfil_cargo_bdp) ------------------------------
+  // These mirror submitCandidate/updateCandidate: POST with a text/plain body
+  // (no CORS preflight), then re-sync the whole payload so the sheet stays the
+  // single source of truth. The backend addresses rows by their 1-based data
+  // index (`fila`) since the sheet has no id column; a refetch after each write
+  // keeps those indices fresh (deletes shift rows up — no blank gaps).
+  const postPerfilCargo = useCallback(
+    async (body: Record<string, unknown>, okMsg: string) => {
+      try {
+        const res = await fetch(SCRIPT_URL, {
+          method: "POST",
+          redirect: "follow",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify({ type: "perfil_cargo", ...body }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
+        if (data.status && data.status !== "success") {
+          return { ok: false, message: data.message || "El servidor rechazó la operación." };
+        }
+        load();
+        return { ok: true, message: okMsg };
+      } catch {
+        return {
+          ok: false,
+          message: "No se pudo sincronizar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
+        };
+      }
+    },
+    [load],
+  );
+
+  const submitPerfilCargo = useCallback(
+    (row: RawPerfilCargo) => postPerfilCargo({ action: "create", row }, "Perfil de cargo creado correctamente."),
+    [postPerfilCargo],
+  );
+
+  const updatePerfilCargo = useCallback(
+    (fila: number, row: RawPerfilCargo) =>
+      postPerfilCargo({ action: "update", fila, row }, "Perfil de cargo actualizado correctamente."),
+    [postPerfilCargo],
+  );
+
+  const deletePerfilCargo = useCallback(
+    (fila: number) => postPerfilCargo({ action: "delete", fila }, "Perfil de cargo eliminado."),
+    [postPerfilCargo],
+  );
+
   const candidatos = useMemo(
     () => raw.map((c, i) => normaliseCandidate(c, i)),
     [raw],
@@ -353,6 +421,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       arquetipos,
       auxiliares,
       perfiles,
+      perfilesCargo,
       espejoBase,
       espejoUltimo,
       status,
@@ -363,6 +432,9 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       refetch: load,
       submitCandidate,
       updateCandidate,
+      submitPerfilCargo,
+      updatePerfilCargo,
+      deletePerfilCargo,
     }),
     [
       candidatos,
@@ -370,6 +442,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       arquetipos,
       auxiliares,
       perfiles,
+      perfilesCargo,
       espejoBase,
       espejoUltimo,
       status,
@@ -379,6 +452,9 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       load,
       submitCandidate,
       updateCandidate,
+      submitPerfilCargo,
+      updatePerfilCargo,
+      deletePerfilCargo,
     ],
   );
 

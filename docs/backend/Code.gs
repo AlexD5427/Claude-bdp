@@ -44,6 +44,7 @@ var CONFIG = {
   HOJAS_POSTULANTES: ['Registro_Postulantes', 'Hoja 1', 'Postulantes'],
   HOJA_AUXILIAR: 'Auxiliar',
   HOJA_PERFILES: 'Perfiles_y_Configuracion',
+  HOJA_PERFIL_CARGO: 'perfil_cargo_bdp',
   HOJA_ESPEJO_BASE: 'Espejo_Base',
   HOJA_ESPEJO_ULTIMO: 'Espejo_Ultimo_Registro',
   HOJA_DOCS: 'Documentación',
@@ -94,6 +95,7 @@ function construirPayload_(ligero) {
   var candidatos = leerPostulantes_(ss);
   var aux = leerAuxiliar_(ss);
   var perfiles = leerPerfilesPublico_(ss);
+  var perfilesCargo = leerPerfilCargo_(ss);
 
   var payload = {
     candidatos: candidatos,
@@ -107,6 +109,7 @@ function construirPayload_(ligero) {
       estado_proceso: aux.estado_proceso,
     },
     perfiles: perfiles,
+    perfiles_cargo: perfilesCargo,
     sincronizado_en: new Date().toISOString(),
   };
 
@@ -131,6 +134,7 @@ function doPost(e) {
     case 'documentacion':        resp = handleDocumentacion_(ss, data); break;
     case 'documentacion_email':  resp = handleDocEmail_(ss, data); break;
     case 'referencia_laboral':   resp = handleReferencia_(ss, data); break;
+    case 'perfil_cargo':         resp = handlePerfilCargo_(ss, data); break;
     case 'perfil_login':         resp = handlePerfilLogin_(ss, data); break;
     case 'perfil_config':        resp = handlePerfilConfig_(ss, data); break;
     case 'perfil_log':           resp = handlePerfilLog_(ss, data); break;
@@ -146,7 +150,7 @@ function doPost(e) {
   // so keeping the cache warm for them makes edits feel fast without serving
   // stale data after a real change. Procesos/Evaluaciones use their own sheets
   // (not the cached payload), so they don't invalidate it.
-  var MUTATES = { documentacion: 1, referencia_laboral: 1 };
+  var MUTATES = { documentacion: 1, referencia_laboral: 1, perfil_cargo: 1 };
   var esMutacion = MUTATES[data.type] || data.type === undefined; // undefined = postulante CRUD
   if (esMutacion) invalidarCache_();
 
@@ -191,6 +195,94 @@ function handlePostulante_(ss, data) {
   var newRow = head.map(function (h) { return data[h] !== undefined ? data[h] : ''; });
   sheet.appendRow(newRow);
   return { status: 'success', message: 'Agregado' };
+}
+
+/* ================= PERFILES DE CARGO (perfil_cargo_bdp) ========= */
+/* CRUD de la hoja "perfil_cargo_bdp" para el módulo Perfiles del frontend.
+ * Los campos multivalor se guardan como texto plano separado por " | "
+ * (el otro frontend lo divide en viñetas), y las imágenes viven en diez ranuras
+ * ordenadas link_img_1..link_img_10. La hoja NO tiene columna de id: cada fila
+ * se direcciona por su número real de fila (`fila`, inyectado como `_fila` en el
+ * GET). Al eliminar, deleteRow desplaza las filas hacia arriba (sin huecos). */
+
+var PERFIL_CARGO_HEADERS = [
+  'area_cargo', 'puesto_bdp', 'gestion_bdp',
+  'formacion_principal', 'formación_complementaria',
+  'experiencia_general', 'experiencia_especifica',
+  'conocimientos_tecnicos', 'conocimientos_genéricos',
+  'conductas_requeridas', 'competencias_requeridas',
+  'link_evaluar',
+  'link_img_1', 'link_img_2', 'link_img_3', 'link_img_4', 'link_img_5',
+  'link_img_6', 'link_img_7', 'link_img_8', 'link_img_9', 'link_img_10',
+];
+
+/** Devuelve (creando si falta) la hoja de perfiles de cargo con su cabecera. */
+function hojaPerfilCargo_(ss) {
+  var sh = ss.getSheetByName(CONFIG.HOJA_PERFIL_CARGO);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.HOJA_PERFIL_CARGO);
+    sh.appendRow(PERFIL_CARGO_HEADERS);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/** Lee las filas de perfiles de cargo, inyectando `_fila` = número real de fila. */
+function leerPerfilCargo_(ss) {
+  var sh = hojaPerfilCargo_(ss);
+  var data = sh.getDataRange().getValues();
+  if (data.length < 2) return [];
+  var headers = data[0].map(function (h) { return String(h).trim(); });
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var vacia = row.every(function (v) { return v === '' || v === null; });
+    if (vacia) continue;
+    var obj = { _fila: r + 1 }; // fila real de la hoja (la cabecera es la fila 1)
+    for (var c = 0; c < headers.length; c++) if (headers[c]) obj[headers[c]] = row[c];
+    out.push(obj);
+  }
+  return out;
+}
+
+/**
+ * Alta / edición / baja de un perfil de cargo.
+ *   { type:"perfil_cargo", action:"create", row:{...} }
+ *   { type:"perfil_cargo", action:"update", fila:N, row:{...} }
+ *   { type:"perfil_cargo", action:"delete", fila:N }
+ */
+function handlePerfilCargo_(ss, data) {
+  var sh = hojaPerfilCargo_(ss);
+  var head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  var action = data.action || 'create';
+  var row = data.row || {};
+
+  if (action === 'delete') {
+    var fdel = Number(data.fila);
+    if (fdel >= 2 && fdel <= sh.getLastRow()) {
+      sh.deleteRow(fdel);
+      return { status: 'success', message: 'Perfil de cargo eliminado' };
+    }
+    return { status: 'error', message: 'Fila inválida' };
+  }
+
+  if (action === 'update') {
+    var fup = Number(data.fila);
+    if (!(fup >= 2 && fup <= sh.getLastRow())) return { status: 'error', message: 'Fila inválida' };
+    head.forEach(function (h, idx) {
+      var key = String(h).trim();
+      if (row[key] !== undefined) sh.getRange(fup, idx + 1).setValue(row[key]);
+    });
+    return { status: 'success', message: 'Perfil de cargo actualizado', fila: fup };
+  }
+
+  // Alta: mapea por los encabezados reales de la hoja.
+  var nueva = head.map(function (h) {
+    var key = String(h).trim();
+    return row[key] !== undefined ? row[key] : '';
+  });
+  sh.appendRow(nueva);
+  return { status: 'success', message: 'Perfil de cargo agregado', fila: sh.getLastRow() };
 }
 
 /* ===================== LECTURA DE HOJAS ========================= */
