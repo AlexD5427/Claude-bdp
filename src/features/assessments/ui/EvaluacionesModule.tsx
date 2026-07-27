@@ -156,9 +156,17 @@ export function EvaluacionesModule() {
     if (res.ok) {
       toast.success(L.common.saved);
       reload();
-    } else {
-      toast.error(res.error.message);
+      return;
     }
+    // Publicar desde el listado no muestra el panel de revisión, así que si el
+    // rechazo trae hallazgos se abre la evaluación para que el usuario los vea
+    // en lugar de dejarle un mensaje sin salida.
+    if (action === "publish" && issuesOf(res.error).length > 0) {
+      toast.warning(L.builder.publish.blocked);
+      await open(item.id);
+      return;
+    }
+    toast.error(res.error.message);
   };
 
   const confirmAction = async () => {

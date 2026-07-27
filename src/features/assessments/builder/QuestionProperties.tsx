@@ -144,10 +144,7 @@ export function QuestionProperties({ block, dispatch }: PropertiesProps) {
           </section>
 
           <section className="flex flex-col gap-3">
-            <h4 className="text-[0.7rem] font-bold uppercase tracking-wide text-ink-faint">
-              {L.builder.inspectorFields.tags}
-            </h4>
-            <Field label={L.builder.inspectorFields.label + " (código)"}>
+            <Field label={L.builder.editor.code} hint={L.builder.editor.codeHint}>
               <TextInput
                 value={block.code}
                 placeholder="P-01"

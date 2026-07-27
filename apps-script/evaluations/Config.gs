@@ -56,9 +56,7 @@ var EVAL_CONFIG = {
     MAX_QUESTIONS: 1000,
     MAX_OPTIONS_PER_QUESTION: 60,
     MAX_ANSWERS_PER_ATTEMPT: 1000,
-    MAX_USER_AGENT: 300,
-    /** Filas de auditoría / solicitudes procesadas que se conservan. */
-    AUDIT_RETENTION_ROWS: 20000
+    MAX_USER_AGENT: 300
   },
 
   /** Valores admitidos (listas blancas). */

@@ -26,6 +26,7 @@ npx vitest run        → Test Files 13 passed (13) · Tests 89 passed (89)
 | 6 · Rediseño del constructor | ✅ completada |
 | 7 · Listado, filtros y resultados | ✅ completada |
 | 8 · Documentación y verificación final | ✅ completada |
+| 9 · Revisión de código y seguridad + correcciones | ✅ completada (10 hallazgos, ver `CODE_REVIEW.md`) |
 
 ## Comandos de verificación
 
@@ -38,7 +39,9 @@ npm run check              # verificaciones estáticas del módulo Evaluaciones
 node scripts/visual-qa.mjs # capturas (requiere navegador local; ver VISUAL_QA.md)
 ```
 
-Los resultados reales de la última ejecución están en `TEST_PLAN.md` §Resultados.
+Los resultados reales de la última ejecución están en `TEST_PLAN.md` §Resultados:
+typecheck limpio, build correcto, **265 pruebas en verde** y `npm run check` sin
+hallazgos.
 
 ## Puntos de retomada si algo queda a medias
 

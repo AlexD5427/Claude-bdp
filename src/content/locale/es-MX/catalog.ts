@@ -465,6 +465,8 @@ export const catalogEsMX = {
       points: "Puntos",
       weight: "Peso",
       competency: "Competencia",
+      code: "Código de la pregunta",
+      codeHint: "Opcional. Debe ser único dentro de la evaluación.",
       accessibility: "Accesibilidad",
       ariaLabel: "Etiqueta accesible",
       longDescription: "Descripción larga",

@@ -144,7 +144,9 @@ export const appsScriptAssessmentService: AssessmentRepository = {
         content: assessment.draftVersion.content,
       },
     };
-    return this.updateDraft(merged, merged.entityVersion);
+    // Referencia explícita al servicio en lugar de `this`: así la función sigue
+    // funcionando si alguien desestructura el repositorio.
+    return appsScriptAssessmentService.updateDraft(merged, merged.entityVersion);
   },
 
   async updateDraft(assessment, expectedEntityVersion) {

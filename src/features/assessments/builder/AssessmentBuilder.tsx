@@ -7,13 +7,22 @@ import { TextInput } from "../../../design-system/liquid-glass/fields";
 import { useMediaQuery } from "../../../shared/hooks";
 import { buildPublishChecklist } from "../domain/publish";
 import type { PublishFinding } from "../domain/publish";
+import type { AssessmentContent } from "../domain/assessment";
 import { validateContent } from "../scoring/validateContent";
 import { classifyContentChange } from "../versioning/classify";
 import { ASSESSMENT_LIFECYCLE_META } from "../domain/lifecycle";
 import type { AssessmentDefinition } from "../domain/assessment";
 import type { ApiIssue } from "../api/contract";
 import type { TalentPermissions } from "../../shared/permissions";
-import { builderReducer, flattenBlocks, initBuilder, selectedBlock, sectionOfBlock, type BuilderMeta } from "./builderState";
+import {
+  builderReducer,
+  flattenBlocks,
+  initBuilder,
+  selectedBlock,
+  sectionOfBlock,
+  type BuilderAction,
+  type BuilderMeta,
+} from "./builderState";
 import { BuilderHeader, type HeaderAction } from "./BuilderHeader";
 import { BuilderNav, BUILDER_STEPS, type BuilderStep } from "./BuilderNav";
 import { AssessmentDeliveryPanel, AssessmentGeneralPanel } from "./AssessmentSettingsPanel";
@@ -194,7 +203,7 @@ export function AssessmentBuilder({
     onBack();
   }, [draft.dirty, onBack]);
 
-  const handlePublish = useCallback(async () => {
+  const handlePublish = useCallback(() => {
     setServerIssues([]);
     if (!checklist.canPublish) {
       setStep("review");
@@ -251,7 +260,7 @@ export function AssessmentBuilder({
         onRetrySave={() => void draft.save()}
         onPreview={() => setPreviewDevice("desktop")}
         onReview={() => setStep("review")}
-        onPublish={() => void handlePublish()}
+        onPublish={handlePublish}
         extraActions={extraActions}
       />
 
@@ -476,8 +485,8 @@ function SectionManager({
   dispatch,
   onAdd,
 }: {
-  content: { sections: { id: string; title: string; blocks: unknown[] }[] };
-  dispatch: (action: Parameters<typeof builderReducer>[1]) => void;
+  content: AssessmentContent;
+  dispatch: (action: BuilderAction) => void;
   onAdd: (sectionId: string) => void;
 }) {
   return (

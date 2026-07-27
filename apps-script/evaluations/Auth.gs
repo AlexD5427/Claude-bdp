@@ -37,6 +37,8 @@ var EVAL_ADMIN_ACTIONS = {
   unarchiveAssessment: true,
   pauseAssessment: true,
   closeAssessment: true,
+  resumeAssessment: true,
+  rollbackAssessment: true,
   listAssessmentResults: true,
   getAttemptDetail: true,
   verifySchema: true,
@@ -55,6 +57,36 @@ var EVAL_PUBLIC_ACTIONS = {
 /** ¿Es una acción administrativa? */
 function evalIsAdminAction_(action) {
   return EVAL_ADMIN_ACTIONS[String(action)] === true;
+}
+
+/**
+ * Toda acción del enrutador debe estar clasificada en EXACTAMENTE una de las dos
+ * listas. Una acción sin clasificar sería inalcanzable (responde
+ * UNSUPPORTED_ACTION) y una acción administrativa listada como pública sería
+ * ejecutable de forma anónima. Hay una prueba que ejercita esta función contra
+ * EVAL_READ_ACTIONS y EVAL_WRITE_ACTIONS.
+ */
+function evalClassifyActions_() {
+  var declared = {};
+  var duplicated = [];
+  var admin = Object.keys(EVAL_ADMIN_ACTIONS);
+  var publicOnes = Object.keys(EVAL_PUBLIC_ACTIONS);
+  for (var i = 0; i < admin.length; i++) declared[admin[i]] = 'admin';
+  for (var j = 0; j < publicOnes.length; j++) {
+    if (declared[publicOnes[j]]) duplicated.push(publicOnes[j]);
+    declared[publicOnes[j]] = 'public';
+  }
+  var routed = Object.keys(EVAL_READ_ACTIONS).concat(Object.keys(EVAL_WRITE_ACTIONS));
+  var unclassified = [];
+  for (var r = 0; r < routed.length; r++) {
+    if (!declared[routed[r]]) unclassified.push(routed[r]);
+  }
+  var orphan = [];
+  for (var d = 0; d < Object.keys(declared).length; d++) {
+    var name = Object.keys(declared)[d];
+    if (routed.indexOf(name) < 0) orphan.push(name);
+  }
+  return { declared: declared, duplicated: duplicated, unclassified: unclassified, orphan: orphan };
 }
 
 /** Correo del usuario activo, o cadena vacía si Google no lo expone. */

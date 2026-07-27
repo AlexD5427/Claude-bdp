@@ -137,6 +137,20 @@ improbable y, si ocurriera, detectable por `AuditLog` y por `question_count`.
 | La revisión manual no tiene interfaz. | Los intentos con preguntas abiertas quedan `pending_manual_review` sin forma de cerrarlos desde el panel. | El estado y los datos ya existen; la interfaz de revisión es la fase siguiente. |
 | Sin firma de las respuestas del portal. | Un cliente podría enviar respuestas arbitrarias. | Toda respuesta se valida contra el snapshot; lo peor que puede lograr es un intento inválido, nunca una nota falsa. |
 
+## 6 bis · Hallazgos de la revisión de seguridad de esta PR
+
+La revisión manual del diff encontró dos hallazgos con impacto de seguridad, ya
+corregidos y con prueba de regresión:
+
+- **F1**: `rollbackAssessment` y `resumeAssessment` estaban enrutadas pero sin
+  clasificar como administrativas. Ahora una prueba exige que **toda** acción del
+  enrutador esté en exactamente una de las dos listas.
+- **F2**: el listado público informaba el conteo de preguntas del **borrador** en
+  lugar de el de la versión servida, filtrando el tamaño de trabajo no publicado.
+
+El detalle completo, con los otros ocho hallazgos, está en
+[`CODE_REVIEW.md`](./CODE_REVIEW.md).
+
 ## 7 · Cómo verificar la seguridad tú mismo
 
 ```bash

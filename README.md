@@ -134,8 +134,8 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   Backend listo para copiar en [`apps-script/evaluations/`](apps-script/evaluations/)
   y documentación completa en [`docs/evaluations/`](docs/evaluations/) (estado,
   arquitectura, contrato de API, modelo de datos, configuración de Sheets y Apps
-  Script, seguridad, pruebas, despliegue, rollback, tipos de pregunta, auditoría
-  visual y entrega al portal de candidatos).
+  Script, seguridad, revisión de código, pruebas, despliegue, rollback, tipos de
+  pregunta, auditoría visual y entrega al portal de candidatos).
 - Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1).
 
 > Documentación técnica de los módulos ProcessOS + AssessmentOS en

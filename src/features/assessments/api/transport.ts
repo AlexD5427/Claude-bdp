@@ -15,11 +15,18 @@
  */
 
 import { err, ok, appError, type Result } from "../../../shared/result";
-import { ASSESSMENTS_API_URL } from "../../../shared/flags";
+import { SCRIPT_URL } from "../../../constants";
+import { ASSESSMENTS_API_URL_OVERRIDE } from "../../../shared/flags";
 import { parseEnvelope, toAppError, type ApiEnvelope } from "./contract";
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const READ_RETRIES = 2;
+
+/**
+ * Endpoint activo. Se resuelve aquí (y no en `flags.ts`) para que el módulo de
+ * banderas siga siendo importable desde lógica pura sin arrastrar `constants.ts`.
+ */
+const API_URL = ASSESSMENTS_API_URL_OVERRIDE ?? SCRIPT_URL;
 
 export interface RequestOptions {
   signal?: AbortSignal;
@@ -57,7 +64,7 @@ async function post(
 ): Promise<Result<ApiEnvelope<unknown>>> {
   const { signal, cleanup } = withTimeout(options.signal, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   try {
-    const response = await fetch(ASSESSMENTS_API_URL, {
+    const response = await fetch(API_URL, {
       method: "POST",
       redirect: "follow",
       headers: { "Content-Type": "text/plain;charset=utf-8" },

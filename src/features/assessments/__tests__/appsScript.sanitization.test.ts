@@ -266,6 +266,104 @@ describe("apps-script · saneamiento público", () => {
     expect(serialized).not.toContain('"score"');
   });
 
+  it("toda acción del enrutador está clasificada en EXACTAMENTE una lista", () => {
+    // Invariante de seguridad: una acción sin clasificar es inalcanzable
+    // (UNSUPPORTED_ACTION) y una acción administrativa listada como pública sería
+    // ejecutable de forma anónima. Esta prueba nace de un hallazgo real: en la
+    // primera versión `rollbackAssessment` y `resumeAssessment` estaban enrutadas
+    // pero no clasificadas.
+    const harness = loadInitializedAppsScript();
+    const report = harness.call("evalClassifyActions_") as {
+      duplicated: string[];
+      unclassified: string[];
+      orphan: string[];
+      declared: Record<string, "admin" | "public">;
+    };
+    expect(report.unclassified, "acciones enrutadas sin clasificar").toEqual([]);
+    expect(report.duplicated, "acciones en ambas listas").toEqual([]);
+    expect(report.orphan, "acciones clasificadas que el enrutador no atiende").toEqual([]);
+    // Ninguna acción de escritura administrativa puede estar marcada como pública.
+    for (const action of [
+      "createAssessment",
+      "updateAssessment",
+      "publishAssessment",
+      "archiveAssessment",
+      "unarchiveAssessment",
+      "pauseAssessment",
+      "closeAssessment",
+      "resumeAssessment",
+      "rollbackAssessment",
+      "duplicateAssessment",
+      "setupSchema",
+      "listAdminAssessments",
+      "getAdminAssessment",
+      "listAssessmentResults",
+      "getAttemptDetail",
+      "verifySchema",
+    ]) {
+      expect(report.declared[action], action).toBe("admin");
+    }
+  });
+
+  it("rollback y resume son alcanzables para un administrador", () => {
+    const harness = loadInitializedAppsScript();
+    // No existen todavía, así que la respuesta correcta es NOT_FOUND (autorizada
+    // y enrutada), nunca UNSUPPORTED_ACTION ni FORBIDDEN.
+    const rollback = harness.request("rollbackAssessment", {
+      assessmentId: "asm_x",
+      versionId: "ver_x",
+      actor: SECRETS.actor,
+    }) as Envelope;
+    expect(rollback.error?.code).toBe("NOT_FOUND");
+    const resume = harness.request("resumeAssessment", {
+      assessmentId: "asm_x",
+      actor: SECRETS.actor,
+    }) as Envelope;
+    expect(resume.error?.code).toBe("NOT_FOUND");
+  });
+
+  it("el listado público NO expone el conteo de preguntas del borrador", () => {
+    // Hallazgo real: se usaba `Assessments.question_count`, que cuenta el
+    // BORRADOR. Tras publicar y añadir preguntas al borrador, el listado público
+    // debe seguir informando el conteo de la versión servida.
+    const { harness, assessmentId } = seedAssessment(true);
+    const before = harness.request("listPublicAssessments", {}).data as {
+      items: { questionCount: number }[];
+    };
+    expect(before.items[0].questionCount).toBe(2);
+
+    const current = harness.request("getAdminAssessment", { assessmentId }).data as {
+      assessment: { entityVersion: number };
+      sections: { sectionId: string }[];
+      questions: Record<string, unknown>[];
+      options: Record<string, unknown>[];
+    };
+    harness.request("updateAssessment", {
+      assessmentId,
+      expectedEntityVersion: current.assessment.entityVersion,
+      actor: SECRETS.actor,
+      assessment: { title: "Conocimientos de riesgo", accessType: "public" },
+      sections: [{ sectionId: current.sections[0].sectionId, title: "Sección 1", position: 0, active: true }],
+      questions: [
+        ...current.questions,
+        {
+          questionId: "qst_borrador",
+          sectionId: current.sections[0].sectionId,
+          questionType: "q_short_text",
+          questionText: "Pregunta solo del borrador",
+          position: 2,
+          active: true,
+        },
+      ],
+      options: current.options,
+    });
+
+    const after = harness.request("listPublicAssessments", {}).data as {
+      items: { questionCount: number }[];
+    };
+    expect(after.items[0].questionCount, "sigue siendo el de la versión servida").toBe(2);
+  });
+
   it("las acciones administrativas no están disponibles por GET", () => {
     const harness = loadInitializedAppsScript();
     const response = harness.call("doGet", {

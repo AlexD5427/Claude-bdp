@@ -55,11 +55,28 @@ function evalFindPublishedByCode_(ss, publicCode) {
   throw evalError_('NOT_FOUND', 'La evaluación no está disponible.');
 }
 
+/**
+ * Conteo de preguntas de la versión SERVIDA, no del borrador.
+ *
+ * `Assessments.question_count` cuenta las preguntas activas del borrador, que
+ * puede tener más o menos que la versión publicada. Exponerlo sería, además de
+ * inexacto, una fuga de información sobre trabajo no publicado.
+ */
+function evalPublishedQuestionCount_(versionsById, assessment) {
+  var version = versionsById[String(assessment.currentPublishedVersionId)];
+  return version ? evalInt_(version.question_count, 0) : 0;
+}
+
 /** Listado público: solo publicadas, con datos mínimos. */
 function evalListPublicAssessments_(payload) {
   var ss = evalSpreadsheet_();
   var processId = evalStr_((payload || {}).processId, 120);
   var rows = evalReadAll_(ss, EVAL_CONFIG.SHEETS.ASSESSMENTS);
+  var versionRows = evalReadAll_(ss, EVAL_CONFIG.SHEETS.VERSIONS);
+  var versionsById = {};
+  for (var v = 0; v < versionRows.length; v++) {
+    versionsById[String(versionRows[v].version_id)] = versionRows[v];
+  }
   var items = [];
   for (var i = 0; i < rows.length; i++) {
     var assessment = evalAssessmentFromRow_(rows[i]);
@@ -72,7 +89,9 @@ function evalListPublicAssessments_(payload) {
       }
       if (!found) continue;
     }
-    items.push(evalPublicAssessmentSummary_(assessment, assessment.questionCount));
+    items.push(
+      evalPublicAssessmentSummary_(assessment, evalPublishedQuestionCount_(versionsById, assessment)),
+    );
   }
   items.sort(function (a, b) { return String(a.title).localeCompare(String(b.title)); });
   return { items: items, total: items.length };

@@ -7,8 +7,6 @@
  * enabled unless explicitly turned on at build time.
  */
 
-import { SCRIPT_URL } from "../constants";
-
 function env(key: string): string | undefined {
   return (import.meta.env as Record<string, string | undefined>)[key];
 }
@@ -64,12 +62,16 @@ export const FLAGS = {
 export type FeatureFlags = typeof FLAGS;
 
 /**
- * Public URL of the Evaluaciones Apps Script Web App.
+ * Public URL of the Evaluaciones Apps Script Web App, when it is configured.
  *
  * This is a PUBLIC endpoint URL, not a secret: server-side secrets live in the
- * Apps Script project's Script Properties and never reach the browser. When it
- * is not configured it falls back to the shared `SCRIPT_URL`, which lets a
- * single deployment serve both backends.
+ * Apps Script project's Script Properties and never reach the browser.
+ *
+ * `null` means "not configured"; the transport falls back to the shared
+ * `SCRIPT_URL`. The fallback is resolved THERE and not here on purpose: this
+ * module is imported by pure logic (providers, domain helpers) and importing
+ * `../constants` would drag the dock's icon components into every one of those
+ * consumers.
  */
-export const ASSESSMENTS_API_URL: string =
-  env("VITE_EVALUATIONS_API_URL") ?? SCRIPT_URL;
+export const ASSESSMENTS_API_URL_OVERRIDE: string | null =
+  env("VITE_EVALUATIONS_API_URL") ?? null;

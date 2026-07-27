@@ -173,7 +173,7 @@ existía antes del cambio y lo produce `three` junto al chunk principal.
 
 ```
 Test Files  23 passed (23)
-      Tests  262 passed (262)
+      Tests  265 passed (265)
 ```
 
 Desglose:
@@ -190,7 +190,7 @@ Desglose:
 | `versioning/versioning.test.ts` | 12 |
 | `imports/imports.test.ts` | 12 |
 | `lib/perfilCargo.test.ts` | 12 |
-| `__tests__/appsScript.sanitization.test.ts` | 9 |
+| `__tests__/appsScript.sanitization.test.ts` | 12 |
 | `scoring/scoring.test.ts` | 9 |
 | `__tests__/appsScript.typeParity.test.ts` | 8 |
 | `mappers/mappers.test.ts` | 8 |
@@ -204,6 +204,10 @@ Desglose:
 | `processes/domain/process.test.ts` | 4 |
 | `processes/ui/ProcesosModule.test.tsx` | 3 |
 
+Las tres últimas pruebas de saneamiento provienen de la revisión de código: dos
+cubren la clasificación de acciones (hallazgo F1) y una, el conteo público de
+preguntas (F2). Ver [`CODE_REVIEW.md`](./CODE_REVIEW.md).
+
 Línea base antes del cambio: **13 archivos, 89 pruebas**. Las 89 siguen pasando;
 ninguna se borró ni se debilitó. Las dos únicas modificaciones a pruebas
 existentes fueron adaptaciones obligadas por tipos más amplios:
@@ -216,10 +220,15 @@ existentes fueron adaptaciones obligadas por tipos más amplios:
 Archivos inspeccionados: 102
 · Encabezados verificados contra DATA_MODEL.md: 109
 · Archivos .gs declarados: 17
-· Documentos presentes: 20
+· Documentos presentes: 21
 
 Sin hallazgos. ✔
 ```
+
+### Revisión de código y seguridad
+
+Diez hallazgos confirmados, todos corregidos, dos de ellos con prueba de
+regresión propia. El detalle está en [`CODE_REVIEW.md`](./CODE_REVIEW.md).
 
 ### `npm run visual-qa`
 

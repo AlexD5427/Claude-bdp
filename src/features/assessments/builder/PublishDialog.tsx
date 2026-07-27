@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { L, formatDuration } from "../../../content/locale";
 import { GlassDialog } from "../../../design-system/liquid-glass/GlassDialog";
 import type { PublishChecklist } from "../domain/publish";
@@ -35,6 +35,12 @@ export function PublishDialog({
 }: PublishDialogProps) {
   const [notes, setNotes] = useState("");
   const blocked = !checklist.canPublish;
+
+  // Las notas pertenecen a UNA publicación: al cerrar el diálogo se descartan
+  // para que la siguiente no arrastre el texto de la anterior.
+  useEffect(() => {
+    if (!open) setNotes("");
+  }, [open]);
 
   const title = blocked
     ? L.builder.publish.blocked
