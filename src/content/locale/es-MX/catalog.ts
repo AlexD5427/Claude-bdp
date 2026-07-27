@@ -474,6 +474,7 @@ export const catalogEsMX = {
       notGraded: "No se califica",
     },
     review: {
+      openAction: "Revisar",
       title: "Revisión previa a la publicación",
       subtitle: "Corrige los errores bloqueantes antes de publicar.",
       blocking: "Errores bloqueantes",

@@ -81,9 +81,23 @@ export function permissionsForRole(role: Role | null): TalentPermissions {
   }
 }
 
+let testOverride: { permissions: TalentPermissions; userName: string } | null = null;
+
+/**
+ * Test hook: force the capability set, mirroring `__setProviderForTests`.
+ * Production code never calls this; it exists so component tests can exercise
+ * recruiter/admin flows without simulating a full login.
+ */
+export function __setTalentPermissionsForTests(
+  next: { permissions: TalentPermissions; userName: string } | null,
+): void {
+  testOverride = next;
+}
+
 /** Hook: the current user's talent-acquisition permissions + display name. */
 export function useTalentPermissions(): { permissions: TalentPermissions; userName: string } {
   const { current } = useProfiles();
+  if (testOverride) return testOverride;
   return {
     permissions: permissionsForRole(current?.role ?? null),
     userName: current?.nombre ?? "Sistema",

@@ -355,11 +355,14 @@ function evalGetAdminAssessment_(payload) {
   if (!assessmentId) throw evalError_('BAD_REQUEST', 'Falta el identificador de la evaluación.');
   var ss = evalSpreadsheet_();
   var bundle = evalLoadBundle_(ss, assessmentId);
+  // Solo el contenido ACTIVO es editable. Las filas dadas de baja lógica se
+  // conservan en la hoja para que los intentos históricos puedan resolver sus
+  // referencias, pero no forman parte del borrador que edita el reclutador.
   return {
     assessment: bundle.assessment,
-    sections: bundle.sections,
-    questions: bundle.questions,
-    options: bundle.options,
+    sections: bundle.sections.filter(function (s) { return s.active !== false; }),
+    questions: bundle.questions.filter(function (q) { return q.active !== false; }),
+    options: bundle.options.filter(function (o) { return o.active !== false; }),
     versions: bundle.versions.map(function (v) {
       return {
         versionId: v.versionId, version: v.version, versionMinor: v.versionMinor,

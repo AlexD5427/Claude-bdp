@@ -115,7 +115,8 @@ export function BuilderHeader({
           className="inline-flex items-center gap-1.5 rounded-full fill-softer px-3 py-1.5 text-sm font-semibold text-ink ring-1 ring-[color:var(--hairline)] transition-colors hover:fill-soft focus-visible:ring-2 focus-visible:ring-cyan-300"
         >
           <ShieldCheck className="h-4 w-4" />
-          <span className="hidden sm:inline">{L.builder.nav.shortReview}</span>
+          <span className="hidden sm:inline">{L.builder.review.openAction}</span>
+          <span className="sr-only sm:hidden">{L.builder.review.openAction}</span>
           {blockingErrors > 0 && (
             <span className="rounded-full bg-rose-500/25 px-1.5 text-[0.7rem] font-bold text-rose-200">
               {blockingErrors}
