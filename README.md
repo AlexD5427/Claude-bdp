@@ -115,13 +115,27 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   [docs/modules/PROCESS_OS.md](docs/modules/PROCESS_OS.md).
 - **Módulo — Evaluaciones (AssessmentOS):** plataforma de autoría de evaluaciones
   estructuradas (preselección, conocimientos, técnicas, juicio situacional,
-  competencias, guías de entrevista, scorecards, casos, simulaciones). Incluye
-  **constructor visual** con biblioteca de componentes, lienzo e inspector;
-  sistema de **plugins de preguntas** basado en registro; **versionado** mayor/
-  menor con actualizaciones controladas (las versiones publicadas nunca se
-  sobrescriben); **importación desde Excel/CSV/ODS** a borrador revisable;
-  puntuación, rúbricas y validación de lógica; y persistencia en la hoja
-  `Evaluaciones`. Ver [docs/modules/ASSESSMENT_OS.md](docs/modules/ASSESSMENT_OS.md).
+  competencias, guías de entrevista, scorecards, casos, simulaciones) con
+  **persistencia real en Google Sheets a través de un backend propio de Apps
+  Script**. El constructor se organiza en cuatro pasos navegables —configuración
+  general, preguntas, configuración de evaluación y revisión— con **índice de
+  preguntas** buscable y filtrable, editor de la pregunta activa, panel de
+  propiedades, **indicador de guardado** con recuperación de borrador local y
+  guardia de salida, **panel de revisión que lleva de cada error al campo exacto**
+  y vista previa del candidato que pasa por el mismo saneador que el portal
+  público. 54 tipos de pregunta con **capacidades declarativas** (opciones,
+  mínimos, exactamente una correcta, estrategia de calificación), **versionado**
+  mayor/menor con snapshots inmutables, **importación desde Excel/CSV/ODS** y
+  listado con filtros, ordenamiento y origen de datos visible.
+  La **calificación se calcula exclusivamente en el servidor** con
+  `correctas ÷ calificables × 100`; las preguntas abiertas dejan el intento
+  *pendiente de revisión* en lugar de otorgar cero. La **API pública nunca expone
+  respuestas correctas** (verificado con 14 pruebas dedicadas).
+  Backend listo para copiar en [`apps-script/evaluations/`](apps-script/evaluations/)
+  y documentación completa en [`docs/evaluations/`](docs/evaluations/) (estado,
+  arquitectura, contrato de API, modelo de datos, configuración de Sheets y Apps
+  Script, seguridad, pruebas, despliegue, rollback, tipos de pregunta, auditoría
+  visual y entrega al portal de candidatos).
 - Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1).
 
 > Documentación técnica de los módulos ProcessOS + AssessmentOS en
@@ -145,7 +159,17 @@ npm install
 npm run dev        # servidor de desarrollo
 npm run build      # typecheck + build de producción
 npm run preview    # previsualizar el build
+npm test           # suite de pruebas (Vitest)
+npm run typecheck  # solo comprobación de tipos
+npm run check      # verificaciones estáticas del módulo Evaluaciones
+npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
 ```
+
+> El módulo **Evaluaciones** funciona con datos de demostración por omisión. Para
+> conectarlo a Google Sheets, sigue
+> [`docs/evaluations/APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md)
+> y define `VITE_ASSESSMENTS_PROVIDER=google-apps-script` con
+> `VITE_EVALUATIONS_API_URL`.
 
 ## 🔌 Backend
 
@@ -197,4 +221,11 @@ src/
 ├── shared/          # Result, ids, envelope, sanitize, store, hooks, flags
 ├── App.tsx          # layout + enrutado de módulos
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
+
+apps-script/
+└── evaluations/     # backend de Evaluaciones listo para copiar a Apps Script
+scripts/
+├── check-evaluations.mjs   # verificaciones estáticas (npm run check)
+├── run-apps-script.mjs     # arnés que ejecuta los .gs en Node (pruebas)
+└── visual-qa.mjs           # capturas reproducibles de la matriz visual
 ```
