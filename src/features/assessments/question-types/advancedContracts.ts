@@ -13,7 +13,7 @@
  */
 
 import { makeBlock } from "./helpers";
-import type { QuestionPlugin } from "./registry";
+import { NO_OPTION_CAPABILITIES, type QuestionPlugin } from "./registry";
 import { FLAGS } from "../../../shared/flags";
 
 function contract(
@@ -29,6 +29,9 @@ function contract(
     icon,
     isQuestion: true,
     status: "contract",
+    // Los contratos avanzados no tienen criterio objetivo implementado: siempre
+    // requieren revisión humana y su editor está pendiente.
+    capabilities: { ...NO_OPTION_CAPABILITIES, grading: "manual", control: "pending" },
     createDefault: (id) => makeBlock(id, type, { label, config: { contract: true } }),
     // Contracts accept any value and never auto-score (manual review only).
     validate: () => ({ valid: true }),

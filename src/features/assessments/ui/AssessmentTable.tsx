@@ -33,7 +33,14 @@ export function AssessmentTable({ items, onOpen, onRowMenu }: TableProps) {
               <motion.tr key={a.id} variants={listItem} className="border-t border-[color:var(--hairline)] hover:bg-white/5">
                 <td className="px-3.5 py-3 font-mono text-xs text-ink-soft">{a.code}</td>
                 <td className="px-3.5 py-3">
-                  <button type="button" onClick={() => onOpen(a.id)} className="text-left font-semibold text-ink hover:text-cyan-400">{a.name}</button>
+                  <button
+                    type="button"
+                    onClick={() => onOpen(a.id)}
+                    className="text-left font-semibold text-ink outline-none transition-colors hover:text-cyan-400 focus-visible:ring-2 focus-visible:ring-cyan-300"
+                  >
+                    {a.name}
+                  </button>
+                  {a.ownerId && <p className="text-[0.65rem] text-ink-faint">{a.ownerId}</p>}
                 </td>
                 <td className="px-3.5 py-3">
                   <StatusPill intent={ASSESSMENT_CATEGORY_META[a.category].intent}>{ASSESSMENT_CATEGORY_META[a.category].label}</StatusPill>
@@ -45,7 +52,7 @@ export function AssessmentTable({ items, onOpen, onRowMenu }: TableProps) {
                 <td className="px-3.5 py-3"><StatusPill intent={ASSESSMENT_PUBLICATION_META[a.publication].intent}>{ASSESSMENT_PUBLICATION_META[a.publication].label}</StatusPill></td>
                 <td className="px-3.5 py-3 whitespace-nowrap text-ink-faint">{formatRelative(a.updatedAt)}</td>
                 <td className="px-3.5 py-3">
-                  <button type="button" aria-label={L.common.moreActions} onClick={(e) => onRowMenu(a.id, e.currentTarget)} className="grid h-8 w-8 place-items-center rounded-full text-ink-soft hover:fill-softer hover:text-ink">
+                  <button type="button" aria-label={`${L.common.moreActions}: ${a.name}`} onClick={(e) => onRowMenu(a.id, e.currentTarget)} className="grid h-8 w-8 place-items-center rounded-full text-ink-soft transition-colors hover:fill-softer hover:text-ink focus-visible:ring-2 focus-visible:ring-cyan-300">
                     <MoreHorizontal className="h-4 w-4" />
                   </button>
                 </td>

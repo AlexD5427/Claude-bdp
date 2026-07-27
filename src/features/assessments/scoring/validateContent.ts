@@ -6,7 +6,7 @@
  */
 
 import type { AssessmentContent } from "../domain/assessment";
-import { resolvePlugin } from "../question-types/registry";
+import { capabilitiesOf, resolvePlugin } from "../question-types/registry";
 import { validateLogic, type LogicIssue } from "../logic/validate";
 
 export interface ContentValidation {
@@ -72,15 +72,26 @@ export function validateContent(content: AssessmentContent): ContentValidation {
         if (!block.label.trim()) {
           warnings.push("Hay una pregunta sin enunciado.");
         }
-        // Choice questions with scoring must have options and a correct answer.
-        if (
-          ["q_single_choice", "q_multiple_choice", "q_dropdown", "q_multiselect", "q_true_false"].includes(block.type)
-        ) {
-          if (block.options.length < 2) {
-            errors.push(`La pregunta "${block.label || block.code}" necesita al menos dos opciones.`);
+        // Option rules come from the plugin capabilities — no hardcoded list of
+        // type keys (see question-types/registry.ts).
+        const caps = capabilitiesOf(block.type);
+        if (caps.options) {
+          if (block.options.length < caps.minOptions) {
+            errors.push(
+              `La pregunta "${block.label || block.code}" necesita al menos ${caps.minOptions} opciones.`,
+            );
           }
-          if (block.score.mode !== "none" && block.score.mode !== "manual" && !block.options.some((o) => o.correct)) {
+          const scored =
+            block.score.mode !== "none" &&
+            block.score.mode !== "manual" &&
+            block.score.mode !== "rubric";
+          if (scored && !block.options.some((o) => o.correct)) {
             errors.push(`La pregunta "${block.label || block.code}" no tiene respuesta correcta marcada.`);
+          }
+          if (scored && caps.exactlyOneCorrect && block.options.filter((o) => o.correct).length > 1) {
+            errors.push(
+              `La pregunta "${block.label || block.code}" solo admite una respuesta correcta.`,
+            );
           }
         }
         totalPoints += block.score.mode === "per_option"

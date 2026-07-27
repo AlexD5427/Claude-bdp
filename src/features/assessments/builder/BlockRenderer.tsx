@@ -1,6 +1,6 @@
 import { useId } from "react";
 import type { AssessmentBlock } from "../domain/questions";
-import { resolvePlugin, type AnswerValue } from "../question-types";
+import { capabilitiesOf, resolvePlugin, type AnswerValue } from "../question-types";
 
 interface RendererProps {
   block: AssessmentBlock;
@@ -11,10 +11,15 @@ interface RendererProps {
 }
 
 /**
- * Generic block renderer used by the canvas preview and the candidate-facing
- * preview. It never renders backend HTML — text is plain and React-escaped.
- * A plugin may supply its own `Preview`; otherwise this covers the MVP types by
- * kind. Every interactive control is keyboard-accessible.
+ * Generic block renderer used by the builder canvas and the candidate preview.
+ *
+ * It never renders backend HTML — text is plain and React-escaped. A plugin may
+ * supply its own `Preview`; otherwise the control is chosen from the plugin's
+ * declared `capabilities.control`, so adding a question type never means editing
+ * this file. Every interactive control is keyboard-accessible.
+ *
+ * `candidateMode` is what hides the answer key. It must be `true` anywhere a
+ * candidate could see the output.
  */
 export function BlockRenderer({ block, candidateMode = false, value, onValueChange, disabled }: RendererProps) {
   const plugin = resolvePlugin(block.type);
@@ -41,33 +46,57 @@ function Help({ block }: { block: AssessmentBlock }) {
   return <p className="mt-1 text-xs text-ink-faint">{block.helpText}</p>;
 }
 
-function GenericBlock({ block, candidateMode, value, onValueChange, disabled }: RendererProps) {
-  const groupId = useId();
-  const type = block.type;
-  const set = (v: AnswerValue) => onValueChange?.(v);
-  const inputClass =
-    "w-full rounded-2xl fill-soft px-3 py-2 text-sm text-ink outline-none ring-1 ring-[color:var(--hairline)] focus-visible:ring-2 focus-visible:ring-cyan-300";
+const INPUT_CLASS =
+  "w-full rounded-2xl fill-soft px-3 py-2 text-sm text-ink outline-none ring-1 ring-[color:var(--hairline)] focus-visible:ring-2 focus-visible:ring-cyan-300";
 
-  // Content blocks.
+function ContentBlock({ block }: { block: AssessmentBlock }) {
+  const type = block.type;
   if (type === "c_title") return <h3 className="text-xl font-black text-ink">{block.label || "Título"}</h3>;
   if (type === "c_subtitle") return <h4 className="text-base font-bold text-ink-soft">{block.label || "Subtítulo"}</h4>;
-  if (type === "c_paragraph" || type === "c_rich_text" || type === "c_instructions" || type === "c_callout")
-    return <p className="text-sm text-ink-soft">{block.description || block.label || "Texto"}</p>;
   if (type === "c_divider") return <hr className="border-[color:var(--hairline)]" />;
-  if (type === "c_page_break") return <div className="rounded-xl border border-dashed border-[color:var(--hairline)] py-2 text-center text-xs text-ink-faint">Salto de página</div>;
-  if (type === "c_image" || type === "c_video" || type === "c_audio" || type === "c_resource")
+  if (type === "c_page_break") {
     return (
-      <div className="rounded-2xl fill-soft p-4 text-center text-xs text-ink-faint ring-1 ring-[color:var(--hairline)]">
-        {block.media?.url ? block.media.url : `Multimedia (${type})`}
-        {block.media?.alt && <p className="mt-1 text-ink-soft">{block.media.alt}</p>}
+      <div className="rounded-xl border border-dashed border-[color:var(--hairline)] py-2 text-center text-xs text-ink-faint">
+        Salto de página
       </div>
     );
+  }
+  if (block.media) {
+    return (
+      <div className="rounded-2xl fill-soft p-4 text-center text-xs text-ink-faint ring-1 ring-[color:var(--hairline)]">
+        {block.media.url ? block.media.url : `Multimedia (${type})`}
+        {block.media.alt && <p className="mt-1 text-ink-soft">{block.media.alt}</p>}
+      </div>
+    );
+  }
+  return <p className="text-sm text-ink-soft">{block.description || block.label || "Texto"}</p>;
+}
 
-  // Choice families.
-  const isRadio = ["q_single_choice", "q_true_false", "q_yes_no_na", "q_likert", "q_image_choice", "q_stars"].includes(type);
-  const isCheckbox = ["q_multiple_choice", "q_multiselect"].includes(type);
-  if (isRadio || isCheckbox) {
-    const selected = new Set(Array.isArray(value) ? value.map(String) : value != null ? [String(value)] : []);
+function GenericBlock({ block, candidateMode, value, onValueChange, disabled }: RendererProps) {
+  const groupId = useId();
+  const caps = capabilitiesOf(block.type);
+  const set = (next: AnswerValue) => onValueChange?.(next);
+
+  if (caps.control === "content") return <ContentBlock block={block} />;
+
+  if (caps.control === "pending") {
+    return (
+      <div>
+        <Label block={block} />
+        <Help block={block} />
+        <p className="mt-2 rounded-2xl border border-dashed border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          Este tipo de pregunta aún no tiene un editor interactivo. Se guarda y se
+          califica con revisión humana.
+        </p>
+      </div>
+    );
+  }
+
+  if (caps.control === "radio" || caps.control === "checkbox") {
+    const isRadio = caps.control === "radio";
+    const selected = new Set(
+      Array.isArray(value) ? value.map(String) : value != null ? [String(value)] : [],
+    );
     return (
       <fieldset className="border-0 p-0" disabled={disabled}>
         <legend className="mb-1">
@@ -75,11 +104,11 @@ function GenericBlock({ block, candidateMode, value, onValueChange, disabled }: 
         </legend>
         <Help block={block} />
         <div role={isRadio ? "radiogroup" : "group"} className="mt-2 flex flex-col gap-1.5">
-          {block.options.map((o) => {
-            const key = o.value || o.id;
+          {block.options.map((option) => {
+            const key = option.value || option.id;
             const checked = selected.has(key);
             return (
-              <label key={o.id} className="flex items-center gap-2.5 rounded-xl fill-soft px-3 py-2 text-sm text-ink ring-1 ring-[color:var(--hairline)]">
+              <label key={option.id} className="flex items-center gap-2.5 rounded-xl fill-soft px-3 py-2 text-sm text-ink ring-1 ring-[color:var(--hairline)]">
                 <input
                   type={isRadio ? "radio" : "checkbox"}
                   name={groupId}
@@ -95,9 +124,11 @@ function GenericBlock({ block, candidateMode, value, onValueChange, disabled }: 
                   }}
                   className="h-4 w-4 accent-cyan-500"
                 />
-                {o.label}
-                {/* Correct-answer markers only show OUTSIDE candidate mode. */}
-                {!candidateMode && o.correct && <span className="ml-auto text-xs font-bold text-emerald-400">correcta</span>}
+                {option.label}
+                {/* Answer-key markers only ever render OUTSIDE candidate mode. */}
+                {!candidateMode && option.correct && (
+                  <span className="ml-auto text-xs font-bold text-emerald-400">correcta</span>
+                )}
               </label>
             );
           })}
@@ -106,34 +137,121 @@ function GenericBlock({ block, candidateMode, value, onValueChange, disabled }: 
     );
   }
 
-  if (type === "q_dropdown") {
+  if (caps.control === "select") {
     return (
       <div>
         <Label block={block} />
         <Help block={block} />
-        <select disabled={disabled} className={`${inputClass} mt-2`} value={String(value ?? "")} onChange={(e) => set(e.target.value)}>
+        <select
+          disabled={disabled}
+          className={`${INPUT_CLASS} mt-2`}
+          value={String(value ?? "")}
+          onChange={(e) => set(e.target.value)}
+          aria-label={block.label || "Selecciona una opción"}
+        >
           <option value="">Selecciona…</option>
-          {block.options.map((o) => <option key={o.id} value={o.value || o.id}>{o.label}</option>)}
+          {block.options.map((option) => (
+            <option key={option.id} value={option.value || option.id}>
+              {option.label}
+            </option>
+          ))}
         </select>
       </div>
     );
   }
 
-  const numeric = ["q_integer", "q_decimal", "q_percentage", "q_currency", "q_numeric_scale"].includes(type);
-  const dateType = type === "q_date" ? "date" : type === "q_time" ? "time" : type === "q_datetime" ? "datetime-local" : null;
+  if (caps.control === "ordering") {
+    const order = Array.isArray(value) ? value.map(String) : [];
+    return (
+      <div>
+        <Label block={block} />
+        <Help block={block} />
+        <ol className="mt-2 flex flex-col gap-1.5">
+          {block.options.map((option, index) => (
+            <li
+              key={option.id}
+              className="flex items-center gap-2.5 rounded-xl fill-soft px-3 py-2 text-sm text-ink ring-1 ring-[color:var(--hairline)]"
+            >
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full fill-softer text-xs font-bold tabular-nums">
+                {order.indexOf(option.value || option.id) >= 0
+                  ? order.indexOf(option.value || option.id) + 1
+                  : index + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{option.label}</span>
+              {!candidateMode && option.matchingKey && (
+                <span className="shrink-0 text-xs font-bold text-emerald-400">→ {option.matchingKey}</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+
+  if (caps.control === "matrix") {
+    return (
+      <div>
+        <Label block={block} />
+        <Help block={block} />
+        <p className="mt-2 rounded-2xl fill-soft px-3 py-2 text-xs text-ink-faint ring-1 ring-[color:var(--hairline)]">
+          Cuadrícula de respuesta. La califica una persona.
+        </p>
+      </div>
+    );
+  }
+
+  if (caps.control === "upload") {
+    return (
+      <div>
+        <Label block={block} />
+        <Help block={block} />
+        <p className="mt-2 rounded-2xl fill-soft px-3 py-2 text-xs text-ink-faint ring-1 ring-[color:var(--hairline)]">
+          El candidato adjunta un archivo. La revisión es humana.
+        </p>
+      </div>
+    );
+  }
+
+  const inputType =
+    caps.control === "date"
+      ? "date"
+      : caps.control === "time"
+        ? "time"
+        : caps.control === "datetime"
+          ? "datetime-local"
+          : caps.control === "number"
+            ? "number"
+            : "text";
+
   return (
     <div>
       <Label block={block} />
       <Help block={block} />
-      {type === "q_long_text" ? (
-        <textarea disabled={disabled} rows={4} className={`${inputClass} mt-2 resize-y`} value={String(value ?? "")} onChange={(e) => set(e.target.value)} />
+      {caps.control === "textarea" ? (
+        <textarea
+          disabled={disabled}
+          rows={Number(block.config.rows ?? 4)}
+          className={`${INPUT_CLASS} mt-2 resize-y`}
+          value={String(value ?? "")}
+          onChange={(e) => set(e.target.value)}
+          aria-label={block.label || "Respuesta"}
+        />
       ) : (
         <input
           disabled={disabled}
-          type={dateType ?? (numeric ? "number" : "text")}
-          className={`${inputClass} mt-2`}
+          type={inputType}
+          className={`${INPUT_CLASS} mt-2`}
           value={value == null ? "" : String(value)}
-          onChange={(e) => set(numeric ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value)}
+          onChange={(e) =>
+            set(
+              caps.control === "number"
+                ? e.target.value === ""
+                  ? null
+                  : Number(e.target.value)
+                : e.target.value,
+            )
+          }
+          aria-label={block.label || "Respuesta"}
         />
       )}
     </div>

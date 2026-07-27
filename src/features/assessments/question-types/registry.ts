@@ -12,6 +12,7 @@
  */
 
 import type { ComponentType } from "react";
+import type { z } from "zod";
 import type { AssessmentBlock, AssessmentOption } from "../domain/questions";
 
 export type PluginCategory =
@@ -57,6 +58,58 @@ export interface PreviewProps {
   disabled?: boolean;
 }
 
+/**
+ * Which generic control renders this type. Centralizing this here is what let us
+ * delete the hardcoded `["q_single_choice", "q_true_false", …]` arrays that used
+ * to live in the renderer, the inspector and the validator.
+ */
+export type PluginControl =
+  | "content"
+  | "radio"
+  | "checkbox"
+  | "select"
+  | "text"
+  | "textarea"
+  | "number"
+  | "date"
+  | "time"
+  | "datetime"
+  | "matrix"
+  | "ordering"
+  | "upload"
+  /** Editor/renderer not implemented yet (feature-flagged contracts, betas). */
+  | "pending";
+
+/**
+ * How an answer to this type can be graded.
+ *
+ * `auto_if_configured` means the type CAN be graded objectively, but only when
+ * the author supplied the objective key (an expected value, or a `matchingKey`
+ * on every option). Otherwise it falls back to manual review — the platform
+ * never fakes automatic grading. Mirrored by `EVAL_QUESTION_TYPES` in
+ * apps-script/evaluations/Validation.gs (a parity test enforces it).
+ */
+export type PluginGrading = "none" | "auto" | "manual" | "auto_if_configured";
+
+/** What objective key a non-option type compares against. */
+export type PluginExpects = "number" | "text" | "ordering" | "matching";
+
+export interface PluginCapabilities {
+  /** Does this type hold an option list? */
+  options: boolean;
+  /** Minimum active options required to publish. */
+  minOptions: number;
+  /** Hard maximum, or `null` for unbounded. */
+  maxOptions: number | null;
+  /** Exactly one option may be marked correct (single-answer families). */
+  exactlyOneCorrect: boolean;
+  /** Options are fixed: they cannot be added, removed, or relabelled. */
+  fixedOptions: { value: string; label: string }[] | null;
+  grading: PluginGrading;
+  control: PluginControl;
+  expects?: PluginExpects;
+}
+
 export interface QuestionPlugin {
   type: string;
   label: string;
@@ -67,6 +120,17 @@ export interface QuestionPlugin {
   isQuestion: boolean;
   /** Whether this plugin is production-ready or a feature-flagged contract. */
   status: "stable" | "beta" | "contract";
+  /**
+   * Declarative capabilities. Adding a new question type means adding a plugin
+   * with its capabilities — no other file needs to change.
+   */
+  capabilities: PluginCapabilities;
+  /**
+   * Optional schema for `block.config`. When present it is used to parse the
+   * stored configuration with explicit defaults, so an old or malformed
+   * configuration degrades instead of crashing.
+   */
+  configSchema?: z.ZodType<Record<string, unknown>>;
   /** Build a fresh block of this type (id supplied by caller). */
   createDefault: (id: string) => AssessmentBlock;
   /** Optional inspector editor (falls back to the generic editor if absent). */
@@ -105,6 +169,17 @@ export function pluginsByCategory(category: PluginCategory): QuestionPlugin[] {
   return allPlugins().filter((p) => p.category === category);
 }
 
+/** Capabilities of a block that carries no options and no grading. */
+export const NO_OPTION_CAPABILITIES: PluginCapabilities = {
+  options: false,
+  minOptions: 0,
+  maxOptions: null,
+  exactlyOneCorrect: false,
+  fixedOptions: null,
+  grading: "none",
+  control: "content",
+};
+
 /** A safe fallback used when a block references an unknown/disabled type. */
 export function fallbackPlugin(type: string): QuestionPlugin {
   return {
@@ -114,6 +189,7 @@ export function fallbackPlugin(type: string): QuestionPlugin {
     icon: "AlertTriangle",
     isQuestion: false,
     status: "contract",
+    capabilities: { ...NO_OPTION_CAPABILITIES, control: "pending" },
     createDefault: (id) => ({
       id,
       type,
@@ -147,4 +223,55 @@ export function resolvePlugin(type: string): QuestionPlugin {
 /** Helper: does this block hold correct/scored options? */
 export function hasCorrectOptions(options: AssessmentOption[]): boolean {
   return options.some((o) => o.correct || o.score !== 0);
+}
+
+/** Capabilities of a type, resolved through the graceful fallback. */
+export function capabilitiesOf(type: string): PluginCapabilities {
+  return resolvePlugin(type).capabilities;
+}
+
+/** Active options of a block (an option list has no `active` flag: all count). */
+export function blockOptions(block: AssessmentBlock): AssessmentOption[] {
+  return block.options;
+}
+
+/**
+ * Can this block be graded automatically WITH ITS CURRENT CONFIGURATION?
+ *
+ * This is the frontend mirror of `evalIsAutoGradable_` in
+ * apps-script/evaluations/Validation.gs. It is used for author feedback only:
+ * the authoritative decision (and the resulting grade) is always the server's.
+ */
+export function isAutoGradable(block: AssessmentBlock): boolean {
+  const caps = capabilitiesOf(block.type);
+  if (caps.grading === "none") return false;
+  if (block.score.mode === "none" || block.score.mode === "manual" || block.score.mode === "rubric") {
+    return false;
+  }
+  if (caps.grading === "manual") return false;
+  if (caps.grading === "auto") {
+    return caps.options ? block.options.some((option) => option.correct) : true;
+  }
+  // auto_if_configured
+  if (caps.expects === "ordering" || caps.expects === "matching") {
+    return block.options.length > 0 && block.options.every((option) => option.matchingKey.trim() !== "");
+  }
+  const expected = block.config.expectedValue ?? block.validation.expectedValue;
+  return expected !== undefined && expected !== null && expected !== "";
+}
+
+/** Does this block need a human to close its grade? */
+export function requiresManualReview(block: AssessmentBlock): boolean {
+  const caps = capabilitiesOf(block.type);
+  if (caps.grading === "none") return false;
+  if (block.score.mode === "none") return false;
+  return !isAutoGradable(block);
+}
+
+/** Parse a block's config through the plugin schema when it declares one. */
+export function parseBlockConfig(block: AssessmentBlock): Record<string, unknown> {
+  const plugin = resolvePlugin(block.type);
+  if (!plugin.configSchema) return block.config;
+  const parsed = plugin.configSchema.safeParse(block.config);
+  return parsed.success ? parsed.data : {};
 }

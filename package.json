@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check": "node scripts/check-evaluations.mjs",
+    "visual-qa": "node scripts/visual-qa.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

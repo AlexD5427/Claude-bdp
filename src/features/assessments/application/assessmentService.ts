@@ -3,7 +3,10 @@
  * validation, versioning rules, and audit logging.
  */
 
-import { getProvider } from "../../../infrastructure/providers";
+import {
+  getAssessmentProviderName,
+  getAssessmentRepository,
+} from "../../../infrastructure/providers";
 import { syncState } from "../../../infrastructure/synchronization/syncState";
 import { assessmentDefinitionSchema, type AssessmentDefinition } from "../domain/assessment";
 import { createAssessment } from "../domain/factory";
@@ -11,9 +14,23 @@ import type { AssessmentCategory } from "../domain/categories";
 import { logAudit } from "../audit/auditLog";
 import type { ListQuery } from "../../../infrastructure/repositories/contracts";
 import type { Result } from "../../../shared/result";
+import { L } from "../../../content/locale";
+import type { AssessmentResults, AttemptDetail } from "../domain/attempts";
 
 function repo() {
-  return getProvider().assessments;
+  return getAssessmentRepository();
+}
+
+/** Origen de datos activo del módulo, para mostrarlo en la interfaz. */
+export function assessmentSource(): { name: string; label: string; isMock: boolean } {
+  const name = getAssessmentProviderName();
+  const label =
+    name === "google-apps-script"
+      ? L.sync.providerAppsScript
+      : name === "supabase"
+        ? "Supabase (no implementado)"
+        : L.sync.providerMock;
+  return { name, label, isMock: name === "mock" };
 }
 
 export async function listAssessments(query?: ListQuery) {
@@ -85,6 +102,13 @@ export async function archiveAssessment(id: string, by: string) {
   return res;
 }
 
+/** Restaura una evaluación archivada a borrador editable. */
+export async function restoreAssessment(id: string, by: string) {
+  const res = await repo().restore(id, by);
+  if (res.ok) logAudit("assessment", id, "edit", by, "Restauró la evaluación archivada");
+  return res;
+}
+
 export async function duplicateAssessmentCommand(id: string, by: string) {
   const res = await repo().duplicate(id, by);
   if (res.ok) logAudit("assessment", res.value.id, "duplicate", by, "Duplicó la evaluación");
@@ -95,4 +119,16 @@ export async function rollbackAssessment(id: string, versionId: string, by: stri
   const res = await repo().rollback(id, versionId, by);
   if (res.ok) logAudit("assessment", id, "rollback", by, "Revirtió asignaciones futuras");
   return res;
+}
+
+/**
+ * Resultados de una evaluación. Las notas las calcula el servidor; el frontend
+ * solo las lee.
+ */
+export async function listAssessmentResults(id: string): Promise<Result<AssessmentResults>> {
+  return repo().listResults(id);
+}
+
+export async function getAttemptDetail(attemptId: string): Promise<Result<AttemptDetail>> {
+  return repo().getAttemptDetail(attemptId);
 }

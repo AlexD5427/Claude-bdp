@@ -42,6 +42,12 @@ export const assessmentOptionSchema = z.object({
   score: z.number().default(0),
   /** Whether this option is a correct answer (never exposed publicly). */
   correct: z.boolean().default(false),
+  /**
+   * Objective key for ordering/matching question types (expected rank or the
+   * category this item belongs to). Empty for every other type. Never exposed
+   * publicly — it is part of the answer key.
+   */
+  matchingKey: z.string().max(200).default(""),
   feedback: z.string().max(2000).default(""),
   mediaUrl: z.string().max(2000).nullable().default(null),
 });
