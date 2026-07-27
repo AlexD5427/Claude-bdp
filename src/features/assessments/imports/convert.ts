@@ -15,6 +15,7 @@ import type { AssessmentDefinition } from "../domain/assessment";
 import type { AssessmentBlock, AssessmentSection } from "../domain/questions";
 import type { ImportIssue } from "../domain/entities";
 import { getPlugin } from "../question-types";
+import { makeOption } from "../question-types/helpers";
 
 /** The standard interoperable columns. */
 export const STANDARD_COLUMNS = [
@@ -263,15 +264,13 @@ export function convertRows(
     }
     const section = sectionsMap.get(sectionTitle)!;
 
-    const options = optionLabels.map((label) => ({
-      id: newId("opt"),
-      label,
-      value: normalizeHeader(label),
-      score: 0,
-      correct: correctSet.has(normalizeHeader(label)),
-      feedback: "",
-      mediaUrl: null as string | null,
-    }));
+    const options = optionLabels.map((label) =>
+      makeOption({
+        label,
+        value: normalizeHeader(label),
+        correct: correctSet.has(normalizeHeader(label)),
+      }),
+    );
 
     const block: AssessmentBlock = {
       id: newId("blk"),

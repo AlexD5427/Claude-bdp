@@ -1,8 +1,8 @@
 import { Plus, Trash2 } from "lucide-react";
 import { L } from "../../../content/locale";
-import { newId } from "../../../shared/ids";
 import { Field, TextInput, TextArea, Select, NumberField, Switch } from "../../../design-system/liquid-glass/fields";
 import { resolvePlugin } from "../question-types";
+import { makeOption } from "../question-types/helpers";
 import type { AssessmentBlock, AssessmentOption } from "../domain/questions";
 
 interface InspectorProps {
@@ -41,7 +41,10 @@ export function BuilderInspector({ block, onPatch }: InspectorProps) {
     onPatch({
       options: [
         ...block.options,
-        { id: newId("opt"), label: `Opción ${block.options.length + 1}`, value: `opt${block.options.length + 1}`, score: 0, correct: false, feedback: "", mediaUrl: null },
+        makeOption({
+          label: `Opción ${block.options.length + 1}`,
+          value: `opt${block.options.length + 1}`,
+        }),
       ],
     });
   const removeOption = (id: string) => onPatch({ options: block.options.filter((o) => o.id !== id) });

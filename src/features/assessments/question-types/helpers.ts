@@ -6,7 +6,13 @@
  * option constraints); scorers implement the standard scoring modes.
  */
 
-import { assessmentBlockSchema, type AssessmentBlock } from "../domain/questions";
+import { newId } from "../../../shared/ids";
+import {
+  assessmentBlockSchema,
+  assessmentOptionSchema,
+  type AssessmentBlock,
+  type AssessmentOption,
+} from "../domain/questions";
 import type { AnswerValue, ScoreResult, ValidationResult } from "./registry";
 
 /** Build a schema-valid block with the given type and overrides. */
@@ -20,6 +26,33 @@ export function makeBlock(
     type,
     order: 0,
     ...overrides,
+  });
+}
+
+/**
+ * Build a schema-valid option. Every option must be created through this helper
+ * (or the schema) so a new field added to `assessmentOptionSchema` can never be
+ * silently omitted by a caller.
+ */
+export function makeOption(input: {
+  id?: string;
+  label: string;
+  value?: string;
+  score?: number;
+  correct?: boolean;
+  matchingKey?: string;
+  feedback?: string;
+  mediaUrl?: string | null;
+}): AssessmentOption {
+  return assessmentOptionSchema.parse({
+    id: input.id ?? newId("opt"),
+    label: input.label,
+    value: input.value ?? input.label,
+    score: input.score ?? 0,
+    correct: input.correct ?? false,
+    matchingKey: input.matchingKey ?? "",
+    feedback: input.feedback ?? "",
+    mediaUrl: input.mediaUrl ?? null,
   });
 }
 

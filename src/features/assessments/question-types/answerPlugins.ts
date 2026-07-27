@@ -7,12 +7,12 @@
  * forwarded by the public DTO mapper.
  */
 
-import { makeBlock, scoreChoice, scoreManualAware, validateChoice, validateNumeric, validateRequired, validateTextLength } from "./helpers";
+import { makeBlock, makeOption, scoreChoice, scoreManualAware, validateChoice, validateNumeric, validateRequired, validateTextLength } from "./helpers";
 import type { AssessmentBlock } from "../domain/questions";
-import { newId } from "../../../shared/ids";
 import type { QuestionPlugin } from "./registry";
+
 function opt(label: string, value: string, correct = false, score = 0) {
-  return { id: newId("opt"), label, value, score, correct, feedback: "", mediaUrl: null };
+  return makeOption({ label, value, correct, score });
 }
 
 interface AnswerSpec {

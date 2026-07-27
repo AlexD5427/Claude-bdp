@@ -19,6 +19,10 @@ import type {
   AssessmentDefinition,
   AssessmentSummary,
 } from "../../features/assessments/domain/assessment";
+import type {
+  AssessmentResults,
+  AttemptDetail,
+} from "../../features/assessments/domain/attempts";
 
 export interface ListQuery {
   /** Free-text search across code/title/etc. */
@@ -68,6 +72,13 @@ export interface AssessmentRepository {
   archive(id: string, by: string): Promise<Result<AssessmentDefinition>>;
   duplicate(id: string, by: string): Promise<Result<AssessmentDefinition>>;
   rollback(id: string, versionId: string, by: string): Promise<Result<AssessmentDefinition>>;
+  /**
+   * Attempts and grades for an assessment. The grades are ALWAYS computed
+   * server-side; this repository only reads them.
+   */
+  listResults(id: string): Promise<Result<AssessmentResults>>;
+  /** One attempt with its answers, including the reviewer-only answer key. */
+  getAttemptDetail(attemptId: string): Promise<Result<AttemptDetail>>;
 }
 
 /** A provider bundles both repositories plus a small identity/health surface. */

@@ -38,6 +38,8 @@ const assessmentRepo: AssessmentRepository = {
   archive: async () => notImplemented(),
   duplicate: async () => notImplemented(),
   rollback: async () => notImplemented(),
+  listResults: async () => notImplemented(),
+  getAttemptDetail: async () => notImplemented(),
 };
 
 export const supabaseProvider: DataProvider = {

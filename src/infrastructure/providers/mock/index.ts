@@ -30,6 +30,11 @@ import {
 } from "../../../features/assessments/domain/assessment";
 import { duplicateAssessment } from "../../../features/assessments/domain/factory";
 import { publishDraft, rollbackToVersion } from "../../../features/assessments/versioning/operations";
+import {
+  emptyResultsSummary,
+  type AssessmentResults,
+  type AttemptDetail,
+} from "../../../features/assessments/domain/attempts";
 import { seedAssessments, seedProcesses } from "./seed";
 
 const PROCESS_KEY = "bdp-mock-processes";
@@ -144,6 +149,17 @@ async function transitionProcess(
   return ok(next);
 }
 
+/**
+ * MockAssessmentService — la ÚNICA puerta a los datos de demostración.
+ *
+ * Los datos mock solo son alcanzables a través de este objeto y solo cuando la
+ * configuración lo selecciona explícitamente (`VITE_ASSESSMENTS_PROVIDER=mock`,
+ * que es el valor por omisión). El módulo muestra siempre el origen activo, así
+ * que nunca hay una mezcla silenciosa entre demo y datos reales.
+ *
+ * Los intentos NO se simulan: `listResults` devuelve una lista vacía con
+ * agregados en `null`, porque inventar métricas sería peor que no tenerlas.
+ */
 const assessmentRepo: AssessmentRepository = {
   async list(query) {
     await delay();
@@ -222,7 +238,28 @@ const assessmentRepo: AssessmentRepository = {
     assessmentStore.set((prev) => prev.map((a) => (a.id === id ? next : a)));
     return ok(next);
   },
+
+  async listResults(id): Promise<Result<AssessmentResults>> {
+    await delay();
+    const exists = assessmentStore.get().some((a) => a.id === id);
+    if (!exists) return err(appError("not_found", "Evaluación no encontrada."));
+    // Sin backend no hay intentos reales, y no se fabrican datos sintéticos.
+    return ok({ attempts: [], summary: emptyResultsSummary() });
+  },
+
+  async getAttemptDetail(): Promise<Result<AttemptDetail>> {
+    await delay();
+    return err(
+      appError(
+        "not_found",
+        "Los intentos de candidatos requieren el backend real de Apps Script.",
+      ),
+    );
+  },
 };
+
+/** Alias explícito del servicio de evaluaciones de demostración. */
+export const MockAssessmentService = assessmentRepo;
 
 async function transitionAssessment(
   id: string,

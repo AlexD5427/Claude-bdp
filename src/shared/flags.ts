@@ -7,19 +7,47 @@
  * enabled unless explicitly turned on at build time.
  */
 
+import { SCRIPT_URL } from "../constants";
+
+function env(key: string): string | undefined {
+  return (import.meta.env as Record<string, string | undefined>)[key];
+}
+
 function envFlag(key: string, fallback: boolean): boolean {
-  const raw = (import.meta.env as Record<string, string | undefined>)[key];
+  const raw = env(key);
   if (raw == null) return fallback;
   return raw === "1" || raw.toLowerCase() === "true";
 }
+
+export type ProviderName = "mock" | "google-apps-script" | "supabase";
+
+function providerName(raw: string | undefined, fallback: ProviderName): ProviderName {
+  return raw === "mock" || raw === "google-apps-script" || raw === "supabase" ? raw : fallback;
+}
+
+const dataProvider = providerName(env("VITE_DATA_PROVIDER"), "mock");
 
 export const FLAGS = {
   /**
    * Data source. Defaults to the mock provider so the app is fully functional
    * offline; set VITE_DATA_PROVIDER=google-apps-script to hit the live backend.
    */
-  dataProvider: ((import.meta.env as Record<string, string | undefined>).VITE_DATA_PROVIDER ??
-    "mock") as "mock" | "google-apps-script" | "supabase",
+  dataProvider,
+
+  /**
+   * Data source for the Evaluaciones module only. Lets the assessment backend be
+   * rolled out independently from ProcessOS (staged rollout). Inherits
+   * `dataProvider` when unset. The module always displays which source is
+   * active, so mock and real data can never mix silently.
+   */
+  assessmentsProvider: providerName(env("VITE_ASSESSMENTS_PROVIDER"), dataProvider),
+
+  /**
+   * Optional debounced autosave in the assessment builder. OFF by default: the
+   * manual "Guardar borrador" button is always the primary action and autosave
+   * never publishes.
+   */
+  assessmentsAutosave: envFlag("VITE_FLAG_ASSESSMENTS_AUTOSAVE", false),
 
   // Advanced question types — contracts exist, editors/renderers are not
   // production-ready. Kept OFF by default.
@@ -34,3 +62,14 @@ export const FLAGS = {
 } as const;
 
 export type FeatureFlags = typeof FLAGS;
+
+/**
+ * Public URL of the Evaluaciones Apps Script Web App.
+ *
+ * This is a PUBLIC endpoint URL, not a secret: server-side secrets live in the
+ * Apps Script project's Script Properties and never reach the browser. When it
+ * is not configured it falls back to the shared `SCRIPT_URL`, which lets a
+ * single deployment serve both backends.
+ */
+export const ASSESSMENTS_API_URL: string =
+  env("VITE_EVALUATIONS_API_URL") ?? SCRIPT_URL;
