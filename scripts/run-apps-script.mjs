@@ -1,0 +1,351 @@
+/**
+ * Arnés para ejecutar el backend de Apps Script dentro de Node.
+ *
+ * Los archivos `.gs` de `apps-script/evaluations/` son JavaScript plano que se
+ * ejecuta en el runtime V8 de Apps Script. Este módulo los concatena y los
+ * evalúa en un contexto de `node:vm` con implementaciones en memoria de
+ * `SpreadsheetApp`, `LockService`, `PropertiesService`, `Utilities`, `Session` y
+ * `ContentService`.
+ *
+ * Gracias a esto las pruebas del repositorio ejercitan EL MISMO código que se
+ * copia a Apps Script: no hay una reimplementación paralela que pueda
+ * desincronizarse.
+ *
+ * No forma parte del bundle de la aplicación: solo lo usan las pruebas y el
+ * script de verificación.
+ */
+
+import { createContext, runInContext } from "node:vm";
+import { readFileSync, readdirSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+export const APPS_SCRIPT_DIR = join(HERE, "..", "apps-script", "evaluations");
+
+/**
+ * Orden de carga. Coincide con `apps-script/evaluations/README.md`. Se declara
+ * explícitamente (en vez de leer el directorio sin orden) para que el arnés
+ * falle si alguien añade un archivo y olvida documentarlo.
+ */
+export const GS_FILES = [
+  "Config.gs",
+  "Response.gs",
+  "IdService.gs",
+  "SheetRepository.gs",
+  "Sanitize.gs",
+  "Validation.gs",
+  "Auth.gs",
+  "RequestService.gs",
+  "AuditService.gs",
+  "AssessmentService.gs",
+  "PublicAssessmentService.gs",
+  "AttemptService.gs",
+  "ScoringService.gs",
+  "Router.gs",
+  "Code.gs",
+  "Setup.gs",
+  "Tests.gs",
+];
+
+/** Comprueba que no haya archivos `.gs` sin declarar en `GS_FILES`. */
+export function listUndeclaredGsFiles() {
+  const onDisk = readdirSync(APPS_SCRIPT_DIR).filter((name) => name.endsWith(".gs"));
+  return onDisk.filter((name) => !GS_FILES.includes(name));
+}
+
+/* ------------------------------ Hoja en memoria --------------------------- */
+
+class FakeRange {
+  constructor(sheet, row, column, numRows, numColumns) {
+    this.sheet = sheet;
+    this.row = row;
+    this.column = column;
+    this.numRows = numRows;
+    this.numColumns = numColumns;
+  }
+
+  getValues() {
+    const out = [];
+    for (let r = 0; r < this.numRows; r++) {
+      const row = [];
+      for (let c = 0; c < this.numColumns; c++) {
+        row.push(this.sheet.readCell(this.row + r, this.column + c));
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  setValues(values) {
+    if (!Array.isArray(values) || values.length !== this.numRows) {
+      throw new Error(
+        `setValues: se esperaban ${this.numRows} filas y llegaron ${Array.isArray(values) ? values.length : "no-array"}`,
+      );
+    }
+    for (let r = 0; r < this.numRows; r++) {
+      if (!Array.isArray(values[r]) || values[r].length !== this.numColumns) {
+        throw new Error(
+          `setValues: se esperaban ${this.numColumns} columnas en la fila ${r} y llegaron ${
+            Array.isArray(values[r]) ? values[r].length : "no-array"
+          }`,
+        );
+      }
+      for (let c = 0; c < this.numColumns; c++) {
+        this.sheet.writeCell(this.row + r, this.column + c, values[r][c]);
+      }
+    }
+    return this;
+  }
+
+  setValue(value) {
+    this.sheet.writeCell(this.row, this.column, value);
+    return this;
+  }
+
+  setFontWeight() {
+    return this;
+  }
+
+  setNumberFormat() {
+    return this;
+  }
+}
+
+class FakeSheet {
+  constructor(name) {
+    this.name = name;
+    /** @type {unknown[][]} */
+    this.grid = [];
+    this.frozenRows = 0;
+  }
+
+  getName() {
+    return this.name;
+  }
+
+  readCell(row, column) {
+    const line = this.grid[row - 1];
+    if (!line) return "";
+    const value = line[column - 1];
+    return value === undefined || value === null ? "" : value;
+  }
+
+  writeCell(row, column, value) {
+    while (this.grid.length < row) this.grid.push([]);
+    const line = this.grid[row - 1];
+    while (line.length < column) line.push("");
+    line[column - 1] = value === undefined || value === null ? "" : value;
+  }
+
+  getLastRow() {
+    let last = 0;
+    for (let r = 0; r < this.grid.length; r++) {
+      const line = this.grid[r] || [];
+      if (line.some((cell) => cell !== "" && cell !== null && cell !== undefined)) last = r + 1;
+    }
+    return last;
+  }
+
+  getLastColumn() {
+    let last = 0;
+    for (const line of this.grid) {
+      for (let c = (line || []).length - 1; c >= 0; c--) {
+        const cell = line[c];
+        if (cell !== "" && cell !== null && cell !== undefined) {
+          if (c + 1 > last) last = c + 1;
+          break;
+        }
+      }
+    }
+    return last;
+  }
+
+  getRange(row, column, numRows = 1, numColumns = 1) {
+    if (row < 1 || column < 1) throw new Error("getRange: fila y columna deben ser >= 1");
+    return new FakeRange(this, row, column, numRows, numColumns);
+  }
+
+  getDataRange() {
+    return new FakeRange(this, 1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn()));
+  }
+
+  appendRow(values) {
+    const row = this.getLastRow() + 1;
+    values.forEach((value, index) => this.writeCell(row, index + 1, value));
+    return this;
+  }
+
+  deleteRow(row) {
+    this.grid.splice(row - 1, 1);
+    return this;
+  }
+
+  setFrozenRows(count) {
+    this.frozenRows = count;
+    return this;
+  }
+}
+
+class FakeSpreadsheet {
+  constructor() {
+    /** @type {FakeSheet[]} */
+    this.sheets = [];
+  }
+
+  getSheetByName(name) {
+    return this.sheets.find((sheet) => sheet.name === name) ?? null;
+  }
+
+  insertSheet(name) {
+    const sheet = new FakeSheet(name);
+    this.sheets.push(sheet);
+    return sheet;
+  }
+
+  getSheets() {
+    return this.sheets.slice();
+  }
+}
+
+/* --------------------------------- Contexto ------------------------------- */
+
+/**
+ * Carga el backend en un contexto nuevo y aislado.
+ *
+ * @param {{ properties?: Record<string,string>, activeEmail?: string, lockAvailable?: boolean }} options
+ */
+export function loadAppsScript(options = {}) {
+  const spreadsheet = new FakeSpreadsheet();
+  const properties = { ...(options.properties ?? {}) };
+  const state = {
+    spreadsheet,
+    properties,
+    activeEmail: options.activeEmail ?? "reclutador@ejemplo.com",
+    lockAvailable: options.lockAvailable !== false,
+    lockAcquisitions: 0,
+    lockReleases: 0,
+    lockHeld: false,
+    errors: [],
+    logs: [],
+  };
+
+  const sandbox = {
+    SpreadsheetApp: {
+      getActiveSpreadsheet: () => spreadsheet,
+      openById: () => spreadsheet,
+    },
+    LockService: {
+      getScriptLock: () => ({
+        tryLock: () => {
+          if (!state.lockAvailable) return false;
+          if (state.lockHeld) return false;
+          state.lockHeld = true;
+          state.lockAcquisitions += 1;
+          return true;
+        },
+        releaseLock: () => {
+          state.lockHeld = false;
+          state.lockReleases += 1;
+        },
+        waitLock: () => {
+          state.lockHeld = true;
+          state.lockAcquisitions += 1;
+        },
+      }),
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (key) => (key in properties ? properties[key] : null),
+        setProperty: (key, value) => {
+          properties[key] = String(value);
+        },
+        deleteProperty: (key) => {
+          delete properties[key];
+        },
+        getProperties: () => ({ ...properties }),
+      }),
+    },
+    Session: {
+      getActiveUser: () => ({ getEmail: () => state.activeEmail }),
+      getEffectiveUser: () => ({ getEmail: () => state.activeEmail }),
+    },
+    Utilities: {
+      getUuid: () => randomUUID(),
+      computeDigest: (_algorithm, value) => {
+        const digest = createHash("sha256").update(String(value), "utf8").digest();
+        // Apps Script devuelve bytes con signo.
+        return Array.from(digest).map((byte) => (byte > 127 ? byte - 256 : byte));
+      },
+      DigestAlgorithm: { SHA_256: "SHA_256" },
+      Charset: { UTF_8: "UTF_8" },
+      sleep: () => {},
+    },
+    ContentService: {
+      createTextOutput: (text) => ({
+        text,
+        setMimeType() {
+          return this;
+        },
+        getContent() {
+          return text;
+        },
+      }),
+      MimeType: { JSON: "JSON" },
+    },
+    console: {
+      log: (...args) => state.logs.push(args.join(" ")),
+      error: (...args) => state.errors.push(args.join(" ")),
+      warn: (...args) => state.logs.push(args.join(" ")),
+      info: (...args) => state.logs.push(args.join(" ")),
+    },
+    JSON,
+    Math,
+    Date,
+    Number,
+    String,
+    Boolean,
+    Object,
+    Array,
+    isFinite,
+    isNaN,
+    parseInt,
+    parseFloat,
+    Error,
+    RegExp,
+  };
+  sandbox.globalThis = sandbox;
+
+  const context = createContext(sandbox);
+  const source = GS_FILES.map((name) => {
+    const code = readFileSync(join(APPS_SCRIPT_DIR, name), "utf8");
+    return `/* ==== ${name} ==== */\n${code}`;
+  }).join("\n");
+
+  // Un único script para que las declaraciones `var`/`function` de todos los
+  // archivos compartan ámbito, igual que en Apps Script.
+  runInContext(source, context, { filename: "apps-script-evaluations.js" });
+
+  /** Ejecuta una función global del backend. */
+  const call = (name, ...args) => {
+    context.__args = args;
+    return runInContext(`${name}.apply(null, __args)`, context);
+  };
+
+  /** Lee una global del backend (p. ej. `EVAL_HEADERS`). */
+  const read = (expression) => runInContext(expression, context);
+
+  /** Envía una solicitud al enrutador, como lo haría el Web App. */
+  const request = (action, payload = {}, requestId = `req_${randomUUID()}`) =>
+    call("evalHandleRequest_", { action, requestId, payload });
+
+  return { context, call, read, request, state, spreadsheet };
+}
+
+/** Atajo: backend inicializado con las nueve hojas creadas. */
+export function loadInitializedAppsScript(options = {}) {
+  const harness = loadAppsScript(options);
+  harness.call("configurarEvaluaciones");
+  return harness;
+}
