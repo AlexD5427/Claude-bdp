@@ -4,7 +4,7 @@
  */
 
 import { makeBlock, noScore } from "./helpers";
-import { type QuestionPlugin } from "./registry";
+import { NO_OPTION_CAPABILITIES, type QuestionPlugin } from "./registry";
 
 function contentPlugin(
   type: string,
@@ -19,6 +19,7 @@ function contentPlugin(
     icon,
     isQuestion: false,
     status: "stable",
+    capabilities: NO_OPTION_CAPABILITIES,
     createDefault: (id) => makeBlock(id, type, defaults),
     validate: () => ({ valid: true }),
     score: noScore,
