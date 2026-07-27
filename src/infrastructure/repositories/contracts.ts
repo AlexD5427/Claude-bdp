@@ -70,6 +70,8 @@ export interface AssessmentRepository {
   pause(id: string, by: string): Promise<Result<AssessmentDefinition>>;
   close(id: string, by: string): Promise<Result<AssessmentDefinition>>;
   archive(id: string, by: string): Promise<Result<AssessmentDefinition>>;
+  /** Restore an archived assessment back to an editable draft. */
+  restore(id: string, by: string): Promise<Result<AssessmentDefinition>>;
   duplicate(id: string, by: string): Promise<Result<AssessmentDefinition>>;
   rollback(id: string, versionId: string, by: string): Promise<Result<AssessmentDefinition>>;
   /**

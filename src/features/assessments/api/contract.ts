@@ -132,11 +132,29 @@ export function parseEnvelope<T>(raw: unknown): ApiEnvelope<T> {
   };
 }
 
+/**
+ * Error de la aplicación enriquecido con los hallazgos de validación del
+ * servidor. `AppError` es un contrato compartido con Procesos, así que en lugar
+ * de modificarlo se adjunta `issues` como propiedad opcional y se lee con
+ * `issuesOf`.
+ */
+export interface AssessmentAppError extends AppError {
+  issues?: ApiIssue[];
+}
+
 /** Convierte el error del envoltorio en el `AppError` de la aplicación. */
-export function toAppError(envelope: ApiEnvelope<unknown>): AppError {
+export function toAppError(envelope: ApiEnvelope<unknown>): AssessmentAppError {
   const code = envelope.error?.code ?? "INTERNAL_ERROR";
   const message = envelope.error?.message ?? "Ocurrió un error en el servidor.";
-  return appError(CODE_MAP[code], message, code);
+  const base = appError(CODE_MAP[code], message, code);
+  const issues = extractIssues(envelope);
+  return issues.length > 0 ? { ...base, issues } : base;
+}
+
+/** Hallazgos de validación adjuntos a un error, si los hay. */
+export function issuesOf(error: AppError): ApiIssue[] {
+  const candidate = (error as AssessmentAppError).issues;
+  return Array.isArray(candidate) ? candidate : [];
 }
 
 /** Extrae los hallazgos de validación de `error.details.issues`. */

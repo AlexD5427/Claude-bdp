@@ -102,6 +102,13 @@ export async function archiveAssessment(id: string, by: string) {
   return res;
 }
 
+/** Restaura una evaluación archivada a borrador editable. */
+export async function restoreAssessment(id: string, by: string) {
+  const res = await repo().restore(id, by);
+  if (res.ok) logAudit("assessment", id, "edit", by, "Restauró la evaluación archivada");
+  return res;
+}
+
 export async function duplicateAssessmentCommand(id: string, by: string) {
   const res = await repo().duplicate(id, by);
   if (res.ok) logAudit("assessment", res.value.id, "duplicate", by, "Duplicó la evaluación");

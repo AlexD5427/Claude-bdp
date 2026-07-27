@@ -220,6 +220,9 @@ const assessmentRepo: AssessmentRepository = {
   async archive(id, by) {
     return transitionAssessment(id, by, { lifecycle: "archived", publication: "archived" });
   },
+  async restore(id, by) {
+    return transitionAssessment(id, by, { lifecycle: "draft", publication: "unpublished" });
+  },
 
   async duplicate(id, by) {
     await delay();

@@ -10,7 +10,7 @@ beforeEach(() => {
   bootstrapPlugins();
   __setProviderForTests(mockProvider);
   resetMockData();
-  assessmentListStore.set({ search: "", filters: emptyAssessmentFilters(), view: "cards" });
+  assessmentListStore.set({ search: "", filters: emptyAssessmentFilters(), view: "cards", sort: "recent" });
 });
 afterEach(() => {
   cleanup();

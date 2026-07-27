@@ -165,6 +165,7 @@ export const appsScriptAssessmentService: AssessmentRepository = {
   pause: (id, by) => runTransition("pauseAssessment", id, by),
   close: (id, by) => runTransition("closeAssessment", id, by),
   archive: (id, by) => runTransition("archiveAssessment", id, by),
+  restore: (id, by) => runTransition("unarchiveAssessment", id, by),
 
   async duplicate(id, by) {
     const written = await apiDuplicate(newRequestId(), { assessmentId: id, actor: by });
