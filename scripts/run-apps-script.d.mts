@@ -60,13 +60,38 @@ export interface HarnessState {
   logs: string[];
 }
 
+/** Credencial firmada del esquema `hmac-sha256`, tal como la emite el proxy. */
+export interface SignedCredential {
+  scheme: string;
+  timestamp: string;
+  nonce: string;
+  actor: string;
+  signature: string;
+}
+
 export interface AppsScriptHarness {
   /** Llama una función global del backend. */
   call: (name: string, ...args: unknown[]) => unknown;
   /** Lee una expresión global (p. ej. `EVAL_HEADERS`). */
   read: (expression: string) => unknown;
-  /** Envía una solicitud al enrutador, como haría el Web App. */
+  /**
+   * Envía una solicitud como la aplicación real: firma las acciones
+   * administrativas con el secreto del arnés y deja las públicas sin credencial.
+   */
   request: (action: string, payload?: Record<string, unknown>, requestId?: string) => AppsScriptEnvelope;
+  /** Envía una solicitud tal cual, con la credencial que se le indique (o ninguna). */
+  rawRequest: (
+    action: string,
+    payload?: Record<string, unknown>,
+    requestId?: string,
+    auth?: SignedCredential | Record<string, unknown> | null,
+  ) => AppsScriptEnvelope;
+  /** Firma una credencial con el secreto del arnés, con sustituciones opcionales. */
+  sign: (
+    action: string,
+    requestId: string,
+    overrides?: Partial<SignedCredential> & { secret?: string },
+  ) => SignedCredential;
   state: HarnessState;
   spreadsheet: FakeSpreadsheet;
 }
@@ -75,7 +100,32 @@ export interface LoadOptions {
   properties?: Record<string, string>;
   activeEmail?: string;
   lockAvailable?: boolean;
+  /** Secreto administrativo del arnés. `null` deja el despliegue sin configurar. */
+  adminSecret?: string | null;
+  /** Actor que declara la credencial firmada. */
+  adminActor?: string;
 }
+
+export declare const TEST_ADMIN_SECRET: string;
+
+/** Cadena canónica del esquema `hmac-sha256` v1. */
+export declare function canonicalString(parts: {
+  action?: string;
+  requestId?: string;
+  timestamp?: string;
+  nonce?: string;
+  actor?: string;
+}): string;
+
+/** Credencial firmada con el secreto indicado. */
+export declare function signCredential(parts: {
+  secret: string;
+  action: string;
+  requestId: string;
+  actor: string;
+  timestamp?: string;
+  nonce?: string;
+}): SignedCredential;
 
 export declare function loadAppsScript(options?: LoadOptions): AppsScriptHarness;
 export declare function loadInitializedAppsScript(options?: LoadOptions): AppsScriptHarness;

@@ -194,11 +194,14 @@ describe("apps-script · ciclo de vida", () => {
 
   it("exige requestId en toda escritura", () => {
     const { harness, bundle } = setup();
-    const response = harness.call("evalHandleRequest_", {
-      action: "updateAssessment",
-      requestId: "",
-      payload: fullPayload(bundle),
-    }) as Envelope;
+    // La credencial se firma para ESTA solicitud (con `requestId` vacío), de modo
+    // que lo que se comprueba sea la idempotencia y no la autorización.
+    const response = harness.rawRequest(
+      "updateAssessment",
+      fullPayload(bundle),
+      "",
+      harness.sign("updateAssessment", ""),
+    ) as Envelope;
     expect(response.ok).toBe(false);
     expect(response.error?.code).toBe("BAD_REQUEST");
   });
@@ -431,46 +434,8 @@ describe("apps-script · ciclo de vida", () => {
   });
 });
 
-describe("apps-script · autorización", () => {
-  it("deniega acciones administrativas sin identidad verificable", () => {
-    const harness = loadInitializedAppsScript({ activeEmail: "" });
-    const response = harness.request("listAdminAssessments", {}) as Envelope;
-    expect(response.ok).toBe(false);
-    expect(response.error?.code).toBe("FORBIDDEN");
-  });
-
-  it("deniega a una cuenta que no está en la lista de administradores", () => {
-    const harness = loadInitializedAppsScript({
-      activeEmail: "otro@ejemplo.com",
-      properties: { EVALUATIONS_ADMIN_EMAILS: "jefa@ejemplo.com" },
-    });
-    const response = harness.request("listAdminAssessments", {}) as Envelope;
-    expect(response.ok).toBe(false);
-    expect(response.error?.code).toBe("FORBIDDEN");
-  });
-
-  it("el modo abierto exige habilitación explícita y avisa en cada respuesta", () => {
-    const denied = loadInitializedAppsScript({
-      activeEmail: "",
-      properties: { EVALUATIONS_AUTH_MODE: "open_admin" },
-    });
-    expect((denied.request("listAdminAssessments", {}) as Envelope).error?.code).toBe("FORBIDDEN");
-
-    const allowed = loadInitializedAppsScript({
-      activeEmail: "",
-      properties: {
-        EVALUATIONS_AUTH_MODE: "open_admin",
-        EVALUATIONS_ALLOW_ANONYMOUS_ADMIN: "true",
-      },
-    });
-    const response = allowed.request("listAdminAssessments", {}) as Envelope;
-    expect(response.ok).toBe(true);
-    expect(response.warnings).toContain("INSECURE_ADMIN_MODE");
-  });
-
-  it("las acciones públicas no exigen identidad", () => {
-    const harness = loadInitializedAppsScript({ activeEmail: "" });
-    const response = harness.request("listPublicAssessments", {}) as Envelope;
-    expect(response.ok).toBe(true);
-  });
-});
+/**
+ * La autorización tiene su propia suite completa en
+ * `appsScript.authorization.test.ts`: proveedores, firma, frescura, repetición y
+ * etiquetado del actor.
+ */

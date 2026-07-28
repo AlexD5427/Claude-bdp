@@ -165,9 +165,11 @@ afterEach(() => {
 });
 
 describe("transporte", () => {
-  it("envía POST con text/plain y sigue el redirect de Google", async () => {
-    mockFetch([okEnvelope({ items: [], total: 0, syncedAt: "" })]);
-    await listAdminAssessments();
+  it("envía las acciones públicas por POST con text/plain y sigue el redirect de Google", async () => {
+    // El contenido de la respuesta no importa aquí: lo que se verifica es cómo
+    // sale la petición hacia el Web App de Apps Script.
+    mockFetch([okEnvelope({})]);
+    await getPublicAssessment("EVL-TEST-0001");
     expect(calls).toHaveLength(1);
     expect(calls[0].init.method).toBe("POST");
     expect((calls[0].init.headers as Record<string, string>)["Content-Type"]).toBe(

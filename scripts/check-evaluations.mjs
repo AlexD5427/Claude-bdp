@@ -149,10 +149,28 @@ const SECRET_PATTERNS = [
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, "clave privada"],
   [/\bsk-[A-Za-z0-9]{20,}/, "clave secreta tipo sk-"],
   [/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\./, "token JWT"],
-  [/(password|contrasena|contraseña|secret|token)\s*[:=]\s*["'][^"'\s]{12,}["']/i, "credencial literal"],
 ];
+
+/**
+ * Credencial escrita a mano. Se analiza línea a línea porque hay dos casos que
+ * NO son secretos y conviene distinguir sin debilitar la regla:
+ *
+ *   · el NOMBRE de una variable de entorno
+ *     (`ADMIN_SHARED_SECRET: 'EVALUATIONS_ADMIN_SHARED_SECRET'`);
+ *   · un dato de prueba en un archivo de pruebas (`*.test.ts` o `Tests.gs`), que
+ *     además debe declararse como tal en su propio valor («…-de-pruebas-…»). Así
+ *     una credencial real copiada por error sigue saltando, porque no llevará esa
+ *     marca.
+ */
+const CREDENTIAL_LITERAL =
+  /(?:password|contrasena|contraseña|secret|secreto|token|passphrase|frase)\w*\s*[:=]\s*["']([^"'\s]{12,})["']/i;
+const ENV_VAR_NAME = /^[A-Z][A-Z0-9_]*$/;
+const FIXTURE_MARKERS = ["prueba", "pruebas", "ejemplo", "fixture", "reemplazar"];
+const isFixtureFile = (file) => isTest(file) || /(^|[/\\])Tests\.gs$/.test(file);
+
 const secretScope = [
   ...moduleFiles,
+  ...walk(join(ROOT, "api"), (file) => /\.ts$/.test(file)),
   ...walk(join(ROOT, "docs", "evaluations"), (file) => file.endsWith(".md")),
   join(ROOT, ".env.example"),
 ];
@@ -160,6 +178,43 @@ for (const file of secretScope) {
   const text = readFileSync(file, "utf8");
   for (const [pattern, label] of SECRET_PATTERNS) {
     if (pattern.test(text)) fail("posible-secreto", file, label);
+  }
+  text.split("\n").forEach((line, index) => {
+    const match = CREDENTIAL_LITERAL.exec(line);
+    if (!match) return;
+    const value = match[1];
+    if (ENV_VAR_NAME.test(value)) return;
+    const isFixture =
+      isFixtureFile(file) && FIXTURE_MARKERS.some((marker) => value.toLowerCase().includes(marker));
+    if (isFixture) return;
+    fail("posible-secreto", file, `credencial literal en la línea ${index + 1}`);
+  });
+}
+
+/* 5 bis · Frontera del backend intermedio --------------------------------- */
+/**
+ * El backend intermedio (`api/`) custodia el secreto de firma. Dos reglas
+ * mantienen la frontera evidente:
+ *
+ *   · nada de `src/` puede importar `api/`, para que ni un solo byte de esa
+ *     carpeta pueda acabar en el bundle del navegador;
+ *   · `api/` no lee variables `VITE_`, porque esas sí se publican.
+ */
+const apiFiles = walk(join(ROOT, "api"), (file) => /\.ts$/.test(file));
+for (const file of apiFiles) {
+  const text = readFileSync(file, "utf8");
+  if (/\bVITE_[A-Z0-9_]+/.test(text)) {
+    fail("api-usa-variable-publica", file, "referencia a una variable VITE_");
+  }
+  if (/from\s+["'][^"']*\/src\//.test(text) || /from\s+["']@\//.test(text)) {
+    fail("api-importa-frontend", file, "importa código del bundle del navegador");
+  }
+}
+for (const file of moduleFiles) {
+  if (isTest(file)) continue; // Las pruebas sí comparan ambos lados.
+  const text = readFileSync(file, "utf8");
+  if (/from\s+["'][^"']*api\/_lib/.test(text)) {
+    fail("frontend-importa-backend", file, "importa el backend intermedio");
   }
 }
 
