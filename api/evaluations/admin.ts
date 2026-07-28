@@ -12,13 +12,17 @@
  * Lo que este archivo NO hace: interpretar la carga, validar reglas de negocio ni
  * transformar la respuesta. La carga viaja tal cual y la respuesta se devuelve tal
  * cual, para que el contrato siga siendo el del backend (un solo envoltorio).
+ *
+ * Sobre la forma del módulo (exportaciones con nombre de método HTTP y sin
+ * `export default`), ver la nota extensa en `session.ts`: es lo que hace que el
+ * runtime Node.js de Vercel invoque este archivo con la API web.
  */
 
-import { isAdminAction, isWriteAction } from "../_lib/adminActions";
-import { readSessionCookie, verifySessionToken } from "../_lib/adminSession";
-import { signAdminCredential } from "../_lib/appsScriptSignature";
-import { configErrorMessage, readAdminProxyConfig } from "../_lib/config";
-import { failEnvelope, isAllowedOrigin, jsonResponse, readJsonBody, type Envelope } from "../_lib/http";
+import { isAdminAction, isWriteAction } from "../_lib/adminActions.js";
+import { readSessionCookie, verifySessionToken } from "../_lib/adminSession.js";
+import { signAdminCredential } from "../_lib/appsScriptSignature.js";
+import { configErrorMessage, readAdminProxyConfig } from "../_lib/config.js";
+import { failEnvelope, isAllowedOrigin, jsonResponse, readJsonBody, type Envelope } from "../_lib/http.js";
 
 /** Tiempo máximo que se espera a Apps Script. */
 const UPSTREAM_TIMEOUT_MS = 25000;
@@ -26,7 +30,7 @@ const UPSTREAM_TIMEOUT_MS = 25000;
 /** Tamaño máximo admitido para la carga reenviada. */
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 
-export default async function handler(request: Request): Promise<Response> {
+async function handleAdmin(request: Request): Promise<Response> {
   if (request.method !== "POST") {
     return jsonResponse(failEnvelope("BAD_REQUEST", "Método no admitido."), { status: 405 });
   }
@@ -139,3 +143,16 @@ export default async function handler(request: Request): Promise<Response> {
     clearTimeout(timer);
   }
 }
+
+/**
+ * Superficie que Vercel invoca.
+ *
+ * Solo `POST` firma y reenvía. `GET` y `DELETE` también se exportan para que un
+ * cliente que se equivoque de método reciba el mismo envoltorio JSON con
+ * `405` en lugar de una respuesta vacía del propio lanzador: el cliente valida
+ * el envoltorio y una respuesta sin cuerpo se convertiría en un error genérico
+ * de red, justo lo que este trabajo trata de eliminar.
+ */
+export const POST = handleAdmin;
+export const GET = handleAdmin;
+export const DELETE = handleAdmin;

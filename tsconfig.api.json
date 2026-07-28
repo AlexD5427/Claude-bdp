@@ -1,10 +1,23 @@
 {
+  /**
+   * Backend intermedio (funciones serverless de Vercel).
+   *
+   * `module`/`moduleResolution` = `nodenext` a propósito, y no `bundler`: estos
+   * archivos NO los empaqueta nadie. Vercel los transpila uno a uno y Node los
+   * carga como ESM (porque `package.json` declara `"type": "module"`), de modo
+   * que cada import relativo necesita su extensión `.js` explícita.
+   *
+   * Con `bundler` TypeScript aceptaba imports sin extensión y el error solo
+   * aparecía en producción, como `ERR_MODULE_NOT_FOUND`. Con `nodenext`, olvidar
+   * la extensión rompe `npx tsc -b --noEmit`: el fallo se adelanta al momento de
+   * escribir el código.
+   */
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023", "DOM"],
-    "module": "ESNext",
+    "module": "nodenext",
     "skipLibCheck": true,
-    "moduleResolution": "bundler",
+    "moduleResolution": "nodenext",
     "isolatedModules": true,
     "moduleDetection": "force",
     "types": ["node"],
