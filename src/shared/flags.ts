@@ -75,3 +75,39 @@ export type FeatureFlags = typeof FLAGS;
  */
 export const ASSESSMENTS_API_URL_OVERRIDE: string | null =
   env("VITE_EVALUATIONS_API_URL") ?? null;
+
+/** Default endpoint of the intermediate backend that signs admin operations. */
+export const DEFAULT_ADMIN_PROXY_URL = "/api/evaluations/admin";
+
+/**
+ * Endpoint for ADMIN operations.
+ *
+ * Admin operations cannot be authorized from the browser: the credential must be
+ * signed with a server secret, and no secret may ever live in this bundle. They
+ * therefore go through the intermediate backend (`api/evaluations/admin.ts`),
+ * which holds the secret and signs each call.
+ *
+ *   unset            → the default `/api/evaluations/admin` when the Apps Script
+ *                      provider is active (the real ATS architecture).
+ *   a URL            → that endpoint (useful when the functions live elsewhere).
+ *   "direct"         → no proxy: calls go straight to Apps Script. Only valid
+ *                      for deployments whose backend runs in `google_identity`
+ *                      mode, where Google itself authenticates the recruiter.
+ *
+ * `null` means "call Apps Script directly".
+ */
+export const ASSESSMENTS_ADMIN_API_URL: string | null = (() => {
+  const raw = env("VITE_EVALUATIONS_ADMIN_API_URL")?.trim();
+  if (raw === "direct") return null;
+  if (raw) return raw;
+  const provider = providerName(env("VITE_ASSESSMENTS_PROVIDER"), dataProvider);
+  return provider === "google-apps-script" ? DEFAULT_ADMIN_PROXY_URL : null;
+})();
+
+/**
+ * Endpoint of the admin session gate. Derived from the admin endpoint so a
+ * single environment variable configures both.
+ */
+export const ASSESSMENTS_ADMIN_SESSION_URL: string | null = ASSESSMENTS_ADMIN_API_URL
+  ? ASSESSMENTS_ADMIN_API_URL.replace(/\/admin$/, "/session")
+  : null;

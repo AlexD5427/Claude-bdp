@@ -140,6 +140,8 @@ export function parseEnvelope<T>(raw: unknown): ApiEnvelope<T> {
  */
 export interface AssessmentAppError extends AppError {
   issues?: ApiIssue[];
+  /** El backend intermedio pide abrir la sesión administrativa. */
+  needsAdminSession?: boolean;
 }
 
 /** Convierte el error del envoltorio en el `AppError` de la aplicación. */
@@ -148,7 +150,9 @@ export function toAppError(envelope: ApiEnvelope<unknown>): AssessmentAppError {
   const message = envelope.error?.message ?? "Ocurrió un error en el servidor.";
   const base = appError(CODE_MAP[code], message, code);
   const issues = extractIssues(envelope);
-  return issues.length > 0 ? { ...base, issues } : base;
+  const enriched: AssessmentAppError = issues.length > 0 ? { ...base, issues } : { ...base };
+  if (requiresAdminSession(envelope)) enriched.needsAdminSession = true;
+  return enriched;
 }
 
 /** Hallazgos de validación adjuntos a un error, si los hay. */
@@ -167,6 +171,18 @@ export function extractIssues(envelope: ApiEnvelope<unknown>): ApiIssue[] {
     if (parsed.success) issues.push(parsed.data);
   }
   return issues;
+}
+
+/**
+ * ¿El backend intermedio pide que se abra (o se renueve) la sesión
+ * administrativa?
+ *
+ * Es un caso distinto de «no tienes permiso»: la operación es legítima, lo que
+ * falta es la puerta de acceso del panel. La interfaz lo usa para pedir la frase
+ * de acceso en lugar de mostrar un error sin salida.
+ */
+export function requiresAdminSession(envelope: ApiEnvelope<unknown>): boolean {
+  return envelope.error?.details?.adminSession === "required";
 }
 
 /** ¿La respuesta fue una repetición idempotente (el efecto no se repitió)? */
