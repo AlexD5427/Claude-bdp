@@ -11,6 +11,9 @@
  *  · Toda petición debe usar `redirect: "follow"` (Google responde 302).
  *  · Las escrituras deben enviarse con `Content-Type: text/plain;charset=utf-8`
  *    para evitar el preflight de CORS que el despliegue no puede contestar.
+ *  · Las acciones administrativas viajan con un objeto `auth` (la credencial que
+ *    emite el backend intermedio). El navegador NUNCA lo construye: no conoce el
+ *    secreto. Ver docs/evaluations/SECURITY.md §Autorización.
  */
 
 /** Lecturas (y, si hace falta, escrituras públicas por GET no se permiten). */
@@ -35,7 +38,10 @@ function doPost(e) {
     return evalJsonOutput_(evalHandleRequest_({
       action: body.action,
       requestId: body.requestId,
-      payload: body.payload
+      payload: body.payload,
+      // Credencial de autorización, si el llamador la envía. El enrutador no la
+      // interpreta: se la pasa al proveedor activo (ver AuthProviders.gs).
+      auth: body.auth
     }));
   } catch (error) {
     var code = isEvalError_(error) ? error.evalCode : 'INTERNAL_ERROR';

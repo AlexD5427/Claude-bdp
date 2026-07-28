@@ -3,7 +3,8 @@
  *
  * Único punto de entrada lógico. Cada solicitud pasa por el mismo camino:
  *   1. Parseo seguro de la carga.
- *   2. Autorización (Auth.gs).
+ *   2. Autorización (Auth.gs → proveedor activo de AuthProviders.gs). El
+ *      enrutador NO sabe cómo se autoriza: solo traslada la credencial.
  *   3. Comprobación de idempotencia + ScriptLock si es escritura.
  *   4. Servicio correspondiente.
  *   5. Auditoría.
@@ -54,10 +55,18 @@ function evalParseBody_(e) {
   }
 }
 
-/** Parseo seguro de los parámetros GET (`action` + `payload` JSON). */
+/** Parseo seguro de los parámetros GET (`action` + `payload` + `auth` JSON). */
 function evalParseQuery_(e) {
   var params = (e && e.parameter) ? e.parameter : {};
   var request = { action: String(params.action || ''), requestId: String(params.requestId || '') };
+  if (params.auth) {
+    try {
+      var credential = JSON.parse(String(params.auth));
+      request.auth = credential && typeof credential === 'object' ? credential : null;
+    } catch (error) {
+      throw evalError_('BAD_REQUEST', 'El parámetro auth no es JSON válido.');
+    }
+  }
   if (params.payload) {
     try {
       var parsed = JSON.parse(String(params.payload));
@@ -70,8 +79,9 @@ function evalParseQuery_(e) {
     var payload = {};
     var keys = Object.keys(params);
     for (var i = 0; i < keys.length; i++) {
-      if (keys[i] === 'action' || keys[i] === 'requestId' || keys[i] === 'payload') continue;
-      payload[keys[i]] = params[keys[i]];
+      var key = keys[i];
+      if (key === 'action' || key === 'requestId' || key === 'payload' || key === 'auth') continue;
+      payload[key] = params[key];
     }
     request.payload = payload;
   }
@@ -92,10 +102,18 @@ function evalHandleRequest_(request) {
 
   var auth;
   try {
-    auth = evalAuthorize_(action);
+    auth = evalAuthorize_({
+      action: action,
+      requestId: requestId,
+      credential: (request && request.auth) || null,
+      claimedActor: payload.actor,
+      // Solo lo pone `evalHandleTrustedRequest_()`; `doGet`/`doPost` nunca.
+      trustedLocal: request && request.trustedLocal === true
+    });
   } catch (error) {
     var authCode = isEvalError_(error) ? error.evalCode : 'INTERNAL_ERROR';
-    evalAuditFailure_(action, requestId, evalActiveEmail_(), authCode, error && error.message, '');
+    var reason = (error && error.evalAuditReason) ? String(error.evalAuditReason) : '';
+    evalAuditFailure_(action, requestId, 'anonymous', authCode, error && error.message, '', reason);
     return evalFail_(requestId, authCode, error && error.message, {}, []);
   }
 
@@ -107,6 +125,7 @@ function evalHandleRequest_(request) {
         service: 'evaluations',
         schemaVersion: EVAL_CONFIG.SCHEMA_VERSION,
         authMode: auth.mode,
+        adminAuth: evalAuthDiagnostics_(),
         serverTime: evalNow_()
       }, auth.warnings);
     }
@@ -142,6 +161,23 @@ function evalHandleRequest_(request) {
       evalStr_(payload.assessmentId || payload.attemptId || '', 120));
     return evalFail_(requestId, code, message, details, auth.warnings);
   }
+}
+
+/**
+ * Ejecuta una solicitud administrativa originada DENTRO del proyecto (funciones
+ * de `Setup.gs` que se ejecutan a mano desde el editor).
+ *
+ * No es un endpoint: `doGet` y `doPost` nunca llaman aquí, y `Code.gs` no copia
+ * el marcador `trustedLocal` desde la petición HTTP. Quien ejecuta esto ya tiene
+ * permiso de edición sobre el proyecto de Apps Script.
+ */
+function evalHandleTrustedRequest_(request) {
+  return evalHandleRequest_({
+    action: (request && request.action) || '',
+    requestId: (request && request.requestId) || '',
+    payload: (request && request.payload) || {},
+    trustedLocal: true
+  });
 }
 
 /** Despacha las lecturas. */

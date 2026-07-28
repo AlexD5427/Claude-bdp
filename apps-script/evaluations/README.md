@@ -17,28 +17,38 @@ que el proyecto se lea bien:
 | 4 | `SheetRepository.gs` | Lectura por encabezado, escritura por lotes, bajas lógicas, verificación de esquema. |
 | 5 | `Sanitize.gs` | Proyección pública (lista blanca campo por campo). |
 | 6 | `Validation.gs` | Catálogo de tipos, validación de guardado y de publicación, descarte de puntajes del cliente. |
-| 7 | `Auth.gs` | Autorización administrativa. |
-| 8 | `RequestService.gs` | Idempotencia + `LockService`. |
-| 9 | `AuditService.gs` | Bitácora sin datos sensibles. |
-| 10 | `AssessmentService.gs` | CRUD, duplicar, publicar, transiciones, resultados. |
-| 11 | `PublicAssessmentService.gs` | Listado y detalle públicos. |
-| 12 | `AttemptService.gs` | Intentos y respuestas. |
-| 13 | `ScoringService.gs` | Calificación (única autoridad). |
-| 14 | `Router.gs` | Enrutado y orquestación. |
-| 15 | `Code.gs` | `doGet` / `doPost`. |
-| 16 | `Setup.gs` | Inicialización, verificación, datos de prueba y migración. |
-| 17 | `Tests.gs` | Pruebas ejecutables desde el editor. |
-| 18 | `appsscript.json` | Copiar el contenido de `appsscript.json.example`. |
+| 7 | `Signature.gs` | HMAC-SHA256, ventana de frescura y anti-repetición de las credenciales. |
+| 8 | `AuthProviders.gs` | Proveedores de autorización (`server_secret`, `google_identity`, `open_admin`). |
+| 9 | `Auth.gs` | Clasificación de acciones y frontera de autorización. |
+| 10 | `RequestService.gs` | Idempotencia + `LockService`. |
+| 11 | `AuditService.gs` | Bitácora sin datos sensibles. |
+| 12 | `AssessmentService.gs` | CRUD, duplicar, publicar, transiciones, resultados. |
+| 13 | `PublicAssessmentService.gs` | Listado y detalle públicos. |
+| 14 | `AttemptService.gs` | Intentos y respuestas. |
+| 15 | `ScoringService.gs` | Calificación (única autoridad). |
+| 16 | `Router.gs` | Enrutado y orquestación. |
+| 17 | `Code.gs` | `doGet` / `doPost`. |
+| 18 | `Setup.gs` | Inicialización, verificación, datos de prueba y migración. |
+| 19 | `Tests.gs` | Pruebas ejecutables desde el editor. |
+| 20 | `appsscript.json` | Copiar el contenido de `appsscript.json.example`. |
 
 ## Puesta en marcha resumida
 
 ```
 1. configurarEvaluaciones()          → crea las nueve hojas
 2. verificarEsquemaEvaluaciones()    → debe responder ok:true
-3. ejecutarPruebasEvaluaciones()     → todas las líneas deben empezar con "OK"
-4. Implementar → Nueva implementación → Aplicación web
-5. Copiar la URL /exec en VITE_EVALUATIONS_API_URL
+3. Propiedad EVALUATIONS_ADMIN_SHARED_SECRET (≥32 caracteres)
+4. ejecutarPruebasEvaluaciones()     → todas las líneas deben empezar con "OK"
+5. Implementar → Nueva implementación → Aplicación web
+6. Copiar la URL /exec en EVALUATIONS_APPS_SCRIPT_URL (Vercel) y en
+   VITE_EVALUATIONS_API_URL (solo para las acciones públicas)
 ```
+
+> **Las operaciones administrativas llegan firmadas.** El modo por omisión es
+> `server_secret`: quien firma es el backend intermedio de `api/evaluations/`, que
+> custodia el secreto. Sin la propiedad `EVALUATIONS_ADMIN_SHARED_SECRET` ninguna
+> acción administrativa se autoriza (falla cerrado); las funciones del editor
+> (`Setup.gs`) siguen funcionando porque pasan por `evalHandleTrustedRequest_()`.
 
 El detalle completo (propiedades de script, identidad de ejecución, permisos,
 versiones, `curl` de prueba y rollback) está en
