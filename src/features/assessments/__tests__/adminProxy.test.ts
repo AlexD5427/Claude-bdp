@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import sessionHandler from "../../../../api/evaluations/session";
-import adminHandler from "../../../../api/evaluations/admin";
+import * as sessionFunction from "../../../../api/evaluations/session";
+import * as adminFunction from "../../../../api/evaluations/admin";
+import { invokeVercelFunction } from "./vercelFunction";
 import {
   SESSION_COOKIE,
   issueSessionToken,
@@ -81,7 +82,7 @@ afterEach(() => {
 
 describe("backend intermedio · sesión", () => {
   it("emite una cookie HttpOnly, Secure y SameSite=Strict con la frase correcta", async () => {
-    const response = await sessionHandler(
+    const response = await invokeVercelFunction(sessionFunction, 
       request("https://panel.example.com/api/evaluations/session", {
         body: { passphrase: CONFIG.EVALUATIONS_PANEL_PASSPHRASE, actor: "ana@banco.com" },
       }),
@@ -104,12 +105,12 @@ describe("backend intermedio · sesión", () => {
 
   it("rechaza una frase incorrecta con el mismo mensaje que una vacía", async () => {
     const wrong = await envelopeOf(
-      await sessionHandler(
+      await invokeVercelFunction(sessionFunction, 
         request("https://panel.example.com/api/evaluations/session", { body: { passphrase: "otra-cosa" } }),
       ),
     );
     const empty = await envelopeOf(
-      await sessionHandler(request("https://panel.example.com/api/evaluations/session", { body: {} })),
+      await invokeVercelFunction(sessionFunction, request("https://panel.example.com/api/evaluations/session", { body: {} })),
     );
     expect(wrong.ok).toBe(false);
     expect(empty.ok).toBe(false);
@@ -117,7 +118,7 @@ describe("backend intermedio · sesión", () => {
   });
 
   it("nunca devuelve la frase ni el secreto en la respuesta", async () => {
-    const response = await sessionHandler(
+    const response = await invokeVercelFunction(sessionFunction, 
       request("https://panel.example.com/api/evaluations/session", {
         body: { passphrase: CONFIG.EVALUATIONS_PANEL_PASSPHRASE, actor: "ana@banco.com" },
       }),
@@ -130,7 +131,7 @@ describe("backend intermedio · sesión", () => {
 
   it("informa del estado y cierra la sesión", async () => {
     const status = await envelopeOf(
-      await sessionHandler(
+      await invokeVercelFunction(sessionFunction, 
         request("https://panel.example.com/api/evaluations/session", {
           method: "GET",
           cookie: sessionCookieFor("ana@banco.com"),
@@ -139,7 +140,7 @@ describe("backend intermedio · sesión", () => {
     );
     expect(status.data).toMatchObject({ active: true, actor: "ana@banco.com" });
 
-    const closed = await sessionHandler(
+    const closed = await invokeVercelFunction(sessionFunction, 
       request("https://panel.example.com/api/evaluations/session", { method: "DELETE" }),
     );
     expect(closed.headers.get("set-cookie")).toContain("Max-Age=0");
@@ -147,7 +148,7 @@ describe("backend intermedio · sesión", () => {
 
   it("rechaza un origen ajeno", async () => {
     const envelope = await envelopeOf(
-      await sessionHandler(
+      await invokeVercelFunction(sessionFunction, 
         request("https://panel.example.com/api/evaluations/session", {
           body: { passphrase: CONFIG.EVALUATIONS_PANEL_PASSPHRASE },
           origin: "https://sitio-malicioso.example",
@@ -185,7 +186,7 @@ describe("backend intermedio · firma y reenvío", () => {
     const stub = vi.fn();
     vi.stubGlobal("fetch", stub);
     const envelope = await envelopeOf(
-      await adminHandler(
+      await invokeVercelFunction(adminFunction, 
         request("https://panel.example.com/api/evaluations/admin", {
           body: { action: "listAdminAssessments", requestId: "", payload: {} },
         }),
@@ -217,7 +218,7 @@ describe("backend intermedio · firma y reenvío", () => {
       }),
     );
 
-    const response = await adminHandler(
+    const response = await invokeVercelFunction(adminFunction, 
       request("https://panel.example.com/api/evaluations/admin", {
         body: { action: "listAdminAssessments", requestId: "", payload: {} },
         cookie: sessionCookieFor("ana@banco.com"),
@@ -247,7 +248,7 @@ describe("backend intermedio · firma y reenvío", () => {
         } as Response;
       }),
     );
-    await adminHandler(
+    await invokeVercelFunction(adminFunction, 
       request("https://panel.example.com/api/evaluations/admin", {
         body: {
           action: "createAssessment",
@@ -266,7 +267,7 @@ describe("backend intermedio · firma y reenvío", () => {
     vi.stubGlobal("fetch", stub);
     for (const action of ["ping", "submitAttempt", "getPublicAssessment", "borrarTodo"]) {
       const envelope = await envelopeOf(
-        await adminHandler(
+        await invokeVercelFunction(adminFunction, 
           request("https://panel.example.com/api/evaluations/admin", {
             body: { action, requestId: "req_1", payload: {} },
             cookie: sessionCookieFor("ana@banco.com"),
@@ -283,7 +284,7 @@ describe("backend intermedio · firma y reenvío", () => {
     const stub = vi.fn();
     vi.stubGlobal("fetch", stub);
     const envelope = await envelopeOf(
-      await adminHandler(
+      await invokeVercelFunction(adminFunction, 
         request("https://panel.example.com/api/evaluations/admin", {
           body: { action: "publishAssessment", requestId: "", payload: { assessmentId: "asm_1" } },
           cookie: sessionCookieFor("ana@banco.com"),
@@ -297,7 +298,7 @@ describe("backend intermedio · firma y reenvío", () => {
   it("falla cerrado y nombra la variable que falta cuando no está configurado", async () => {
     configure({ EVALUATIONS_ADMIN_SHARED_SECRET: undefined });
     const envelope = await envelopeOf(
-      await adminHandler(
+      await invokeVercelFunction(adminFunction, 
         request("https://panel.example.com/api/evaluations/admin", {
           body: { action: "listAdminAssessments", requestId: "", payload: {} },
           cookie: sessionCookieFor("ana@banco.com"),
@@ -311,7 +312,7 @@ describe("backend intermedio · firma y reenvío", () => {
   it("un secreto demasiado corto se trata como ausente", async () => {
     configure({ EVALUATIONS_ADMIN_SHARED_SECRET: "corto" });
     const envelope = await envelopeOf(
-      await adminHandler(
+      await invokeVercelFunction(adminFunction, 
         request("https://panel.example.com/api/evaluations/admin", {
           body: { action: "listAdminAssessments", requestId: "", payload: {} },
           cookie: sessionCookieFor("ana@banco.com"),
@@ -323,7 +324,7 @@ describe("backend intermedio · firma y reenvío", () => {
   });
 
   it("no admite otros métodos y nunca deja las respuestas en caché", async () => {
-    const response = await adminHandler(
+    const response = await invokeVercelFunction(adminFunction, 
       request("https://panel.example.com/api/evaluations/admin", { method: "GET" }),
     );
     expect(response.status).toBe(405);
@@ -346,7 +347,7 @@ describe("backend intermedio · firma y reenvío", () => {
           }),
       })) as unknown as typeof fetch,
     );
-    const response = await adminHandler(
+    const response = await invokeVercelFunction(adminFunction, 
       request("https://panel.example.com/api/evaluations/admin", {
         body: { action: "updateAssessment", requestId: "req_1", payload: {} },
         cookie: sessionCookieFor("ana@banco.com"),

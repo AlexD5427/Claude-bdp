@@ -218,6 +218,49 @@ for (const file of moduleFiles) {
   }
 }
 
+/* 5 ter · Formato con el que Vercel ejecuta el backend intermedio ---------- */
+/**
+ * Dos invariantes que no se notan en desarrollo y tumban la producción:
+ *
+ *   · Vercel transpila `api/` sin empaquetar y Node lo carga como ESM (el
+ *     `package.json` declara `"type": "module"`), así que todo import relativo
+ *     necesita su extensión `.js`. Sin ella: `ERR_MODULE_NOT_FOUND`.
+ *   · El lanzador invoca la función con la API web solo si el módulo exporta
+ *     funciones con nombre de método HTTP; un `export default` la convierte en
+ *     un handler `(req, res)` y el código estalla al leer las cabeceras.
+ *
+ * `src/features/assessments/__tests__/apiRuntime.test.ts` lo comprueba
+ * ejecutándolo de verdad; esto es la comprobación estática equivalente.
+ */
+const HTTP_METHOD_EXPORTS = ["GET", "HEAD", "OPTIONS", "POST", "PUT", "DELETE", "PATCH"];
+for (const file of apiFiles) {
+  const text = readFileSync(file, "utf8");
+  for (const match of text.matchAll(/from\s+["'](\.{1,2}\/[^"']+)["']/g)) {
+    if (!match[1].endsWith(".js")) {
+      fail("import-sin-extension", file, `${match[1]} (ESM exige la extensión .js)`);
+    }
+  }
+  const rel = relative(ROOT, file).split("\\").join("/");
+  if (!rel.startsWith("api/_lib/")) {
+    // Se analiza sin comentarios: la prosa de estos archivos EXPLICA por qué no
+    // hay `export default`, y esa explicación no debe disparar el hallazgo.
+    const code = text
+      .split("\n")
+      .filter((line) => !/^\s*(\*|\/\/)/.test(line))
+      .map((line) => line.replace(/\/\/.*$/, ""))
+      .join("\n");
+    if (/export\s+default\b/.test(code)) {
+      fail("api-exporta-default", file, "Vercel lo invocaría como handler (req, res)");
+    }
+    const hasWebHandler = HTTP_METHOD_EXPORTS.some((method) =>
+      new RegExp(`export\\s+(const|async\\s+function|function)\\s+${method}\\b`).test(text),
+    );
+    if (!hasWebHandler) {
+      fail("api-sin-handler-web", file, "no exporta GET/POST/… con nombre de método HTTP");
+    }
+  }
+}
+
 /* 6 · Los mocks solo se alcanzan por el proveedor ------------------------- */
 for (const file of moduleFiles) {
   if (isTest(file)) continue;
@@ -278,6 +321,7 @@ const EXPECTED_DOCS = [
   "UX_ARCHITECTURE.md",
   "MOTION_SYSTEM.md",
   "VISUAL_QA.md",
+  "REPARACION_2026-07.md",
 ];
 const docsPresent = readdirSync(join(ROOT, "docs/evaluations"));
 for (const doc of EXPECTED_DOCS) {

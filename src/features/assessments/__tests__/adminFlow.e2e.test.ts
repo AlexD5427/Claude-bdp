@@ -4,9 +4,10 @@ import {
   TEST_ADMIN_SECRET,
   type AppsScriptHarness,
 } from "../../../../scripts/run-apps-script.mjs";
-import sessionHandler from "../../../../api/evaluations/session";
-import adminHandler from "../../../../api/evaluations/admin";
+import * as sessionFunction from "../../../../api/evaluations/session";
+import * as adminFunction from "../../../../api/evaluations/admin";
 import { SESSION_COOKIE, readSessionCookie } from "../../../../api/_lib/adminSession";
+import { invokeVercelFunction } from "./vercelFunction";
 
 /**
  * Recorrido completo de la cadena real, sin red:
@@ -66,8 +67,10 @@ function installNetwork() {
           headers,
           ...(init.body === undefined || init.method === "GET" ? {} : { body: String(init.body) }),
         });
-        const handler = url.endsWith("/session") ? sessionHandler : adminHandler;
-        const response = await handler(request);
+        // Se invoca como lo hace Vercel (despacho por método HTTP sobre las
+        // exportaciones con nombre), no llamando a un `export default`.
+        const fn = url.endsWith("/session") ? sessionFunction : adminFunction;
+        const response = await invokeVercelFunction(fn, request);
         const setCookie = response.headers.get("set-cookie");
         if (setCookie) {
           const token = readSessionCookie(setCookie.split(";")[0]);
@@ -75,7 +78,12 @@ function installNetwork() {
           else cookies.delete(SESSION_COOKIE);
         }
         const text = await response.text();
-        return { ok: response.ok, status: response.status, json: async () => JSON.parse(text) } as Response;
+        return {
+          ok: response.ok,
+          status: response.status,
+          json: async () => JSON.parse(text),
+          text: async () => text,
+        } as Response;
       }
 
       // 2 · Las funciones (o el navegador, en las acciones públicas) hablando con
