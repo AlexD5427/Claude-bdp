@@ -165,11 +165,17 @@ npm run check      # verificaciones estáticas del módulo Evaluaciones
 npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
 ```
 
-> El módulo **Evaluaciones** funciona con datos de demostración por omisión. Para
-> conectarlo a Google Sheets, sigue
-> [`docs/evaluations/APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md)
-> y define `VITE_ASSESSMENTS_PROVIDER=google-apps-script` con
-> `VITE_EVALUATIONS_API_URL`.
+> El módulo **Evaluaciones** usa su propio libro de Google Sheets y su propio
+> proyecto de Apps Script, independientes del resto del sistema. En desarrollo
+> arranca con datos de demostración; en producción los tres valores públicos
+> viajan en `.env.production`.
+>
+> Para ponerlo en marcha, corregir su configuración o diagnosticar un fallo, la
+> guía paso a paso es
+> **[`docs/evaluations/REPARACION_2026-07.md`](docs/evaluations/REPARACION_2026-07.md)**
+> (referencia completa en
+> [`APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md) y
+> [`DEPLOYMENT.md`](docs/evaluations/DEPLOYMENT.md)).
 
 ## 🔌 Backend
 

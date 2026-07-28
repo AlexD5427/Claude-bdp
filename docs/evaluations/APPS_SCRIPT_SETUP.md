@@ -1,5 +1,11 @@
 # Configuración y despliegue de Apps Script (paso a paso)
 
+> [!TIP]
+> Guía corta y en orden de ejecución, con el detalle de las variables de Vercel y
+> las pruebas de comprobación: **[`REPARACION_2026-07.md`](./REPARACION_2026-07.md)**.
+> Este documento es la referencia completa del proyecto de Apps Script.
+
+
 Backend: [`apps-script/evaluations/`](../../apps-script/evaluations/).
 Requisito previo: haber completado [`GOOGLE_SHEETS_SETUP.md`](./GOOGLE_SHEETS_SETUP.md).
 
