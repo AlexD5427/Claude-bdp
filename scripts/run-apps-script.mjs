@@ -17,7 +17,7 @@
 
 import { createContext, runInContext } from "node:vm";
 import { readFileSync, readdirSync } from "node:fs";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,6 +36,8 @@ export const GS_FILES = [
   "SheetRepository.gs",
   "Sanitize.gs",
   "Validation.gs",
+  "Signature.gs",
+  "AuthProviders.gs",
   "Auth.gs",
   "RequestService.gs",
   "AuditService.gs",
@@ -209,16 +211,56 @@ class FakeSpreadsheet {
   }
 }
 
+/* ------------------------------ Credenciales ------------------------------ */
+
+/**
+ * Secreto de pruebas. Cumple la longitud mínima que exige `Signature.gs` y solo
+ * existe en este arnés: no es un secreto real de ningún despliegue.
+ */
+export const TEST_ADMIN_SECRET = "secreto-de-pruebas-solo-para-el-arnes-0123456789";
+
+/**
+ * Cadena canónica del esquema `hmac-sha256` v1.
+ *
+ * Se reimplementa aquí a propósito, con `node:crypto`, para que las pruebas
+ * comprueben que TRES implementaciones independientes coinciden: este arnés, el
+ * firmante del backend intermedio (`api/_lib/appsScriptSignature.ts`) y el
+ * verificador de Apps Script (`Signature.gs`).
+ */
+export function canonicalString({ action, requestId, timestamp, nonce, actor }) {
+  return ["v1", action ?? "", requestId ?? "", timestamp ?? "", nonce ?? "", actor ?? ""].join("\n");
+}
+
+/** Credencial firmada, tal como la emite el backend intermedio. */
+export function signCredential({ secret, action, requestId, actor, timestamp, nonce }) {
+  const stamp = timestamp ?? new Date().toISOString();
+  const uniqueness = nonce ?? `nonce_${randomUUID()}`;
+  const signature = createHmac("sha256", secret)
+    .update(canonicalString({ action, requestId, timestamp: stamp, nonce: uniqueness, actor }), "utf8")
+    .digest("base64");
+  return { scheme: "hmac-sha256", timestamp: stamp, nonce: uniqueness, actor, signature };
+}
+
 /* --------------------------------- Contexto ------------------------------- */
 
 /**
  * Carga el backend en un contexto nuevo y aislado.
  *
- * @param {{ properties?: Record<string,string>, activeEmail?: string, lockAvailable?: boolean }} options
+ * Por omisión el arnés se comporta como el despliegue real: modo
+ * `server_secret`, con el secreto de pruebas configurado, y `request()` firma las
+ * acciones administrativas igual que lo haría el backend intermedio. Para
+ * ejercitar la autorización en crudo, usa `rawRequest()`.
+ *
+ * @param {{ properties?: Record<string,string>, activeEmail?: string, lockAvailable?: boolean, adminSecret?: string|null, adminActor?: string }} options
  */
 export function loadAppsScript(options = {}) {
   const spreadsheet = new FakeSpreadsheet();
-  const properties = { ...(options.properties ?? {}) };
+  const adminSecret = options.adminSecret === undefined ? TEST_ADMIN_SECRET : options.adminSecret;
+  const properties = {
+    ...(adminSecret ? { EVALUATIONS_ADMIN_SHARED_SECRET: adminSecret } : {}),
+    ...(options.properties ?? {}),
+  };
+  const nonceCache = new Map();
   const state = {
     spreadsheet,
     properties,
@@ -278,9 +320,26 @@ export function loadAppsScript(options = {}) {
         // Apps Script devuelve bytes con signo.
         return Array.from(digest).map((byte) => (byte > 127 ? byte - 256 : byte));
       },
+      computeHmacSha256Signature: (value, key) => {
+        const mac = createHmac("sha256", String(key)).update(String(value), "utf8").digest();
+        return Array.from(mac).map((byte) => (byte > 127 ? byte - 256 : byte));
+      },
+      base64Encode: (bytes) =>
+        Buffer.from(Array.from(bytes).map((byte) => (byte < 0 ? byte + 256 : byte))).toString("base64"),
       DigestAlgorithm: { SHA_256: "SHA_256" },
       Charset: { UTF_8: "UTF_8" },
       sleep: () => {},
+    },
+    CacheService: {
+      getScriptCache: () => ({
+        get: (key) => (nonceCache.has(key) ? nonceCache.get(key) : null),
+        put: (key, value) => {
+          nonceCache.set(key, String(value));
+        },
+        remove: (key) => {
+          nonceCache.delete(key);
+        },
+      }),
     },
     ContentService: {
       createTextOutput: (text) => ({
@@ -336,11 +395,40 @@ export function loadAppsScript(options = {}) {
   /** Lee una global del backend (p. ej. `EVAL_HEADERS`). */
   const read = (expression) => runInContext(expression, context);
 
-  /** Envía una solicitud al enrutador, como lo haría el Web App. */
-  const request = (action, payload = {}, requestId = `req_${randomUUID()}`) =>
-    call("evalHandleRequest_", { action, requestId, payload });
+  /** Envía una solicitud al enrutador SIN credencial, tal cual llega del cliente. */
+  const rawRequest = (action, payload = {}, requestId = `req_${randomUUID()}`, auth = null) =>
+    call("evalHandleRequest_", { action, requestId, payload, auth });
 
-  return { context, call, read, request, state, spreadsheet };
+  const adminActions = new Set(read("Object.keys(EVAL_ADMIN_ACTIONS)"));
+
+  /**
+   * Envía una solicitud como lo haría la aplicación real: las acciones
+   * administrativas van firmadas por el backend intermedio y las públicas no.
+   */
+  const request = (action, payload = {}, requestId = `req_${randomUUID()}`) => {
+    const needsSignature = adminActions.has(action) && Boolean(adminSecret);
+    const auth = needsSignature
+      ? signCredential({
+          secret: adminSecret,
+          action,
+          requestId,
+          actor: options.adminActor ?? "reclutador@ejemplo.com",
+        })
+      : null;
+    return call("evalHandleRequest_", { action, requestId, payload, auth });
+  };
+
+  /** Credencial firmada con el secreto del arnés, para pruebas de autorización. */
+  const sign = (action, requestId, overrides = {}) =>
+    signCredential({
+      secret: adminSecret ?? TEST_ADMIN_SECRET,
+      action,
+      requestId,
+      actor: options.adminActor ?? "reclutador@ejemplo.com",
+      ...overrides,
+    });
+
+  return { context, call, read, request, rawRequest, sign, state, spreadsheet };
 }
 
 /** Atajo: backend inicializado con las nueve hojas creadas. */

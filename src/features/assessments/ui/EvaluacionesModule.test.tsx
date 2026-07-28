@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { render, screen, cleanup, within, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, within, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { EvaluacionesModule } from "./EvaluacionesModule";
 import {
@@ -13,6 +13,7 @@ import { bootstrapPlugins } from "../question-types";
 import { __setTalentPermissionsForTests, permissionsForRole } from "../../shared/permissions";
 import { appError, err, ok } from "../../../shared/result";
 import { emptyResultsSummary } from "../domain/attempts";
+import { adminSessionState } from "../api/adminSessionState";
 import type { AssessmentRepository } from "../../../infrastructure/repositories/contracts";
 
 function mockMatchMedia() {
@@ -51,6 +52,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  adminSessionState.observe("active"); // deja el store limpio entre casos
   __setProviderForTests(null);
   __setAssessmentRepositoryForTests(null);
   __setTalentPermissionsForTests(null);
@@ -236,6 +238,30 @@ describe("listado de evaluaciones · acciones", () => {
     const dialog = await screen.findByRole("alertdialog");
     await user.click(within(dialog).getByRole("button", { name: /^Duplicar$/ }));
     expect(await screen.findByText(/\(copia\)/)).toBeInTheDocument();
+  });
+
+  it("pide la frase de acceso cuando el servidor reclama sesión administrativa", async () => {
+    const user = userEvent.setup();
+    __setAssessmentRepositoryForTests(
+      stubRepository({ list: async () => ok({ items: [seedSummary()], total: 1, syncedAt: "" }) }),
+    );
+    render(<EvaluacionesModule />);
+    await screen.findByText(/Evaluación publicada de prueba/);
+
+    // El transporte avisa de lo que respondió el backend intermedio.
+    act(() => adminSessionState.observe("required"));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: /Desbloquear la administración de evaluaciones/,
+    });
+    // El campo es de contraseña y no se guarda en ningún sitio del navegador.
+    const passphrase = within(dialog).getByLabelText(/Frase de acceso del panel/);
+    expect(passphrase).toHaveAttribute("type", "password");
+
+    await user.click(within(dialog).getByRole("button", { name: /^Cancelar$/ }));
+    expect(
+      await screen.findByText(/La sesión administrativa expiró/),
+    ).toBeInTheDocument();
   });
 
   it("el panel de resultados avisa cuando el proveedor no tiene intentos", async () => {

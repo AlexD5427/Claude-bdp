@@ -30,6 +30,8 @@ import {
   assessmentListStore,
 } from "./listState";
 import { issuesOf, type ApiIssue } from "../api/contract";
+import { adminSessionState } from "../api/adminSessionState";
+import { AdminSessionDialog } from "./AdminSessionDialog";
 import type { AssessmentDefinition, AssessmentSummary } from "../domain/assessment";
 import type { SaveOutcome } from "../builder/useAssessmentDraft";
 import { AssessmentToolbar } from "./AssessmentToolbar";
@@ -64,6 +66,11 @@ export function EvaluacionesModule() {
     { action: "archive" | "duplicate"; item: AssessmentSummary } | null
   >(null);
   const [busy, setBusy] = useState(false);
+  const adminSession = adminSessionState.use();
+  const [dismissedPrompt, setDismissedPrompt] = useState(0);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const needsSession = adminSession.status === "required";
+  const showSessionDialog = sessionDialogOpen || (needsSession && adminSession.promptCount > dismissedPrompt);
 
   const source = useMemo(() => assessmentSource(), []);
   const debouncedSearch = useDebouncedValue(state.search, 250);
@@ -290,6 +297,19 @@ export function EvaluacionesModule() {
         </p>
       )}
 
+      {needsSession && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-cyan-500/10 px-4 py-2 text-xs text-cyan-100 ring-1 ring-cyan-400/20">
+          <span>{L.assessments.adminSession.required}</span>
+          <button
+            type="button"
+            className="rounded-xl bg-white/10 px-3 py-1 font-bold ring-1 ring-white/20"
+            onClick={() => setSessionDialogOpen(true)}
+          >
+            {L.assessments.adminSession.submit}
+          </button>
+        </div>
+      )}
+
       {loading && !data ? (
         <LoadingState />
       ) : error ? (
@@ -350,6 +370,18 @@ export function EvaluacionesModule() {
           onClose={() => setResults(null)}
         />
       )}
+
+      <AdminSessionDialog
+        open={showSessionDialog}
+        onClose={() => {
+          setSessionDialogOpen(false);
+          setDismissedPrompt(adminSessionState.get().promptCount);
+          if (adminSessionState.get().status === "active") {
+            toast.success(L.assessments.adminSession.opened);
+            reload();
+          }
+        }}
+      />
 
       <GlassDialog
         open={confirm !== null}

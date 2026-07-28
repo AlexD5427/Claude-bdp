@@ -254,6 +254,21 @@ export const catalogEsMX = {
         "Estás viendo datos de demostración locales. Configura VITE_ASSESSMENTS_PROVIDER para conectar Google Apps Script.",
       liveNotice: "Conectado al backend de Google Apps Script.",
     },
+    adminSession: {
+      title: "Desbloquear la administración de evaluaciones",
+      description:
+        "Las operaciones administrativas se firman en el servidor. Introduce la frase de acceso del panel para abrir la sesión; no se guarda en este navegador.",
+      passphraseLabel: "Frase de acceso del panel",
+      passphrasePlaceholder: "Frase de acceso",
+      actorLabel: "Tu nombre o correo (queda en la bitácora)",
+      submit: "Abrir sesión",
+      opened: "Sesión administrativa abierta.",
+      closed: "Sesión administrativa cerrada.",
+      close: "Cerrar sesión administrativa",
+      required: "La sesión administrativa expiró. Vuelve a introducir la frase de acceso.",
+      unavailable:
+        "El backend administrativo no está configurado. Revisa las variables de entorno del proyecto en Vercel.",
+    },
     stats: {
       total: "Evaluaciones",
       published: "Publicadas",

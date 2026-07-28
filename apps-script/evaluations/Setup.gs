@@ -10,6 +10,11 @@
  *   limpiarDatosDePruebaEvaluaciones() borra SOLO lo creado por la función anterior
  *   migrarDesdeHojaEvaluaciones()     importa la hoja heredada `Evaluaciones`
  *
+ * Las funciones que escriben pasan por `evalHandleTrustedRequest_()`: la misma
+ * ruta de negocio que la API (con validaciones, bloqueo, idempotencia y
+ * auditoría), pero autorizada como ejecución local del editor en lugar de exigir
+ * la firma del backend intermedio. Ver AuthProviders.gs §local_execution.
+ *
  * Ver docs/evaluations/GOOGLE_SHEETS_SETUP.md.
  */
 
@@ -90,7 +95,7 @@ function crearDatosDePruebaEvaluaciones() {
   var actor = evalActiveEmail_() || 'setup';
   var requestId = evalNewId_(EVAL_ID_PREFIX.REQUEST);
 
-  var created = evalHandleRequest_({
+  var created = evalHandleTrustedRequest_({
     action: 'createAssessment',
     requestId: requestId,
     payload: { title: EVAL_TEST_MARKER + ' Conocimientos de riesgo', category: 'knowledge', actor: actor }
@@ -103,7 +108,7 @@ function crearDatosDePruebaEvaluaciones() {
   var q2 = evalNewId_(EVAL_ID_PREFIX.QUESTION);
   var q3 = evalNewId_(EVAL_ID_PREFIX.QUESTION);
 
-  var updated = evalHandleRequest_({
+  var updated = evalHandleTrustedRequest_({
     action: 'updateAssessment',
     requestId: evalNewId_(EVAL_ID_PREFIX.REQUEST),
     payload: {
@@ -148,7 +153,7 @@ function crearDatosDePruebaEvaluaciones() {
   });
   if (!updated.ok) throw new Error('No se pudo guardar la evaluación de prueba: ' + updated.error.message);
 
-  var published = evalHandleRequest_({
+  var published = evalHandleTrustedRequest_({
     action: 'publishAssessment',
     requestId: evalNewId_(EVAL_ID_PREFIX.REQUEST),
     payload: {

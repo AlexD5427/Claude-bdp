@@ -29,6 +29,38 @@ superficies: la **administrativa** (constructor del reclutador) y la **pública*
 `requestId` es obligatorio en toda escritura. El cliente lo genera con
 `crypto.randomUUID()` y lo reutiliza si reintenta la misma operación.
 
+#### Campo `auth` (solo acciones administrativas)
+
+Las acciones administrativas llevan además un campo `auth` con la credencial del
+proveedor activo. **El navegador nunca lo construye**: lo añade el backend
+intermedio (`api/evaluations/admin.ts`), que es quien custodia el secreto.
+
+```json
+{
+  "action": "publishAssessment",
+  "requestId": "req_1f0b…",
+  "payload": { },
+  "auth": {
+    "scheme": "hmac-sha256",
+    "timestamp": "2026-07-28T07:00:00.000Z",
+    "nonce": "nonce_5f0c…",
+    "actor": "ana@banco.com",
+    "signature": "base64(HMAC-SHA256(secreto, cadena canónica))"
+  }
+}
+```
+
+Cadena canónica firmada:
+`v1 \n acción \n requestId \n timestamp \n nonce \n actor`.
+
+- El campo es **opcional y aditivo**: el resto del contrato no cambió, y en modo
+  `google_identity` no se envía.
+- La firma caduca en 5 minutos y su `nonce` solo vale una vez.
+- Sin credencial válida, la respuesta es `FORBIDDEN` con un mensaje genérico; el
+  motivo concreto solo se escribe en `AuditLog` (`metadata.reason`).
+
+Detalle en `SECURITY.md §2` y `DECISIONS.md §D-22..D-24`.
+
 ### Éxito
 
 ```json
@@ -86,7 +118,14 @@ de pila, rutas internas ni contenido de otras entidades.
 
 ## Acciones administrativas
 
-Todas exigen autorización (`Auth.gs`). Ninguna devuelve datos de otra evaluación.
+Todas exigen autorización (`Auth.gs` + el proveedor activo). Desde el panel, todas
+viajan por el backend intermedio, que las firma; contra Apps Script directamente
+responden `FORBIDDEN`. Ninguna devuelve datos de otra evaluación.
+
+El backend intermedio puede responder por su cuenta, con el **mismo** envoltorio,
+en tres casos: falta sesión (`FORBIDDEN` con `details.adminSession="required"`),
+acción no administrativa (`UNSUPPORTED_ACTION`) o falta configuración
+(`INTERNAL_ERROR`). Para el cliente el contrato sigue siendo uno.
 
 ### `listAdminAssessments`
 

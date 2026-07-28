@@ -2,9 +2,10 @@
  * Config.gs — configuración central del backend de Evaluaciones.
  *
  * Este archivo NO contiene secretos. Todo valor sensible (correos de
- * administradores, id de la hoja de cálculo, modo de autorización) vive en las
- * Script Properties del proyecto de Apps Script y se lee a través de
- * `evalProp_()`. Ver docs/evaluations/APPS_SCRIPT_SETUP.md.
+ * administradores, id de la hoja de cálculo, modo de autorización, secreto
+ * compartido con el backend intermedio) vive en las Script Properties del
+ * proyecto de Apps Script y se lee a través de `evalProp_()`. Ver
+ * docs/evaluations/APPS_SCRIPT_SETUP.md.
  *
  * Los nombres de hoja y los encabezados de este archivo son la fuente de verdad
  * del esquema y deben coincidir exactamente con docs/evaluations/DATA_MODEL.md
@@ -37,8 +38,18 @@ var EVAL_CONFIG = {
     SPREADSHEET_ID: 'EVALUATIONS_SPREADSHEET_ID',
     /** Correos autorizados para acciones administrativas, separados por comas. */
     ADMIN_EMAILS: 'EVALUATIONS_ADMIN_EMAILS',
-    /** 'google_identity' (recomendado) u 'open_admin' (solo pruebas). */
+    /**
+     * Proveedor de autorización activo: 'server_secret' (por omisión),
+     * 'google_identity' u 'open_admin' (solo pruebas). Ver AuthProviders.gs.
+     */
     AUTH_MODE: 'EVALUATIONS_AUTH_MODE',
+    /**
+     * Secreto compartido con el backend intermedio que firma las operaciones
+     * administrativas. Mínimo 32 caracteres. NUNCA llega al navegador.
+     */
+    ADMIN_SHARED_SECRET: 'EVALUATIONS_ADMIN_SHARED_SECRET',
+    /** Secreto siguiente, para rotar sin cortar el servicio. */
+    ADMIN_SHARED_SECRET_NEXT: 'EVALUATIONS_ADMIN_SHARED_SECRET_NEXT',
     /** Debe valer exactamente 'true' para habilitar el modo abierto. */
     ALLOW_ANONYMOUS_ADMIN: 'EVALUATIONS_ALLOW_ANONYMOUS_ADMIN',
     /** 'true' para registrar cada solicitud en AuditLog (por omisión: true). */

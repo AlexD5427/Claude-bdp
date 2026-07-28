@@ -23,7 +23,11 @@ function ejecutarPruebasEvaluaciones() {
     ['Se ignora el puntaje enviado por el cliente', evalTestClientScoreIgnored_],
     ['Las preguntas manuales dejan la nota pendiente', evalTestManualPending_],
     ['El DTO público no expone respuestas correctas', evalTestPublicSanitization_],
-    ['La validación de publicación exige título y opciones', evalTestPublishValidation_]
+    ['La validación de publicación exige título y opciones', evalTestPublishValidation_],
+    ['El modo de autorización por omisión es server_secret', evalTestDefaultAuthMode_],
+    ['Una acción administrativa sin firma se rechaza', evalTestAdminRequiresCredential_],
+    ['Una firma válida autoriza y una ajena no', evalTestSignatureVerification_],
+    ['Las acciones públicas no exigen credencial', evalTestPublicActionsAnonymous_]
   ];
   for (var i = 0; i < suite.length; i++) {
     try {
@@ -205,6 +209,92 @@ function evalTestPublicSanitization_() {
   }
   evalAssert_(dto.sections[0].questions[0].options.length === 2, 'Las opciones sí deben viajar');
   evalAssert_(dto.instructions === 'Lee con atención.', 'Las instrucciones públicas sí viajan');
+}
+
+/* ------------------------------- Autorización ----------------------------- */
+
+/**
+ * Firma una credencial con el secreto configurado, tal como lo haría el backend
+ * intermedio. Solo se usa en estas pruebas.
+ */
+function evalTestSignCredential_(action, requestId, actor, overrides) {
+  var secret = evalProp_(EVAL_CONFIG.PROPS.ADMIN_SHARED_SECRET, '');
+  var options = overrides || {};
+  var timestamp = options.timestamp || evalNow_();
+  var nonce = options.nonce || ('nonce_' + Utilities.getUuid());
+  var canonical = evalCanonicalString_({
+    action: action, requestId: requestId, timestamp: timestamp, nonce: nonce, actor: actor
+  });
+  return {
+    scheme: 'hmac-sha256',
+    timestamp: timestamp,
+    nonce: nonce,
+    actor: actor,
+    signature: evalHmacBase64_(options.secret || secret, canonical)
+  };
+}
+
+function evalTestDefaultAuthMode_() {
+  var mode = evalAuthMode_();
+  evalAssert_(mode === 'server_secret' || mode === 'google_identity' || mode === 'open_admin',
+    'El modo debe ser uno de los declarados: ' + mode);
+  evalAssert_(EVAL_DEFAULT_AUTH_MODE === 'server_secret',
+    'El modo por omisión debe ser server_secret');
+  evalAssert_(!EVAL_AUTH_PROVIDERS.local_execution,
+    'local_execution NO debe poder seleccionarse por configuración');
+}
+
+function evalTestAdminRequiresCredential_() {
+  if (evalAuthMode_() !== 'server_secret') {
+    console.log('  (omitida: este despliegue no usa server_secret)');
+    return;
+  }
+  var response = evalHandleRequest_({ action: 'listAdminAssessments', requestId: '', payload: {} });
+  evalAssert_(response.ok === false, 'Sin firma no debe autorizarse');
+  evalAssertEquals_(response.error.code, 'FORBIDDEN', 'Código esperado');
+}
+
+function evalTestSignatureVerification_() {
+  if (evalAuthMode_() !== 'server_secret') {
+    console.log('  (omitida: este despliegue no usa server_secret)');
+    return;
+  }
+  if (!evalSignatureConfigured_()) {
+    throw new Error('Falta la propiedad ' + EVAL_CONFIG.PROPS.ADMIN_SHARED_SECRET +
+      ' (mínimo ' + EVAL_SIGNATURE_MIN_SECRET_LENGTH + ' caracteres).');
+  }
+  var actor = evalActiveEmail_() || 'pruebas@ejemplo.com';
+
+  var good = evalTestSignCredential_('listAdminAssessments', 'req_pruebas_firma', actor, {});
+  var verdict = evalVerifySignedCredential_(good, 'listAdminAssessments', 'req_pruebas_firma');
+  evalAssert_(verdict.ok === true, 'Una firma válida debe verificarse: ' + verdict.reason);
+
+  // La misma credencial no vale dos veces.
+  var replay = evalVerifySignedCredential_(good, 'listAdminAssessments', 'req_pruebas_firma');
+  evalAssert_(replay.ok === false, 'La repetición debe rechazarse');
+
+  var other = evalTestSignCredential_('listAdminAssessments', 'req_pruebas_firma_2', actor, {
+    secret: 'secreto-ajeno-de-pruebas-0123456789012345'
+  });
+  evalAssert_(evalVerifySignedCredential_(other, 'listAdminAssessments', 'req_pruebas_firma_2').ok === false,
+    'Una firma con otro secreto debe rechazarse');
+
+  var stale = evalTestSignCredential_('listAdminAssessments', 'req_pruebas_firma_3', actor, {
+    timestamp: new Date(new Date().getTime() - 3600000).toISOString()
+  });
+  evalAssert_(evalVerifySignedCredential_(stale, 'listAdminAssessments', 'req_pruebas_firma_3').ok === false,
+    'Una firma caducada debe rechazarse');
+
+  var wrongAction = evalTestSignCredential_('getAttemptDetail', 'req_pruebas_firma_4', actor, {});
+  evalAssert_(evalVerifySignedCredential_(wrongAction, 'listAdminAssessments', 'req_pruebas_firma_4').ok === false,
+    'Una firma emitida para otra acción debe rechazarse');
+}
+
+function evalTestPublicActionsAnonymous_() {
+  var ping = evalHandleRequest_({ action: 'ping', requestId: '', payload: {} });
+  evalAssert_(ping.ok === true, 'ping debe funcionar sin credencial');
+  var listing = evalHandleRequest_({ action: 'listPublicAssessments', requestId: '', payload: {} });
+  evalAssert_(listing.ok === true, 'El listado público debe funcionar sin credencial');
 }
 
 function evalTestPublishValidation_() {

@@ -65,9 +65,14 @@ function evalSafeMetadata_(metadata) {
  * Auditoría de un error, con el código y el mensaje seguro. Se usa desde el
  * enrutador para que ningún fallo quede sin rastro.
  */
-function evalAuditFailure_(action, requestId, actor, code, message, entityId) {
+function evalAuditFailure_(action, requestId, actor, code, message, entityId, reason) {
   try {
     var ss = evalSpreadsheet_();
+    var metadata = { code: code, message: String(message || '').slice(0, 200) };
+    // `reason` es el motivo interno del rechazo (p. ej. 'bad_signature'). Viaja
+    // a la bitácora pero NUNCA al cliente, para no convertir el endpoint en un
+    // oráculo sobre por qué falló la autorización.
+    if (reason) metadata.reason = String(reason).slice(0, 60);
     evalAudit_(ss, {
       requestId: requestId,
       action: action,
@@ -75,7 +80,7 @@ function evalAuditFailure_(action, requestId, actor, code, message, entityId) {
       entityId: entityId || '',
       actor: actor,
       status: code === 'FORBIDDEN' ? 'denied' : 'error',
-      metadata: { code: code, message: String(message || '').slice(0, 200) }
+      metadata: metadata
     });
   } catch (e) {
     console.error('No se pudo auditar el fallo: ' + (e && e.message ? e.message : e));
