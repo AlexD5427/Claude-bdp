@@ -4,6 +4,13 @@
 > commit base `fffd817` (rama `main`). No contiene suposiciones; cuando algo no
 > pudo comprobarse se indica explícitamente.
 
+> [!NOTE]
+> **Actualización de julio de 2026.** Tras el despliegue del backend intermedio,
+> el módulo quedó inoperativo en producción por dos fallos de formato en las
+> funciones de Vercel y una variable de entorno con el valor de otra. El
+> diagnóstico completo, con la evidencia medida y la guía de puesta en marcha,
+> está en [`REPARACION_2026-07.md`](./REPARACION_2026-07.md).
+
 ## 1 · Repositorio y herramientas
 
 | Hecho | Valor verificado | Evidencia |

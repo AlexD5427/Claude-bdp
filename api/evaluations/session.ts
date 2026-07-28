@@ -11,6 +11,20 @@
  *
  * La frase de acceso vive en la variable de entorno `EVALUATIONS_PANEL_PASSPHRASE`
  * del proyecto de Vercel. No se registra, no se devuelve y no llega al bundle.
+ *
+ * ── Forma del módulo (importa, y no es un detalle) ─────────────────────────
+ * El runtime Node.js de Vercel decide CÓMO invocar este archivo mirando lo que
+ * exporta (`packages/node/src/serverless-functions/serverless-handler.mts`):
+ *
+ *   · si exporta funciones con nombre de método HTTP (`GET`, `POST`, …) o
+ *     `fetch`, las invoca con la API web: `(Request) => Response`;
+ *   · si exporta `default`, lo invoca como handler de Node: `(req, res)`.
+ *
+ * Y el `default` GANA, porque el lanzador desenvuelve `module.default` antes de
+ * buscar los métodos. Por eso aquí NO hay `export default`: con él, Vercel
+ * llamaría a esta función con un `IncomingMessage`, `request.headers.get(...)`
+ * lanzaría `TypeError` y el resultado sería `FUNCTION_INVOCATION_FAILED`.
+ * `src/features/assessments/__tests__/apiRuntime.test.ts` lo vigila.
  */
 
 import {
@@ -23,9 +37,9 @@ import {
   sessionCookie,
   SESSION_TTL_SECONDS,
   verifySessionToken,
-} from "../_lib/adminSession";
-import { configErrorMessage, readAdminProxyConfig } from "../_lib/config";
-import { clientKey, failEnvelope, isAllowedOrigin, jsonResponse, okEnvelope, readJsonBody } from "../_lib/http";
+} from "../_lib/adminSession.js";
+import { configErrorMessage, readAdminProxyConfig } from "../_lib/config.js";
+import { clientKey, failEnvelope, isAllowedOrigin, jsonResponse, okEnvelope, readJsonBody } from "../_lib/http.js";
 
 /** Actor por omisión cuando el panel no envía uno. */
 const DEFAULT_ACTOR = "panel";
@@ -36,7 +50,7 @@ function normalizeActor(raw: unknown): string {
   return actor.replace(/[\r\n,;]/g, " ").trim() || DEFAULT_ACTOR;
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function handleSession(request: Request): Promise<Response> {
   const configuration = readAdminProxyConfig();
   if (!configuration.ok) {
     return jsonResponse(
@@ -94,3 +108,13 @@ export default async function handler(request: Request): Promise<Response> {
     headers: { "Set-Cookie": sessionCookie(token, SESSION_TTL_SECONDS) },
   });
 }
+
+/**
+ * Superficie que Vercel invoca. Los tres métodos comparten implementación: el
+ * despacho por método ya vive dentro de `handleSession`, así que hay un solo
+ * camino de código y las respuestas siguen siendo JSON controlado en todos los
+ * casos (incluido «método no admitido»).
+ */
+export const GET = handleSession;
+export const POST = handleSession;
+export const DELETE = handleSession;

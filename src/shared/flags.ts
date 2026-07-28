@@ -61,6 +61,16 @@ export const FLAGS = {
 
 export type FeatureFlags = typeof FLAGS;
 
+/** Is this an absolute `http(s)://…` URL? */
+function isAbsoluteHttpUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Public URL of the Evaluaciones Apps Script Web App, when it is configured.
  *
@@ -72,9 +82,30 @@ export type FeatureFlags = typeof FLAGS;
  * module is imported by pure logic (providers, domain helpers) and importing
  * `../constants` would drag the dock's icon components into every one of those
  * consumers.
+ *
+ * A value that is NOT an absolute URL is rejected instead of used. The mistake
+ * is easy to make and was made in production: the deployment had
+ * `VITE_EVALUATIONS_API_URL=/api/evaluations/admin`, i.e. the admin proxy path
+ * pasted into the public endpoint variable. Falling back to `SCRIPT_URL` in that
+ * case would silently query the OTHER spreadsheet's backend — the one that knows
+ * nothing about assessments — and the module would report a generic server
+ * error. Rejecting it lets the transport say exactly which variable is wrong.
  */
-export const ASSESSMENTS_API_URL_OVERRIDE: string | null =
-  env("VITE_EVALUATIONS_API_URL") ?? null;
+export const ASSESSMENTS_API_URL_OVERRIDE: string | null = (() => {
+  const raw = env("VITE_EVALUATIONS_API_URL")?.trim();
+  if (!raw) return null;
+  return isAbsoluteHttpUrl(raw) ? raw : null;
+})();
+
+/**
+ * Name of the misconfigured public-endpoint variable, or `null` when the
+ * configuration is coherent. The transport turns this into a precise, actionable
+ * message instead of «el servidor no está disponible».
+ */
+export const ASSESSMENTS_API_URL_MISCONFIGURED: string | null = (() => {
+  const raw = env("VITE_EVALUATIONS_API_URL")?.trim();
+  return raw && !isAbsoluteHttpUrl(raw) ? "VITE_EVALUATIONS_API_URL" : null;
+})();
 
 /** Default endpoint of the intermediate backend that signs admin operations. */
 export const DEFAULT_ADMIN_PROXY_URL = "/api/evaluations/admin";
@@ -99,7 +130,11 @@ export const DEFAULT_ADMIN_PROXY_URL = "/api/evaluations/admin";
 export const ASSESSMENTS_ADMIN_API_URL: string | null = (() => {
   const raw = env("VITE_EVALUATIONS_ADMIN_API_URL")?.trim();
   if (raw === "direct") return null;
-  if (raw) return raw;
+  // An Apps Script URL here is the mirror image of the mistake described above:
+  // admin operations sent straight to the Web App carry no signature and are
+  // rejected. The explicit way to bypass the proxy is the literal "direct", so
+  // this value is ignored in favour of the proxy rather than obeyed.
+  if (raw && !/^https:\/\/script\.google(usercontent)?\.com\//.test(raw)) return raw;
   const provider = providerName(env("VITE_ASSESSMENTS_PROVIDER"), dataProvider);
   return provider === "google-apps-script" ? DEFAULT_ADMIN_PROXY_URL : null;
 })();

@@ -28,10 +28,12 @@ function stubFetch(): { calls: Call[] } {
     "fetch",
     vi.fn(async (url: string, init: RequestInit) => {
       calls.push({ url, init });
+      const envelope = { ok: true, requestId: "", data: {}, error: null, warnings: [] };
       return {
         ok: true,
         status: 200,
-        json: async () => ({ ok: true, requestId: "", data: {}, error: null, warnings: [] }),
+        json: async () => envelope,
+        text: async () => JSON.stringify(envelope),
       } as Response;
     }),
   );
@@ -96,6 +98,53 @@ describe("transporte · enrutado por tipo de acción", () => {
     await admin.listAdminAssessments();
     expect(calls[0].url).toBe("https://script.example.com/macros/s/AB/exec");
     expect((calls[0].init.headers as Record<string, string>)["Content-Type"]).toBe("text/plain;charset=utf-8");
+  });
+
+  /**
+   * Configuración equivocada observada en producción: la ruta del proxy
+   * administrativo pegada en la variable del endpoint PÚBLICO. Antes de esta
+   * corrección, la llamada salía hacia `/api/evaluations/admin` con
+   * `text/plain`, o —peor— al Web App del OTRO libro de Google Sheets, y la
+   * pantalla mostraba «El servidor no está disponible».
+   */
+  it("una URL pública que no es absoluta no se usa: se nombra la variable", async () => {
+    vi.resetModules();
+    vi.stubEnv("VITE_ASSESSMENTS_PROVIDER", "google-apps-script");
+    vi.stubEnv("VITE_EVALUATIONS_API_URL", "/api/evaluations/admin");
+    const publicApi = await import("./publicApi");
+    const { calls } = stubFetch();
+
+    const result = await publicApi.listPublicAssessments();
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("VITE_EVALUATIONS_API_URL");
+      expect(result.error.message).toContain("/exec");
+      // Y NO el mensaje genérico que mandaba a buscar el problema al servidor.
+      expect(result.error.message).not.toMatch(/no está disponible/i);
+    }
+    // Nada se envió: ni al proxy ni al backend del otro libro de cálculo.
+    expect(calls).toEqual([]);
+  });
+
+  it("una URL pública mal configurada no afecta a las acciones administrativas", async () => {
+    vi.resetModules();
+    vi.stubEnv("VITE_ASSESSMENTS_PROVIDER", "google-apps-script");
+    vi.stubEnv("VITE_EVALUATIONS_API_URL", "/api/evaluations/admin");
+    const admin = await import("./adminApi");
+    const { calls } = stubFetch();
+    await admin.listAdminAssessments();
+    expect(calls[0].url).toBe("/api/evaluations/admin");
+  });
+
+  it("un endpoint administrativo apuntando a Apps Script se ignora en favor del proxy", async () => {
+    // Para llamar a Apps Script sin firma existe el valor literal "direct"; una
+    // URL del Web App aquí solo produciría FORBIDDEN en cada operación.
+    const { admin } = await loadApi({
+      VITE_EVALUATIONS_ADMIN_API_URL: "https://script.google.com/macros/s/AB/exec",
+    });
+    const { calls } = stubFetch();
+    await admin.listAdminAssessments();
+    expect(calls[0].url).toBe("/api/evaluations/admin");
   });
 
   it("con el proveedor mock no se llama a ningún endpoint administrativo", async () => {

@@ -1,5 +1,12 @@
 # Despliegue
 
+> [!IMPORTANT]
+> Si vienes a poner en marcha el módulo por primera vez, o a arreglar el error
+> «No se pudieron cargar los datos», empieza por
+> **[`REPARACION_2026-07.md`](./REPARACION_2026-07.md)**: es la guía paso a paso,
+> con nombres exactos de variables y respuestas esperadas. Este documento es la
+> referencia larga.
+
 ## 1 · Qué se despliega y dónde
 
 | Artefacto | Destino | Cómo |
@@ -41,12 +48,17 @@ con su configuración actual.
 
 Solo `VITE_*` llega al navegador. **Ninguna es un secreto.**
 
+Las tres del módulo Evaluaciones están **versionadas en `.env.production`**, así
+que un despliegue nuevo funciona sin configurar nada en el panel de Vercel. Si
+además existen allí con el mismo nombre, **el valor de Vercel manda**: conviene
+no duplicarlas para no tener dos fuentes de verdad.
+
 | Variable | Valores | Por omisión | Efecto |
 | --- | --- | --- | --- |
 | `VITE_DATA_PROVIDER` | `mock` \| `google-apps-script` \| `supabase` | `mock` | Proveedor de todo el sistema (Procesos incluido). |
 | `VITE_ASSESSMENTS_PROVIDER` | ídem | hereda el anterior | Proveedor **solo** de Evaluaciones. |
-| `VITE_EVALUATIONS_API_URL` | URL `…/exec` | `SCRIPT_URL` de `constants.ts` | Web App de Evaluaciones. Endpoint público, no secreto. |
-| `VITE_EVALUATIONS_ADMIN_API_URL` | URL \| `direct` | `/api/evaluations/admin` con el proveedor Apps Script | Endpoint que firma las operaciones administrativas. `direct` solo es válido con `EVALUATIONS_AUTH_MODE=google_identity`. |
+| `VITE_EVALUATIONS_API_URL` | URL absoluta `…/exec` | `.env.production`; sin ella, `SCRIPT_URL` de `constants.ts` | Web App de Evaluaciones. Endpoint público, no secreto. Un valor que no sea una URL absoluta se **rechaza** con un mensaje que nombra la variable, en lugar de consultar el Web App del otro libro de cálculo. |
+| `VITE_EVALUATIONS_ADMIN_API_URL` | ruta o URL \| `direct` | `/api/evaluations/admin` con el proveedor Apps Script | Endpoint que firma las operaciones administrativas. `direct` solo es válido con `EVALUATIONS_AUTH_MODE=google_identity`; una URL de `script.google.com` aquí se ignora en favor del proxy. |
 | `VITE_FLAG_ASSESSMENTS_AUTOSAVE` | `true` \| `false` | `false` | Autoguardado complementario con debounce. Nunca publica. |
 | `VITE_FLAG_ADVANCED_SIMULATIONS` | `true` \| `false` | `false` | Registra los contratos de simulación (editor pendiente). |
 | `VITE_FLAG_CODE_QUESTIONS` | `true` \| `false` | `false` | `q_code`, `q_sql`. |
@@ -96,7 +108,7 @@ nunca aparecen en el bundle ni en los registros.
 
 | Variable | Nota |
 | --- | --- |
-| `EVALUATIONS_APPS_SCRIPT_URL` | La misma `…/exec`. |
+| `EVALUATIONS_APPS_SCRIPT_URL` | La misma `…/exec`. Debe ser una URL `https` absoluta o el proxy falla cerrado nombrándola. |
 | `EVALUATIONS_ADMIN_SHARED_SECRET` | Debe coincidir con la Script Property homónima. |
 | `EVALUATIONS_PANEL_PASSPHRASE` | 12+ caracteres. Es lo que teclea el reclutador. |
 | `EVALUATIONS_SESSION_SECRET` | 32+ caracteres. Firma la cookie de sesión. |
@@ -109,7 +121,7 @@ valor) y ninguna operación administrativa se ejecuta.
 
 ```
 [ ] npx tsc -b --noEmit          → sin errores
-[ ] npm test                     → 312/312
+[ ] npm test                     → 336/336
 [ ] npm run check                → «Sin hallazgos»
 [ ] npm run build                → correcto
 [ ] git diff --stat              → sin archivos inesperados
@@ -147,6 +159,20 @@ Implementar → Administrar implementaciones → ✏️ → Versión: Nueva vers
 
 La URL `/exec` no cambia. Si el cambio toca encabezados, ejecuta después
 `configurarEvaluaciones()` y `verificarEsquemaEvaluaciones()`.
+
+## 7 bis · Formato de las funciones de `api/` (no se puede improvisar)
+
+Dos reglas del runtime Node.js de Vercel que este proyecto debe respetar. Están
+explicadas con la evidencia en `REPARACION_2026-07.md §1.2` y `§1.3`, y
+verificadas por `apiRuntime.test.ts` y `npm run check`:
+
+1. **Todo import relativo dentro de `api/` lleva extensión `.js`.** El
+   `package.json` declara `"type": "module"`, Vercel no empaqueta esa carpeta y
+   ESM no adivina extensiones: sin ella, `ERR_MODULE_NOT_FOUND` al arrancar.
+2. **Las funciones exportan `GET`/`POST`/`DELETE` y NO exportan `default`.** El
+   lanzador solo usa la API web (`Request` → `Response`) con exportaciones de
+   nombre de método; con `export default` invoca `(req, res)` y el código falla
+   al leer las cabeceras.
 
 ## 8 · Actualizar el frontend
 

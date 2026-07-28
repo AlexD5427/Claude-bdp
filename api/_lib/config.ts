@@ -9,7 +9,7 @@
  * algo se informa el NOMBRE de la variable, jamás su contenido.
  */
 
-import { MIN_SECRET_LENGTH } from "./adminSession";
+import { MIN_SECRET_LENGTH } from "./adminSession.js";
 
 export interface AdminProxyConfig {
   /** URL `/exec` del Web App de Evaluaciones. Pública por diseño. */
@@ -26,11 +26,27 @@ export interface AdminProxyConfig {
 
 export type ConfigResult =
   | { ok: true; config: AdminProxyConfig }
-  | { ok: false; missing: string[]; weak: string[] };
+  | { ok: false; missing: string[]; weak: string[]; invalid: string[] };
 
 function value(name: string): string {
   const raw = process.env[name];
   return typeof raw === "string" ? raw.trim() : "";
+}
+
+/**
+ * ¿Es una URL absoluta `https://…` del Web App?
+ *
+ * Se comprueba porque la confusión más fácil de cometer al configurar el
+ * proyecto es pegar aquí una ruta interna (`/api/evaluations/admin`) en lugar de
+ * la URL `…/exec` de Apps Script. Sin esta comprobación, el `fetch` fallaría con
+ * un error de red genérico y el operador no sabría qué variable mirar.
+ */
+function isAbsoluteHttpsUrl(raw: string): boolean {
+  try {
+    return new URL(raw).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -45,7 +61,9 @@ export function readAdminProxyConfig(): ConfigResult {
 
   const missing: string[] = [];
   const weak: string[] = [];
+  const invalid: string[] = [];
   if (!appsScriptUrl) missing.push("EVALUATIONS_APPS_SCRIPT_URL");
+  else if (!isAbsoluteHttpsUrl(appsScriptUrl)) invalid.push("EVALUATIONS_APPS_SCRIPT_URL");
   if (!adminSecret) missing.push("EVALUATIONS_ADMIN_SHARED_SECRET");
   else if (adminSecret.length < MIN_SECRET_LENGTH) weak.push("EVALUATIONS_ADMIN_SHARED_SECRET");
   if (!panelPassphrase) missing.push("EVALUATIONS_PANEL_PASSPHRASE");
@@ -53,7 +71,9 @@ export function readAdminProxyConfig(): ConfigResult {
   if (!sessionSecret) missing.push("EVALUATIONS_SESSION_SECRET");
   else if (sessionSecret.length < MIN_SECRET_LENGTH) weak.push("EVALUATIONS_SESSION_SECRET");
 
-  if (missing.length > 0 || weak.length > 0) return { ok: false, missing, weak };
+  if (missing.length > 0 || weak.length > 0 || invalid.length > 0) {
+    return { ok: false, missing, weak, invalid };
+  }
 
   return {
     ok: true,
@@ -75,5 +95,10 @@ export function configErrorMessage(result: Extract<ConfigResult, { ok: false }>)
   const parts: string[] = [];
   if (result.missing.length > 0) parts.push(`faltan ${result.missing.join(", ")}`);
   if (result.weak.length > 0) parts.push(`son demasiado cortas ${result.weak.join(", ")}`);
+  if (result.invalid.length > 0) {
+    parts.push(
+      `no son una URL https absoluta ${result.invalid.join(", ")} (debe ser la dirección …/exec del Web App de Apps Script)`,
+    );
+  }
   return `El backend administrativo no está configurado: ${parts.join("; ")}.`;
 }

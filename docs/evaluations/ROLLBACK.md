@@ -1,5 +1,9 @@
 # Rollback
 
+> Para revertir el **despliegue de Vercel** (promover el anterior) y para **rotar
+> el secreto compartido sin ventana de caída**, ver
+> [`REPARACION_2026-07.md §6`](./REPARACION_2026-07.md#6--rollback-y-rotación).
+
 Tres capas independientes, con tiempos de reversión muy distintos. Elige la más
 barata que resuelva el problema.
 

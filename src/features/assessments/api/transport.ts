@@ -25,11 +25,12 @@
  *    mano sin duplicar efectos.
  */
 
-import { err, ok, appError, type Result } from "../../../shared/result";
+import { err, ok, appError, type AppError, type Result } from "../../../shared/result";
 import { SCRIPT_URL } from "../../../constants";
 import {
   ASSESSMENTS_ADMIN_API_URL,
   ASSESSMENTS_ADMIN_SESSION_URL,
+  ASSESSMENTS_API_URL_MISCONFIGURED,
   ASSESSMENTS_API_URL_OVERRIDE,
 } from "../../../shared/flags";
 import { isAdminAction } from "./adminActions";
@@ -47,6 +48,19 @@ const PUBLIC_API_URL = ASSESSMENTS_API_URL_OVERRIDE ?? SCRIPT_URL;
 
 /** ¿Las operaciones administrativas pasan por el backend intermedio? */
 export const adminProxyEnabled = ASSESSMENTS_ADMIN_API_URL !== null;
+
+/**
+ * Mensaje de configuración incorrecta, o cadena vacía si todo está en orden.
+ *
+ * Una URL pública inválida no se puede «intentar de todos modos»: o se llama al
+ * Web App correcto o no se llama a nada. Antes, el valor equivocado terminaba
+ * produciendo un error de red y la pantalla decía «El servidor no está
+ * disponible», que manda a buscar el problema donde no está. Este mensaje nombra
+ * la variable, el valor esperado y el paso que falta.
+ */
+export const publicEndpointError = ASSESSMENTS_API_URL_MISCONFIGURED
+  ? `La variable ${ASSESSMENTS_API_URL_MISCONFIGURED} está mal configurada: debe ser la dirección completa del Web App de Evaluaciones (https://script.google.com/macros/s/…/exec), no una ruta interna. Corrígela en Vercel → Settings → Environment Variables y vuelve a desplegar.`
+  : "";
 
 export interface RequestOptions {
   signal?: AbortSignal;
@@ -125,6 +139,19 @@ async function post(
 }
 
 /**
+ * ¿La acción necesita el endpoint público y ese endpoint está mal configurado?
+ *
+ * Se comprueba ANTES de la política de reintentos: reintentar tres veces una
+ * configuración equivocada solo retrasa el mensaje que el operador necesita
+ * leer. Las acciones administrativas no pasan por aquí porque usan su propio
+ * endpoint.
+ */
+function misconfiguredEndpoint(action: string): AppError | null {
+  if (endpointFor(action).viaProxy || !publicEndpointError) return null;
+  return appError("provider", publicEndpointError);
+}
+
+/**
  * Lectura idempotente. Se reintenta ante fallos transitorios de red.
  */
 export async function apiRead<T>(
@@ -132,6 +159,8 @@ export async function apiRead<T>(
   payload: Record<string, unknown> = {},
   options: RequestOptions = {},
 ): Promise<Result<ApiEnvelope<T>>> {
+  const misconfigured = misconfiguredEndpoint(action);
+  if (misconfigured) return err(misconfigured);
   let lastError = appError("network", "No se pudo conectar con el servidor de evaluaciones.");
   for (let attempt = 0; attempt <= READ_RETRIES; attempt++) {
     const result = await post({ action, requestId: "", payload }, options);
@@ -160,6 +189,8 @@ export async function apiWrite<T>(
   payload: Record<string, unknown> = {},
   options: RequestOptions = {},
 ): Promise<Result<ApiEnvelope<T>>> {
+  const misconfigured = misconfiguredEndpoint(action);
+  if (misconfigured) return err(misconfigured);
   const result = await post({ action, requestId, payload }, options);
   if (!result.ok) return err(result.error);
   const envelope = result.value as ApiEnvelope<T>;
@@ -188,7 +219,18 @@ async function sessionRequest(
       credentials: "same-origin",
       ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),
     });
-    const envelope = parseEnvelope<AdminSessionInfo>(await response.json());
+    // Se lee como texto y se analiza a mano para poder distinguir «el servidor
+    // contestó un error de negocio» (JSON, HTTP 200) de «la función se cayó»
+    // (texto plano con HTTP 5xx). Antes, lo segundo se confundía con un fallo de
+    // red y el mensaje no ayudaba a localizar el problema.
+    const text = await response.text();
+    let raw: unknown;
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const envelope = parseEnvelope<AdminSessionInfo>(raw);
     if (!envelope.ok) return err(toAppError(envelope));
     const data = envelope.data;
     return ok({
