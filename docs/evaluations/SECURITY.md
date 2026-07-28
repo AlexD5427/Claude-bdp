@@ -11,7 +11,10 @@ queda como limitación reconocida. No presenta ninguna ocultación como segurida
 | Un candidato manipula su nota en el cliente. | Resultado falso. | `evalStripClientScoring_` descarta `isCorrect`, `pointsAwarded`, `score` y `passed` antes de escribir; la nota la calcula `ScoringService.gs`. |
 | Un candidato responde a preguntas de otra evaluación o con opciones ajenas. | Puntuación inválida. | Se verifica la pertenencia pregunta → versión y opción → pregunta; cualquier desvío es `VALIDATION_ERROR`. |
 | Un candidato ve un borrador o una evaluación archivada. | Fuga de contenido no aprobado. | El endpoint público exige `status="published"` **y** `publication_status="published"`; el resto responde `NOT_FOUND` sin distinguir el motivo. |
-| Alguien sin autorización crea, edita o publica evaluaciones. | Integridad del proceso. | `Auth.gs` con identidad verificada por Google. |
+| Alguien sin autorización crea, edita o publica evaluaciones. | Integridad del proceso. | `Auth.gs` + proveedor activo. Por omisión, firma HMAC-SHA256 emitida por el backend intermedio; sin firma válida, `FORBIDDEN`. |
+| Alguien copia una firma de un registro y la reutiliza. | Operación administrativa ajena. | La firma caduca en 5 min y su `nonce` solo vale una vez (`CacheService`). |
+| Alguien intenta extraer el secreto del bundle de React. | Suplantación del panel. | El secreto solo existe en variables de entorno del backend intermedio y en las Script Properties. `src/` no puede importar `api/` (regla estática). |
+| El navegador afirma ser otro reclutador en la bitácora. | Auditoría falsa. | El `actor` lo pone la sesión del backend intermedio, no la carga del cliente, y va dentro de la cadena firmada. |
 | Doble clic o reintento duplica una escritura. | Datos duplicados. | Idempotencia por `requestId` en `ProcessedRequests`, comprobada dentro del bloqueo. |
 | Dos personas guardan a la vez. | Pérdida de cambios. | `ScriptLock` + concurrencia optimista por `entity_version` → `CONFLICT`. |
 | Editar una evaluación publicada altera intentos ya rendidos. | Resultados históricos falsos. | Los snapshots de `Versions` se escriben una sola vez; los intentos quedan anclados a su `version_id`. |
@@ -24,39 +27,99 @@ queda como limitación reconocida. No presenta ninguna ocultación como segurida
 
 **No hay ningún token en el frontend.** El bundle no contiene credenciales; lo
 verifica `scripts/check-evaluations.mjs` con patrones de clave de API, clave
-privada, JWT y credencial literal.
+privada, JWT y credencial literal, y además prohíbe que `src/` importe cualquier
+archivo de `api/`.
 
-La autorización se resuelve en el servidor con la identidad que Google verifica:
+### Por qué ya no se depende de `Session.getActiveUser()`
 
-### Modo `google_identity` (recomendado, por omisión)
+El panel administrativo es una aplicación React desplegada en Vercel que consume
+la API de Apps Script. **No** tiene Google Login, ni Google Identity Services, ni
+OAuth, ni sesión de Google Workspace. Durante la ejecución del Web App,
+`Session.getActiveUser().getEmail()` devuelve una cadena vacía, así que exigirla
+convertía toda operación administrativa en `FORBIDDEN` aunque el despliegue
+fuese correcto. El endpoint público (`?action=ping`) siempre funcionó porque no
+pasa por esa comprobación.
+
+La respuesta **no** ha sido rebajar la seguridad, sino dejar de confundir
+*autenticación* con *autorización*: la identidad ya no tiene que venir de Google
+para que la autorización sea real.
+
+### Arquitectura vigente
 
 ```
-Web App desplegado con «Ejecutar como: usuario que accede»
-                     + «Quién tiene acceso: usuarios de la organización»
-  → Session.getActiveUser().getEmail() devuelve una identidad verificada
-  → se compara con la propiedad de script EVALUATIONS_ADMIN_EMAILS
+navegador (React, sin secretos)
+   │  1. frase de acceso  ──►  /api/evaluations/session
+   │                          emite cookie HttpOnly+Secure+SameSite=Strict
+   │  2. acción admin     ──►  /api/evaluations/admin
+   │                          ¿sesión válida? ¿acción administrativa conocida?
+   │                          firma HMAC-SHA256 con el secreto del servidor
+   ▼                                     │
+Apps Script  ◄───────────────────────────┘
+   Signature.gs verifica firma + frescura (5 min) + nonce de un solo uso
+   Auth.gs autoriza y pasa a la lógica de negocio solo un `actor`
 ```
 
-- Sin identidad → `FORBIDDEN`.
-- Identidad fuera de la lista → `FORBIDDEN`.
-- Lista vacía → basta con ser una cuenta verificable (el acceso ya está limitado
-  al dominio por el despliegue).
+Cadena canónica que se firma (idéntica en `Signature.gs` y en
+`api/_lib/appsScriptSignature.ts`, con prueba de paridad):
 
-### Modo `open_admin` (solo pruebas)
+```
+v1 \n acción \n requestId \n timestamp \n nonce \n actor
+```
 
-Exige **dos** propiedades explícitas: `EVALUATIONS_AUTH_MODE=open_admin` **y**
-`EVALUATIONS_ALLOW_ANONYMOUS_ADMIN=true`. Si falta la segunda, responde
-`FORBIDDEN`.
+No incluye el cuerpo a propósito: quien firma es el backend intermedio, el canal
+es TLS y el navegador nunca ve una firma que pudiera reutilizar con otro cuerpo.
+Ligar el cuerpo exigiría que Apps Script reserializase el JSON byte a byte igual,
+algo que su runtime no garantiza; se prefirió una invariante verificable a una
+falsa garantía.
 
-Cuando está activo:
+### Modos disponibles (propiedad `EVALUATIONS_AUTH_MODE`)
 
-- **toda** respuesta incluye `warnings: ["INSECURE_ADMIN_MODE"]`;
-- cada escritura queda registrada en `AuditLog` con el actor `anonymous` o
-  `sin-verificar:<nombre>`;
-- el frontend puede mostrar el aviso porque la advertencia viaja en el envoltorio.
+| Modo | Uso | Qué exige |
+| --- | --- | --- |
+| `server_secret` **(por omisión)** | El ATS real. | `EVALUATIONS_ADMIN_SHARED_SECRET` de 32+ caracteres y una credencial firmada por operación. |
+| `google_identity` | Despliegues con sesión de Workspace. | «Ejecutar como: usuario que accede» + acceso restringido a la organización. Comportamiento idéntico al anterior. |
+| `open_admin` | Solo pruebas. | Además `EVALUATIONS_ALLOW_ANONYMOUS_ADMIN=true`; marca cada respuesta con `INSECURE_ADMIN_MODE`. |
 
-> **Esto no es seguridad.** Es un modo de pruebas declarado. No debe usarse con
-> datos reales ni apuntando a la hoja de producción.
+Un valor desconocido **no** abre la puerta: cae en `server_secret`. Y el
+proveedor `local_execution` (las funciones de `Setup.gs` ejecutadas a mano en el
+editor) no es seleccionable por configuración: solo se alcanza desde
+`evalHandleTrustedRequest_()`, y para llegar ahí ya hace falta permiso de edición
+del proyecto de Apps Script.
+
+**Falla cerrado.** Sin secreto configurado, o con un secreto de menos de 32
+caracteres, ninguna operación administrativa se autoriza. El mensaje nombra la
+propiedad que falta (útil para el operador) pero jamás su valor.
+
+### Reparto de secretos
+
+| Secreto | Dónde vive | Quién lo ve |
+| --- | --- | --- |
+| `EVALUATIONS_ADMIN_SHARED_SECRET` | Script Properties **y** variables de entorno de Vercel | Apps Script y el backend intermedio |
+| `EVALUATIONS_PANEL_PASSPHRASE` | Variables de entorno de Vercel | el backend intermedio (y la persona que la teclea) |
+| `EVALUATIONS_SESSION_SECRET` | Variables de entorno de Vercel | el backend intermedio |
+| — | bundle de React | **nada** |
+
+La URL `/exec` del Web App **no** es un secreto: es un endpoint público cuyo
+control de acceso lo aplican `Auth.gs` y el saneamiento.
+
+### Qué protege cada barrera
+
+| Barrera | Contra qué | Dónde |
+| --- | --- | --- |
+| Cookie `HttpOnly` + `SameSite=Strict` | robo de sesión por JavaScript y CSRF | `api/_lib/adminSession.ts` |
+| Comprobación de `Origin` | uso de la cookie desde otro sitio | `api/_lib/http.ts` |
+| Límite de intentos de frase | ensayo y error trivial | `api/_lib/adminSession.ts` (por instancia; ver §6) |
+| Lista blanca de acciones en el proxy | firmar algo que no es administrativo | `api/_lib/adminActions.ts` |
+| Firma HMAC + frescura + nonce | llamadas directas al Web App y repeticiones | `Signature.gs` |
+| Lista blanca de actores | cuentas no autorizadas | `EVALUATIONS_ADMIN_EMAILS` |
+| Comparación de tiempo constante | filtración del secreto por temporización | `Signature.gs`, `adminSession.ts` |
+| Motivo del rechazo solo en la bitácora | convertir el endpoint en un oráculo de firmas | `AuditService.gs` |
+
+### Rotación del secreto
+
+`EVALUATIONS_ADMIN_SHARED_SECRET_NEXT` permite tener dos secretos válidos a la
+vez: se añade el nuevo como «siguiente», se actualiza Vercel, se comprueba y se
+promueve. Sin ventana de caída.
 
 ### Permisos del frontend
 
@@ -136,6 +199,9 @@ improbable y, si ocurriera, detectable por `AuditLog` y por `question_count`.
 | El temporizador es del cliente. | Un candidato podría exceder la duración. | `Attempts.duration_seconds` queda registrado para revisión; el cierre por tiempo del lado servidor es trabajo del portal. |
 | La revisión manual no tiene interfaz. | Los intentos con preguntas abiertas quedan `pending_manual_review` sin forma de cerrarlos desde el panel. | El estado y los datos ya existen; la interfaz de revisión es la fase siguiente. |
 | Sin firma de las respuestas del portal. | Un cliente podría enviar respuestas arbitrarias. | Toda respuesta se valida contra el snapshot; lo peor que puede lograr es un intento inválido, nunca una nota falsa. |
+| La puerta del panel es una frase de acceso compartida, no una identidad por persona. | La bitácora registra el actor que declara la sesión, no una identidad verificada (se marca `proxy:`). | Es transitorio y está aislado: cuando entre Google Login/OIDC, solo cambia cómo se emite la sesión (§Cómo añadir Google Login). Mientras tanto, `EVALUATIONS_ADMIN_EMAILS` limita quién puede actuar. |
+| El límite de intentos de la frase de acceso es por instancia serverless. | Un atacante distribuido podría intentar más veces de lo que sugiere el contador. | La protección real es la longitud de la frase; se puede añadir un almacén compartido (KV) si hace falta. |
+| La firma no liga el cuerpo de la solicitud. | Un atacante con acceso al canal TLS entre proxy y Apps Script podría alterar la carga. | TLS lo impide; el navegador nunca ve la firma. Documentado como decisión consciente en DECISIONS.md. |
 
 ## 6 bis · Hallazgos de la revisión de seguridad de esta PR
 
@@ -150,6 +216,18 @@ corregidos y con prueba de regresión:
 
 El detalle completo, con los otros ocho hallazgos, está en
 [`CODE_REVIEW.md`](./CODE_REVIEW.md).
+
+## 6 ter · Cómo añadir Google Login en el futuro sin tocar el negocio
+
+1. Registrar un proveedor nuevo en `AuthProviders.gs` (por ejemplo
+   `google_oauth`) que valide el `id_token` que envíe el frontend, y ponerlo en
+   `EVALUATIONS_AUTH_MODE`.
+2. En el backend intermedio, sustituir la frase de acceso por el intercambio
+   OAuth y emitir la misma cookie de sesión (o dejar de proxyear si el token
+   viaja directo).
+3. No hay paso 3: `Router.gs`, `AssessmentService.gs`, `AttemptService.gs`,
+   `ScoringService.gs`, la idempotencia, el bloqueo, la auditoría y el
+   saneamiento no cambian, porque nunca supieron cómo se autorizaba la llamada.
 
 ## 7 · Cómo verificar la seguridad tú mismo
 
@@ -166,13 +244,25 @@ curl -sL "URL?action=getPublicAssessment&publicCode=TU-CODIGO" \
   || echo "sin fugas ✔"
 ```
 
+Y que la administración no es alcanzable sin firma:
+
+```bash
+curl -sL -X POST "URL" -H 'Content-Type: text/plain;charset=utf-8' \
+  -d '{"action":"listAdminAssessments","requestId":"","payload":{}}' \
+  | grep -q FORBIDDEN && echo "administración protegida ✔"
+```
+
 ## 8 · Qué revisar en cada cambio futuro
 
 - ¿Se añadió una columna a `Questions` u `Options`? Comprueba que **no** aparezca
   en `Sanitize.gs` salvo que sea deliberadamente pública.
 - ¿Se añadió una acción al enrutador? Debe estar en `EVAL_ADMIN_ACTIONS` o en
   `EVAL_PUBLIC_ACTIONS`; si no, `evalAuthorize_` la rechaza con
-  `UNSUPPORTED_ACTION`.
+  `UNSUPPORTED_ACTION`. Y si es administrativa, debe añadirse también a
+  `api/_lib/adminActions.ts` y a `src/features/assessments/api/adminActions.ts`
+  (hay una prueba que compara las tres listas).
+- ¿Se tocó la cadena canónica de la firma? Debe cambiarse en los dos lados y
+  subir la versión (`v1` → `v2`); la prueba de paridad falla si se separan.
 - ¿Se añadió una clave de configuración? Solo llega al candidato si se agrega a
   `EVAL_PUBLIC_CONFIG_KEYS`, y eso debe ser una decisión consciente.
 - ¿Se añadió un tipo de pregunta? La prueba de paridad exige declararlo en los dos

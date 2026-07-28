@@ -106,13 +106,16 @@ encapsulado. `tsc -b` estricto sigue siendo el analizador estático principal.
 
 ## D-10 · Autorización: interfaz + identidad de Google, sin token en el frontend
 
+*(Superada por D-22, D-23 y D-24. Se conserva porque el modo `google_identity`
+sigue existiendo y porque explica de dónde venía el problema.)*
+
 No existe un proveedor de identidad verificable accesible desde el navegador para
 Apps Script sin incrustar un secreto. Se implementa `Auth.gs` con dos modos:
 
-- `google_identity` (recomendado): la Web App se despliega **ejecutándose como el
-  usuario que accede** y con acceso restringido a la organización;
-  `Session.getActiveUser().getEmail()` se compara con la propiedad de script
-  `ADMIN_EMAILS`. La identidad la verifica Google, no la aplicación.
+- `google_identity` (recomendado **entonces**): la Web App se despliega
+  **ejecutándose como el usuario que accede** y con acceso restringido a la
+  organización; `Session.getActiveUser().getEmail()` se compara con la propiedad
+  de script `ADMIN_EMAILS`. La identidad la verifica Google, no la aplicación.
 - `open_admin`: requiere fijar explícitamente `ALLOW_ANONYMOUS_ADMIN=true`. En
   ese modo **toda** respuesta incluye `warnings: ["INSECURE_ADMIN_MODE"]`, cada
   escritura queda auditada y el frontend muestra un aviso visible. No se
@@ -120,6 +123,14 @@ Apps Script sin incrustar un secreto. Se implementa `Auth.gs` con dos modos:
 
 Ningún secreto viaja en el bundle. La URL del Web App es pública por diseño y no
 es un secreto.
+
+**Por qué no bastó:** la suposición «el reclutador llega con una sesión de Google
+Workspace» es falsa en este ATS. El panel es React en Vercel y no implementa
+Google Login, Google Identity Services, OAuth ni sesiones de Workspace, así que
+`Session.getActiveUser().getEmail()` devuelve cadena vacía y toda operación
+administrativa respondía `FORBIDDEN` con el despliegue correcto. El error fue
+tratar la autenticación de Google como el único mecanismo posible en lugar de como
+uno de varios.
 
 ## D-11 · Selección de proveedor: bandera dedicada para Evaluaciones
 
@@ -206,3 +217,79 @@ herramienta que lo devuelva. Conforme a la instrucción recibida, **no se afirma
 estar usando Claude Opus 5 con effort max**. Lo verificable es el trabajo
 entregado: los comandos ejecutados y sus salidas reales están en
 `TEST_PLAN.md` y en el informe final.
+
+---
+
+## D-22 · La autorización se abstrae en proveedores; `google_identity` deja de ser el modo por omisión
+
+`Auth.gs` dependía directamente de `Session.getActiveUser()`. Ahora responde solo
+a dos preguntas — *¿esta acción es administrativa?* y *¿está autorizada?* — y
+delega el «cómo» en un proveedor (`AuthProviders.gs`) con esta interfaz:
+
+```js
+{ id, label, identify(request), authorizeAdmin(request), describe() }
+```
+
+Registro de proveedores: `server_secret` (por omisión), `google_identity`,
+`open_admin`, y `local_execution` (no seleccionable por configuración, solo
+alcanzable desde `evalHandleTrustedRequest_()` para las funciones del editor).
+
+| Alternativa considerada | Por qué no |
+| --- | --- |
+| Implementar Google Login completo en el panel | Es exactamente lo que la tarea prohíbe: obliga a Workspace, cambia el modelo de sesión de todo el ATS y no sirve para el futuro portal de candidatos. |
+| Mantener `google_identity` por omisión y documentar el fallo | Deja el módulo roto en el despliegue real. |
+| Usar `open_admin` en producción | Administración anónima. Descartado sin discusión. |
+
+Consecuencias buscadas: la lógica de negocio no menciona el mecanismo de
+autorización; un modo desconocido cae en `server_secret` (fail-closed); y añadir
+OAuth en el futuro es registrar un proveedor más.
+
+## D-23 · Las operaciones administrativas se firman en un backend intermedio, no en el navegador
+
+El navegador no puede custodiar un secreto: cualquier valor que llegue al bundle
+es público. Por tanto, si la autorización requiere un secreto de servidor, hace
+falta un servidor. Se añaden dos funciones serverless en `api/evaluations/`:
+
+- `session.ts`: valida la frase de acceso del panel y emite una cookie
+  `HttpOnly` + `Secure` + `SameSite=Strict` de 8 horas.
+- `admin.ts`: comprueba la sesión, comprueba que la acción esté en su propia lista
+  blanca administrativa, firma con HMAC-SHA256 y reenvía a Apps Script tal cual.
+
+El reparto es explícito: React dice *qué* quiere hacer; el proxy dice *quién* lo
+pide y lo firma; Apps Script verifica, valida, bloquea, audita y escribe. El
+secreto vive en variables de entorno del proyecto de Vercel y en las Script
+Properties, y en ningún otro sitio (dos reglas estáticas nuevas lo comprueban:
+`src/` no puede importar `api/` y `api/` no puede leer variables `VITE_`).
+
+| Alternativa considerada | Por qué no |
+| --- | --- |
+| Token permanente en el bundle o en `localStorage` | Secreto público. Prohibido explícitamente. |
+| «Seguridad» por URL secreta del Web App | No es seguridad; además la URL viaja en cada petición del navegador. |
+| Firmar en el navegador con un secreto derivado | Cualquier derivación reversible en el cliente equivale a publicar el secreto. |
+| Cloudflare Worker / otro proveedor | Equivalente; se eligió Vercel porque es donde ya vive el panel y no añade infraestructura nueva. |
+
+**Limitación declarada:** la frase de acceso es compartida, así que la identidad
+que se audita es *afirmada* por el proxy (se registra como `proxy:<actor>`), no
+verificada por un proveedor de identidad. Es la única pieza que Google Login
+mejoraría, y está aislada en un solo archivo.
+
+## D-24 · Detalles de la credencial firmada: HMAC-SHA256, frescura de 5 minutos y nonce de un solo uso
+
+La credencial viaja en el campo `auth` de la solicitud (campo **nuevo y
+opcional**; el resto del contrato no cambia) y firma
+`v1 \n acción \n requestId \n timestamp \n nonce \n actor`.
+
+- **`timestamp`** con ventana de ±5 minutos: una firma capturada caduca sola.
+- **`nonce`** recordado en `CacheService`: la misma firma no vale dos veces.
+- **Comparación de tiempo constante**: no se filtra el secreto por temporización.
+- **Dos secretos válidos** (`…_SECRET` y `…_SECRET_NEXT`) para rotar sin caída.
+- **El `actor` va dentro de la firma**: el navegador no puede suplantar a otro
+  reclutador en la bitácora, aunque manipule la carga.
+- **El motivo del rechazo solo se audita**, nunca se devuelve: el endpoint no es
+  un oráculo que diga si falló la firma, el reloj o el nonce.
+
+No se firma el cuerpo de la solicitud. Hacerlo exigiría que Apps Script
+reserializase el JSON exactamente igual que el firmante, y su runtime no lo
+garantiza (el orden de claves numéricas cambia); una invariante que no se puede
+verificar es peor que no tenerla. El cuerpo está protegido por TLS y el navegador
+nunca ve la firma. Queda anotado como limitación en `SECURITY.md`.

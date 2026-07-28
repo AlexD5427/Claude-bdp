@@ -77,6 +77,41 @@ pruebas de este repositorio lo notan.
 | Limpieza de listeners | `AssessmentBuilder › no deja errores de consola en el flujo completo` (React avisa por consola de fugas y actualizaciones tras desmontar) |
 | Ausencia de errores de consola | 4 pruebas asevera `consoleErrors` vacío |
 
+### Cobertura añadida por la refactorización de la autorización
+
+| Requisito | Prueba |
+| --- | --- |
+| `ping` sigue funcionando sin credencial | `appsScript.authorization › ping funciona sin ninguna credencial`; `adminFlow.e2e › ping sigue funcionando sin sesión` |
+| El modo por omisión ya no es `google_identity` | `appsScript.authorization › el modo por omisión es server_secret` |
+| Administración sin firma → `FORBIDDEN` | `› una lectura administrativa sin firma se rechaza`; `adminProxy › sin sesión no firma nada` |
+| Administración firmada → funciona | `› el ciclo administrativo completo funciona firmado: crear, editar, publicar, archivar` |
+| Firma de otro secreto / acción / requestId | `› rechaza una firma hecha con otro secreto` (+2) |
+| Credencial caducada o del futuro | `› rechaza una credencial caducada y una del futuro` |
+| Repetición de credencial | `› rechaza la repetición de la misma credencial (nonce ya usado)` |
+| Esquemas y credenciales inválidas | `› rechaza esquemas desconocidos y credenciales incompletas` |
+| Rotación de secreto | `› admite el secreto siguiente para poder rotar sin cortar el servicio` |
+| Lista blanca de actores | `› respeta la lista blanca de actores incluso con firma válida` |
+| Falla cerrado sin secreto o con secreto corto | `› sin secreto configurado, ninguna operación administrativa pasa`; `› un secreto demasiado corto se trata como no configurado` |
+| El rechazo no es un oráculo | `› audita el rechazo con el motivo interno, sin devolvérselo al cliente` |
+| `google_identity` intacto | `› google_identity sigue funcionando para quien tenga sesión de Workspace`; `› rechaza cuando Google no expone identidad` |
+| `open_admin` sigue exigiendo doble habilitación | `› open_admin exige habilitación explícita y avisa en cada respuesta` |
+| Un modo desconocido no abre la puerta | `› un modo desconocido cae en el modo por omisión` |
+| `local_execution` no es configurable ni falsificable | `› local_execution NO es seleccionable por configuración`; `› una petición HTTP no puede fingir ser ejecución local` |
+| Las funciones del editor siguen operando | `› las funciones del editor sí pueden operar sin firma` |
+| Paridad firmante ↔ verificador | `› las tres implementaciones producen la misma cadena canónica y la misma firma` |
+| Cookie `HttpOnly` + `Secure` + `SameSite=Strict` | `adminProxy › emite una cookie HttpOnly, Secure y SameSite=Strict` |
+| Frase incorrecta indistinguible de vacía | `adminProxy › rechaza una frase incorrecta con el mismo mensaje que una vacía` |
+| Ningún secreto en las respuestas del proxy | `adminProxy › nunca devuelve la frase ni el secreto en la respuesta` |
+| Origen ajeno rechazado | `adminProxy › rechaza un origen ajeno` |
+| Sesión caducada o manipulada | `adminProxy › una sesión caducada o manipulada no vale` |
+| El actor lo pone la sesión | `adminProxy › el cliente no puede suplantar a otro` |
+| El proxy solo firma acciones administrativas | `adminProxy › solo firma acciones administrativas conocidas` |
+| Enrutado público vs. administrativo | `transportRouting` (8 pruebas) |
+| Las tres listas de acciones coinciden | `transportRouting › cliente, backend intermedio y Auth.gs declaran exactamente las mismas` |
+| Cadena completa sin red | `adminFlow.e2e` (12 pruebas: sesión, crear, editar, conflicto, publicar, API pública saneada, idempotencia, archivar, bitácora, cierre) |
+| La interfaz pide la frase cuando hace falta | `EvaluacionesModule › pide la frase de acceso cuando el servidor reclama sesión administrativa` |
+| Ningún secreto en el bundle | `npm run build` + `grep` (§4) y las reglas `frontend-importa-backend` / `api-usa-variable-publica` de `npm run check` |
+
 ## 3 · Pruebas manuales de extremo a extremo
 
 Requieren el despliegue real (ver `APPS_SCRIPT_SETUP.md`). Recorrido completo:
@@ -85,6 +120,16 @@ Requieren el despliegue real (ver `APPS_SCRIPT_SETUP.md`). Recorrido completo:
    `verificarEsquemaEvaluaciones()` responde `ok: true`.
 2. **Conectar.** `VITE_ASSESSMENTS_PROVIDER=google-apps-script` y
    `VITE_EVALUATIONS_API_URL=…/exec`. El módulo debe mostrar «Google Apps Script».
+2 bis. **Autorización.** Con `EVALUATIONS_ADMIN_SHARED_SECRET` en Apps Script y las
+   cuatro variables del backend intermedio en Vercel:
+   - `curl ?action=ping` → `adminAuth.configured:true`;
+   - abrir el módulo → el listado pide la frase de acceso;
+   - frase incorrecta → mismo mensaje que frase vacía, sin sesión;
+   - frase correcta → el listado carga y `AuditLog` registra `proxy:<tu correo>`;
+   - `POST` directo a `…/exec` con `action=listAdminAssessments` sin `auth` →
+     `FORBIDDEN`, y `AuditLog` con `status=denied` y `reason=missing_credential`;
+   - esperar a que caduque la sesión (8 h) o borrar la cookie → el módulo vuelve a
+     pedir la frase en lugar de mostrar un error sin salida.
 3. **Crear.** «Nueva evaluación» → aparece en la hoja `Assessments` con
    `status=draft` y una fila en `Sections`.
 4. **Configurar la evaluación.** Título, instrucciones, duración 20, nota mínima 70
@@ -121,7 +166,9 @@ Requieren el despliegue real (ver `APPS_SCRIPT_SETUP.md`). Recorrido completo:
 ## 4 · Resultados reales de la última ejecución
 
 Entorno: Node 22.22.0, npm 10.9.4, rama
-`claude/evaluaciones-appsscript-3aae1a47860b8064ae5a00a919af8abe`.
+`claude/auth-evaluaciones-3ab49d36efe680b18d9b00a9685dfc25` (la refactorización de
+la capa de autorización). Los resultados de la entrega anterior se conservan más
+abajo cuando siguen siendo válidos.
 
 ### `npx tsc -b --noEmit` (typecheck)
 
@@ -172,8 +219,37 @@ existía antes del cambio y lo produce `three` junto al chunk principal.
 ### `npm test`
 
 ```
-Test Files  23 passed (23)
-      Tests  265 passed (265)
+Test Files  27 passed (27)
+      Tests  326 passed (326)
+```
+
+Desglose de la refactorización de la autorización (todo lo anterior sigue
+pasando, sin borrar ni debilitar ninguna prueba):
+
+```
+✓ src/features/assessments/__tests__/appsScript.authorization.test.ts  (28)
+✓ src/features/assessments/__tests__/adminProxy.test.ts                (16)
+✓ src/features/assessments/__tests__/adminFlow.e2e.test.ts             (12)
+✓ src/features/assessments/api/transportRouting.test.ts                 (8)
+✓ src/features/assessments/ui/EvaluacionesModule.test.tsx               (16, +1)
+✓ src/features/assessments/__tests__/appsScript.lifecycle.test.ts       (21, adaptada 1)
+```
+
+La única prueba existente adaptada fue «exige requestId en toda escritura», que
+ahora firma la credencial para que lo comprobado siga siendo la idempotencia y no
+la autorización; y el bloque `apps-script · autorización` de `lifecycle` se movió,
+ampliado, a su suite propia.
+
+#### Comprobación de secretos en el bundle compilado
+
+```
+$ for t in SHARED_SECRET PANEL_PASSPHRASE SESSION_SECRET adminSecret hmac-sha256; do
+    echo "$t: $(grep -ro "$t" dist/assets | wc -l)"; done
+SHARED_SECRET: 0
+PANEL_PASSPHRASE: 0
+SESSION_SECRET: 0
+adminSecret: 0
+hmac-sha256: 0
 ```
 
 Desglose:
@@ -217,13 +293,18 @@ existentes fueron adaptaciones obligadas por tipos más amplios:
 ### `npm run check`
 
 ```
-Archivos inspeccionados: 102
+Archivos inspeccionados: 110
 · Encabezados verificados contra DATA_MODEL.md: 109
-· Archivos .gs declarados: 17
+· Archivos .gs declarados: 19
 · Documentos presentes: 21
 
 Sin hallazgos. ✔
 ```
+
+Se añadieron dos reglas: `src/` no puede importar `api/` (el backend intermedio)
+y `api/` no puede leer variables `VITE_`. Además, la detección de credenciales
+literales dejó de dar falsos positivos con los NOMBRES de variables de entorno y
+ahora exige que los datos de prueba se declaren como tales en su propio valor.
 
 ### Revisión de código y seguridad
 
@@ -236,9 +317,11 @@ No ejecutable en este entorno (sin navegador). Ver `VISUAL_QA.md §Limitación`.
 
 ### Pruebas del propio Apps Script (`ejecutarPruebasEvaluaciones`)
 
-Ejecutadas a través del arnés en Node; las once líneas devuelven «OK». La misma
-función está disponible en el editor de Apps Script para verificar el despliegue
-real.
+Ejecutadas a través del arnés en Node; las **quince** líneas devuelven «OK» (las
+once originales más cuatro de autorización: modo por omisión, rechazo sin firma,
+verificación de firma y acciones públicas anónimas). La misma función está
+disponible en el editor de Apps Script para verificar el despliegue real, y una
+prueba del repositorio comprueba que no imprime ningún «FALLA».
 
 ## 5 · Lint
 

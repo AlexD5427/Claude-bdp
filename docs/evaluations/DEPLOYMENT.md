@@ -5,7 +5,8 @@
 | Artefacto | Destino | Cómo |
 | --- | --- | --- |
 | Frontend | El hosting actual del panel (Vercel) | `npm run build` → `dist/` |
-| Backend de Evaluaciones | Proyecto propio de Google Apps Script | Copiar los 17 `.gs` + `appsscript.json` |
+| Backend intermedio | Funciones serverless del mismo proyecto de Vercel | `api/evaluations/*.ts` (se despliegan con el frontend) |
+| Backend de Evaluaciones | Proyecto propio de Google Apps Script | Copiar los 19 `.gs` + `appsscript.json` |
 | Esquema de datos | Google Sheets | `configurarEvaluaciones()` |
 
 Los tres son independientes: se puede desplegar el frontend con el proveedor de
@@ -45,6 +46,7 @@ Solo `VITE_*` llega al navegador. **Ninguna es un secreto.**
 | `VITE_DATA_PROVIDER` | `mock` \| `google-apps-script` \| `supabase` | `mock` | Proveedor de todo el sistema (Procesos incluido). |
 | `VITE_ASSESSMENTS_PROVIDER` | ídem | hereda el anterior | Proveedor **solo** de Evaluaciones. |
 | `VITE_EVALUATIONS_API_URL` | URL `…/exec` | `SCRIPT_URL` de `constants.ts` | Web App de Evaluaciones. Endpoint público, no secreto. |
+| `VITE_EVALUATIONS_ADMIN_API_URL` | URL \| `direct` | `/api/evaluations/admin` con el proveedor Apps Script | Endpoint que firma las operaciones administrativas. `direct` solo es válido con `EVALUATIONS_AUTH_MODE=google_identity`. |
 | `VITE_FLAG_ASSESSMENTS_AUTOSAVE` | `true` \| `false` | `false` | Autoguardado complementario con debounce. Nunca publica. |
 | `VITE_FLAG_ADVANCED_SIMULATIONS` | `true` \| `false` | `false` | Registra los contratos de simulación (editor pendiente). |
 | `VITE_FLAG_CODE_QUESTIONS` | `true` \| `false` | `false` | `q_code`, `q_sql`. |
@@ -79,23 +81,45 @@ Se configuran en el proyecto de Apps Script, **no en el frontend**. Detalle en
 | Propiedad | Ejemplo | Nota |
 | --- | --- | --- |
 | `EVALUATIONS_SPREADSHEET_ID` | `1AbCdEf…XyZ` | Obligatoria en proyectos independientes. |
-| `EVALUATIONS_ADMIN_EMAILS` | `ana@banco.com, luis@banco.com` | Lista blanca de administradores. |
-| `EVALUATIONS_AUTH_MODE` | `google_identity` | O `open_admin` solo para pruebas. |
+| `EVALUATIONS_ADMIN_SHARED_SECRET` | 32+ caracteres aleatorios | **Obligatoria** en el modo por omisión. Igual que la variable homónima de Vercel. |
+| `EVALUATIONS_ADMIN_SHARED_SECRET_NEXT` | 32+ caracteres | Solo durante una rotación. |
+| `EVALUATIONS_ADMIN_EMAILS` | `ana@banco.com, luis@banco.com` | Lista blanca de actores. |
+| `EVALUATIONS_AUTH_MODE` | `server_secret` | O `google_identity`; `open_admin` solo para pruebas. |
 | `EVALUATIONS_ALLOW_ANONYMOUS_ADMIN` | `false` | Debe ser exactamente `true` para habilitar `open_admin`. |
 | `EVALUATIONS_AUDIT_ENABLED` | `true` | — |
+
+## 4 bis · Variables del backend intermedio (Vercel)
+
+Se configuran en `Vercel → Settings → Environment Variables`, **sin** prefijo
+`VITE_`, y exigen un redespliegue para tomar efecto. Son secretos de servidor:
+nunca aparecen en el bundle ni en los registros.
+
+| Variable | Nota |
+| --- | --- |
+| `EVALUATIONS_APPS_SCRIPT_URL` | La misma `…/exec`. |
+| `EVALUATIONS_ADMIN_SHARED_SECRET` | Debe coincidir con la Script Property homónima. |
+| `EVALUATIONS_PANEL_PASSPHRASE` | 12+ caracteres. Es lo que teclea el reclutador. |
+| `EVALUATIONS_SESSION_SECRET` | 32+ caracteres. Firma la cookie de sesión. |
+| `EVALUATIONS_ALLOWED_ORIGINS` | Opcional, separada por comas. |
+
+Si falta cualquiera, el panel recibe un error que **nombra la variable** (nunca su
+valor) y ninguna operación administrativa se ejecuta.
 
 ## 5 · Lista de comprobación previa al despliegue
 
 ```
 [ ] npx tsc -b --noEmit          → sin errores
-[ ] npm test                     → 262/262
+[ ] npm test                     → 312/312
 [ ] npm run check                → «Sin hallazgos»
 [ ] npm run build                → correcto
 [ ] git diff --stat              → sin archivos inesperados
 [ ] Respaldo de la hoja de cálculo hecho
 [ ] verificarEsquemaEvaluaciones() → ok: true
 [ ] ejecutarPruebasEvaluaciones()  → todo «OK»
-[ ] curl ?action=ping             → ok:true
+[ ] curl ?action=ping             → ok:true y adminAuth.configured:true
+[ ] Secreto administrativo idéntico en Apps Script y en Vercel
+[ ] /api/evaluations/admin sin sesión → adminSession:"required"
+[ ] Con la frase de acceso, el listado administrativo carga
 [ ] grep de fugas en el detalle público → «sin fugas»
 [ ] Recorrido manual de los demás módulos sin cambios
 ```
