@@ -163,13 +163,41 @@ Snapshots **inmutables** de cada publicación (ver decisión D-05).
 | `version_label` | texto | `v2.3`. |
 | `state` | enum | `published` \| `superseded`. |
 | `notes` | texto | Notas de la versión. |
-| `snapshot_json` | JSON | `{ schemaVersion, assessment, sections, questions, options }` en el momento de publicar. Se escribe una sola vez. |
+| `snapshot_json` | JSON o `EVALGZ1:`+base64 | `{ schemaVersion, assessment, sections, questions, options }` en el momento de publicar. Se escribe una sola vez. Ver la nota sobre el límite de celda más abajo. |
 | `snapshot_schema_version` | entero | — |
 | `question_count` | entero | — |
 | `gradable_question_count` | entero | Preguntas con calificación automática. |
-| `checksum` | texto | Hash del snapshot para detectar alteraciones. |
+| `checksum` | texto | Hash del snapshot **en claro**, para detectar alteraciones. No depende de cómo se codifique la celda. |
 | `published_at` / `published_by` | ISO / texto | — |
 | `created_at` | ISO | — |
+
+> **El límite de 50 000 caracteres por celda.**
+>
+> Google Sheets no admite más de 50 000 caracteres en una celda, y el snapshot de
+> una evaluación de 20 preguntas con 4 opciones cada una ocupa unos 51 300. Es
+> decir: guardar el JSON en claro tenía un techo real de unas 16 preguntas, y al
+> pasarlo `setValues` lanzaba un error genérico de Sheets que el enrutador
+> traducía a `INTERNAL_ERROR` (incidente del 28 de julio de 2026).
+>
+> Por eso `snapshot_json` admite dos formatos y `evalDecodeSnapshot_()` reconoce
+> los dos:
+>
+> · **JSON en claro**, cuando ocupa 40 000 caracteres o menos. Los snapshots
+>   pequeños siguen siendo legibles a ojo desde la hoja, que es lo que usa
+>   soporte, y los libros existentes no necesitan ninguna migración.
+> · **`EVALGZ1:` + gzip + base64**, cuando no cabe en claro. gzip reduce este
+>   JSON unas 20 veces (claves repetidas, ids con prefijo común, fechas
+>   idénticas), así que el techo pasa de ~16 preguntas a varios centenares.
+>
+> La codificación viaja **dentro del valor**, no en una columna nueva: así esta
+> mejora no cambia los encabezados ni exige migrar hojas. `snapshot_schema_version`
+> sigue describiendo el esquema **lógico** del snapshot (qué campos contiene), que
+> es algo distinto de cómo se transporta hasta la celda.
+>
+> Consecuencia para el rollback: una versión del backend anterior a julio de 2026
+> no entiende `EVALGZ1:` y devolvería `NOT_FOUND` para esas evaluaciones. No se
+> pierde ningún dato, pero habría que volver a publicarlas. Ver
+> [`GUIA_OPERATIVA_FINAL.md`](GUIA_OPERATIVA_FINAL.md) §14.
 
 ## `Attempts`
 
