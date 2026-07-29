@@ -67,7 +67,14 @@ var EVAL_CONFIG = {
     MAX_QUESTIONS: 1000,
     MAX_OPTIONS_PER_QUESTION: 60,
     MAX_ANSWERS_PER_ATTEMPT: 1000,
-    MAX_USER_AGENT: 300
+    MAX_USER_AGENT: 300,
+    /**
+     * Límite duro de Google Sheets: una celda no admite más de 50 000
+     * caracteres. No es configurable, lo impone la plataforma. Se declara aquí
+     * para que las escrituras puedan comprobarlo antes de intentarlo (ver
+     * `evalToRowArray_`) y para que el códec de snapshots sepa cuándo comprimir.
+     */
+    MAX_CELL_CHARS: 50000
   },
 
   /** Valores admitidos (listas blancas). */

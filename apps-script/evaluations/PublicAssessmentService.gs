@@ -15,7 +15,7 @@ function evalLoadVersionSnapshot_(ss, assessmentId, versionId) {
   var row = evalFindBy_(ss, EVAL_CONFIG.SHEETS.VERSIONS, 'version_id', versionId);
   if (!row) return null;
   if (String(row.assessment_id) !== String(assessmentId)) return null;
-  var snapshot = evalParseJson_(row.snapshot_json, null);
+  var snapshot = evalDecodeSnapshot_(row.snapshot_json);
   if (!snapshot || !snapshot.assessment) return null;
   if (evalInt_(snapshot.schemaVersion, 1) > EVAL_CONFIG.SNAPSHOT_SCHEMA_VERSION) {
     throw evalError_('SCHEMA_ERROR',

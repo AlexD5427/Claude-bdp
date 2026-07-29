@@ -93,7 +93,17 @@ function evalFindBy_(ss, sheetName, field, value) {
   return rows.length > 0 ? rows[0] : null;
 }
 
-/** Convierte un objeto en un arreglo alineado a los encabezados de la hoja. */
+/**
+ * Convierte un objeto en un arreglo alineado a los encabezados de la hoja.
+ *
+ * Comprueba además el límite de 50 000 caracteres por celda ANTES de que el
+ * valor llegue a `setValues`. Es importante que la comprobación ocurra aquí y no
+ * en la escritura: Sheets graba las celdas en orden y aborta al llegar a la que
+ * se pasa del límite, dejando la fila a medio escribir. Así es como las filas de
+ * `Versions` acabaron con las 7 primeras columnas llenas y las 8 últimas vacías.
+ * Con esta validación previa, o se escribe la fila entera o no se escribe nada,
+ * y el error es tipado en vez de un INTERNAL_ERROR opaco.
+ */
 function evalToRowArray_(sheetName, map, obj, width) {
   var headers = EVAL_HEADERS[sheetName];
   var arr = [];
@@ -101,6 +111,16 @@ function evalToRowArray_(sheetName, map, obj, width) {
   for (var h = 0; h < headers.length; h++) {
     var key = headers[h];
     var value = obj[key];
+    if (typeof value === 'string' && value.length > EVAL_CONFIG.LIMITS.MAX_CELL_CHARS) {
+      throw evalError_('VALIDATION_ERROR',
+        'Un valor es demasiado largo para una celda de la hoja de cálculo.',
+        {
+          sheet: sheetName,
+          column: key,
+          characters: value.length,
+          limit: EVAL_CONFIG.LIMITS.MAX_CELL_CHARS
+        });
+    }
     arr[map[key]] = (value === undefined || value === null) ? '' : value;
   }
   return arr;
@@ -125,15 +145,17 @@ function evalUpsertRows_(ss, sheetName, idField, objects) {
     existing[String(current[i][idField])] = current[i].__row;
   }
 
+  // Primero se convierte el lote completo (lo que valida longitudes y
+  // encabezados) y solo después se escribe. Si un objeto es inválido, la hoja no se
+  // toca: no quedan filas a medias ni lotes aplicados por la mitad.
   var toAppend = [];
-  var updated = 0;
+  var toUpdate = [];
   for (var o = 0; o < objects.length; o++) {
     var obj = objects[o];
     var id = String(obj[idField]);
     var arr = evalToRowArray_(sheetName, map, obj, width);
     if (existing[id]) {
-      sheet.getRange(existing[id], 1, 1, width).setValues([arr]);
-      updated++;
+      toUpdate.push({ row: existing[id], values: arr });
     } else {
       toAppend.push(arr);
       // Reservar el id para que un duplicado dentro del mismo lote no se
@@ -141,11 +163,15 @@ function evalUpsertRows_(ss, sheetName, idField, objects) {
       existing[id] = -1;
     }
   }
+
+  for (var u = 0; u < toUpdate.length; u++) {
+    sheet.getRange(toUpdate[u].row, 1, 1, width).setValues([toUpdate[u].values]);
+  }
   if (toAppend.length > 0) {
     var start = sheet.getLastRow() + 1;
     sheet.getRange(start, 1, toAppend.length, width).setValues(toAppend);
   }
-  return { inserted: toAppend.length, updated: updated };
+  return { inserted: toAppend.length, updated: toUpdate.length };
 }
 
 /** Marca `active = FALSE` en las filas indicadas (baja lógica, sin borrar). */

@@ -171,11 +171,17 @@ npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
 > viajan en `.env.production`.
 >
 > Para ponerlo en marcha, corregir su configuración o diagnosticar un fallo, la
-> guía paso a paso es
-> **[`docs/evaluations/REPARACION_2026-07.md`](docs/evaluations/REPARACION_2026-07.md)**
-> (referencia completa en
-> [`APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md) y
-> [`DEPLOYMENT.md`](docs/evaluations/DEPLOYMENT.md)).
+> guía paso a paso —escrita para alguien que no domina Git, Vercel ni Apps
+> Script— es
+> **[`docs/evaluations/GUIA_OPERATIVA_FINAL.md`](docs/evaluations/GUIA_OPERATIVA_FINAL.md)**.
+> Incluye tabla de síntomas, rollback, rotación de secretos y una checklist
+> imprimible. Si el portal dice «Esta evaluación no está disponible», empieza por
+> su §13.
+>
+> Contexto del incidente de julio de 2026 en
+> [`REPARACION_2026-07.md`](docs/evaluations/REPARACION_2026-07.md); referencia
+> completa en [`APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md) y
+> [`DEPLOYMENT.md`](docs/evaluations/DEPLOYMENT.md).
 
 ## 🔌 Backend
 

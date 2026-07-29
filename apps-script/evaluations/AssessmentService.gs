@@ -745,6 +745,30 @@ function evalTextFingerprint_(questions) {
     .join('##');
 }
 
+/**
+ * Construye el JSON del snapshot inmutable de una versión.
+ *
+ * Se aísla en su propia función para poder medir su tamaño desde las pruebas sin
+ * publicar nada: el techo de 50 000 caracteres por celda de Sheets es la razón
+ * por la que `publishAssessment` fallaba, y conviene tenerlo bajo prueba.
+ *
+ * Devuelve el JSON EN CLARO. Quien lo guarda debe pasarlo por
+ * `evalEncodeSnapshot_()`; quien lo lee, por `evalDecodeSnapshot_()`.
+ */
+function evalBuildSnapshotJson_(bundle, major, minor, versionLabel) {
+  var snapshotAssessment = evalAssessmentFromRow_(evalAssessmentToRow_(bundle.assessment));
+  snapshotAssessment.version = major;
+  snapshotAssessment.versionMinor = minor;
+  snapshotAssessment.versionLabel = versionLabel;
+  return JSON.stringify({
+    schemaVersion: EVAL_CONFIG.SNAPSHOT_SCHEMA_VERSION,
+    assessment: snapshotAssessment,
+    sections: bundle.sections.filter(function (s) { return s.active !== false; }),
+    questions: bundle.questions.filter(function (q) { return q.active !== false; }),
+    options: bundle.options.filter(function (o) { return o.active !== false; })
+  });
+}
+
 /** Publica el borrador como una versión inmutable. */
 function evalPublishAssessment_(context, payload) {
   var ss = context.ss;
@@ -776,7 +800,10 @@ function evalPublishAssessment_(context, payload) {
   }
   if (!last && previousVersions.length > 0) last = previousVersions[previousVersions.length - 1];
 
-  var previousSnapshot = last ? evalParseJson_(last.snapshotJson, null) : null;
+  // Debe decodificar, no solo parsear: si la versión anterior quedó comprimida,
+  // tratarla como «sin snapshot» clasificaría cualquier cambio como estructural
+  // y subiría la versión mayor en cada publicación.
+  var previousSnapshot = last ? evalDecodeSnapshot_(last.snapshotJson) : null;
   var change = evalClassifyChange_(previousSnapshot, activeQuestions, activeOptions);
   var major = 1;
   var minor = 0;
@@ -800,18 +827,7 @@ function evalPublishAssessment_(context, payload) {
 
   var versionId = evalNewId_(EVAL_ID_PREFIX.VERSION);
   var versionLabel = 'v' + major + '.' + minor;
-  var snapshotAssessment = evalAssessmentFromRow_(evalAssessmentToRow_(bundle.assessment));
-  snapshotAssessment.version = major;
-  snapshotAssessment.versionMinor = minor;
-  snapshotAssessment.versionLabel = versionLabel;
-  var snapshot = {
-    schemaVersion: EVAL_CONFIG.SNAPSHOT_SCHEMA_VERSION,
-    assessment: snapshotAssessment,
-    sections: activeSections,
-    questions: activeQuestions,
-    options: activeOptions
-  };
-  var snapshotJson = JSON.stringify(snapshot);
+  var snapshotJson = evalBuildSnapshotJson_(bundle, major, minor, versionLabel);
 
   var versionRow = {
     version_id: versionId,
@@ -821,10 +837,15 @@ function evalPublishAssessment_(context, payload) {
     version_label: versionLabel,
     state: 'published',
     notes: evalStr_((payload || {}).notes, 4000),
-    snapshot_json: snapshotJson,
+    // El snapshot se comprime si no cabe en claro. `evalDecodeSnapshot_()`
+    // entiende ambos formatos, así que los snapshots ya publicados siguen
+    // sirviéndose sin migrar nada.
+    snapshot_json: evalEncodeSnapshot_(snapshotJson),
     snapshot_schema_version: EVAL_CONFIG.SNAPSHOT_SCHEMA_VERSION,
     question_count: evalCountQuestions_(activeQuestions),
     gradable_question_count: gradable,
+    // El checksum se calcula sobre el JSON EN CLARO: identifica el contenido
+    // congelado, no la forma en que se transporta hasta la celda.
     checksum: evalChecksum_(snapshotJson),
     published_at: now,
     published_by: context.actor,
