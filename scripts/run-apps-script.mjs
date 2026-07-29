@@ -49,6 +49,7 @@ export const GS_FILES = [
   "ScoringService.gs",
   "Router.gs",
   "Code.gs",
+  "Diagnostics.gs",
   "Setup.gs",
   "Tests.gs",
 ];
