@@ -18,6 +18,7 @@
 import { createContext, runInContext } from "node:vm";
 import { readFileSync, readdirSync } from "node:fs";
 import { createHash, createHmac, randomUUID } from "node:crypto";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,6 +35,7 @@ export const GS_FILES = [
   "Response.gs",
   "IdService.gs",
   "SheetRepository.gs",
+  "SnapshotCodec.gs",
   "Sanitize.gs",
   "Validation.gs",
   "Signature.gs",
@@ -58,6 +60,44 @@ export function listUndeclaredGsFiles() {
 }
 
 /* ------------------------------ Hoja en memoria --------------------------- */
+
+/**
+ * Google Sheets rechaza cualquier celda con más de 50 000 caracteres.
+ *
+ * El doble de prueba lo respeta a propósito: hasta julio de 2026 no lo hacía, y
+ * por eso la suite quedaba verde mientras `publishAssessment` fallaba en
+ * producción con INTERNAL_ERROR al escribir un `snapshot_json` de 51 321
+ * caracteres. Un doble más permisivo que la realidad no prueba nada.
+ */
+export const SHEETS_CELL_CHARACTER_LIMIT = 50000;
+
+/** Mensaje textual de Google, reproducido para que las pruebas lo reconozcan. */
+function cellTooLongError() {
+  return new Error(
+    "Your input contains more than the maximum of 50000 characters in a single cell.",
+  );
+}
+
+/** Bytes de un `Blob` de Apps Script: acepta texto o bytes con signo. */
+function toBuffer(value) {
+  if (typeof value === "string") return Buffer.from(value, "utf8");
+  return Buffer.from(Array.from(value).map((byte) => (byte < 0 ? byte + 256 : byte)));
+}
+
+/** `Blob` mínimo: solo los métodos que usa el módulo. */
+function makeBlob(buffer) {
+  return {
+    getBuffer: () => buffer,
+    getBytes: () => Array.from(buffer).map((byte) => (byte > 127 ? byte - 256 : byte)),
+    getDataAsString: () => buffer.toString("utf8"),
+    setContentType() {
+      return this;
+    },
+    setName() {
+      return this;
+    },
+  };
+}
 
 class FakeRange {
   constructor(sheet, row, column, numRows, numColumns) {
@@ -95,13 +135,25 @@ class FakeRange {
         );
       }
       for (let c = 0; c < this.numColumns; c++) {
-        this.sheet.writeCell(this.row + r, this.column + c, values[r][c]);
+        const value = values[r][c];
+        // Sheets escribe celda a celda y aborta al llegar a la que se pasa del
+        // límite: las anteriores quedan grabadas y las posteriores no. Eso es lo
+        // que dejó las filas de `Versions` con las 7 primeras columnas llenas y
+        // las 8 últimas vacías. Reproducirlo permite comprobar que la corrección
+        // ya no deja filas a medio escribir.
+        if (typeof value === "string" && value.length > SHEETS_CELL_CHARACTER_LIMIT) {
+          throw cellTooLongError();
+        }
+        this.sheet.writeCell(this.row + r, this.column + c, value);
       }
     }
     return this;
   }
 
   setValue(value) {
+    if (typeof value === "string" && value.length > SHEETS_CELL_CHARACTER_LIMIT) {
+      throw cellTooLongError();
+    }
     this.sheet.writeCell(this.row, this.column, value);
     return this;
   }
@@ -325,7 +377,18 @@ export function loadAppsScript(options = {}) {
         return Array.from(mac).map((byte) => (byte > 127 ? byte - 256 : byte));
       },
       base64Encode: (bytes) =>
-        Buffer.from(Array.from(bytes).map((byte) => (byte < 0 ? byte + 256 : byte))).toString("base64"),
+        Buffer.from(
+          typeof bytes === "string"
+            ? Buffer.from(bytes, "utf8")
+            : Array.from(bytes).map((byte) => (byte < 0 ? byte + 256 : byte)),
+        ).toString("base64"),
+      base64Decode: (text) =>
+        Array.from(Buffer.from(String(text), "base64")).map((byte) => (byte > 127 ? byte - 256 : byte)),
+      // `newBlob`/`gzip`/`ungzip` con la misma semántica de bytes con signo que
+      // usa Apps Script. Los emplea el códec de snapshots (SnapshotCodec.gs).
+      newBlob: (value) => makeBlob(toBuffer(value)),
+      gzip: (blob) => makeBlob(gzipSync(blob.getBuffer())),
+      ungzip: (blob) => makeBlob(gunzipSync(blob.getBuffer())),
       DigestAlgorithm: { SHA_256: "SHA_256" },
       Charset: { UTF_8: "UTF_8" },
       sleep: () => {},

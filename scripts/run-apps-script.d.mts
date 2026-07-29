@@ -9,6 +9,12 @@
 export declare const APPS_SCRIPT_DIR: string;
 export declare const GS_FILES: string[];
 
+/**
+ * Límite duro de Google Sheets: 50 000 caracteres por celda. El doble de prueba
+ * lo respeta, igual que la plataforma real.
+ */
+export declare const SHEETS_CELL_CHARACTER_LIMIT: number;
+
 /** Archivos `.gs` presentes en disco que no están declarados en `GS_FILES`. */
 export declare function listUndeclaredGsFiles(): string[];
 
