@@ -11,8 +11,7 @@ import {
 } from "../application/processService";
 import { syncState } from "../../../infrastructure/synchronization/syncState";
 import { useTalentPermissions } from "../../shared/permissions";
-import { listAssessments } from "../../assessments/application/assessmentService";
-import type { AssessmentSummary } from "../../assessments/domain/assessment";
+import { listLinkableAssessments, type LinkableAssessment } from "../../evaluaciones";
 import type { RecruitmentProcess } from "../domain/models";
 import type { ProcessStatus } from "../domain/status";
 import { ProcessToolbar } from "./ProcessToolbar";
@@ -36,7 +35,7 @@ export function ProcesosModule() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [editing, setEditing] = useState<RecruitmentProcess | null>(null);
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null);
-  const [assessments, setAssessments] = useState<AssessmentSummary[]>([]);
+  const [assessments, setAssessments] = useState<LinkableAssessment[]>([]);
 
   const debouncedSearch = useDebouncedValue(state.search, 250);
 
@@ -45,10 +44,10 @@ export function ProcesosModule() {
     [debouncedSearch, editing === null],
   );
 
-  // Load assessment summaries once for the editor's linking section.
+  // Catálogo de evaluaciones publicables, solo para la sección de vinculación.
   const loadAssessments = useCallback(async () => {
-    const res = await listAssessments();
-    if (res.ok) setAssessments(res.value.items);
+    const res = await listLinkableAssessments();
+    if (res.ok) setAssessments(res.value);
   }, []);
 
   const openEditor = useCallback(

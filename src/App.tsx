@@ -27,7 +27,6 @@ import { CaraACara } from "./modules/CaraACara";
 import { NuevoComparador } from "./modules/NuevoComparador";
 import { ToastViewport } from "./design-system/liquid-glass/toast";
 import { LoadingState } from "./components/States";
-import { bootstrapPlugins } from "./features/assessments/question-types";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
 import { Perfiles } from "./modules/Perfiles";
 import { Documentacion } from "./modules/Documentacion";
@@ -42,11 +41,8 @@ const ProcesosModule = lazy(() =>
   import("./features/processes").then((m) => ({ default: m.ProcesosModule })),
 );
 const EvaluacionesModule = lazy(() =>
-  import("./features/assessments").then((m) => ({ default: m.EvaluacionesModule })),
+  import("./features/evaluaciones").then((m) => ({ default: m.EvaluacionesModule })),
 );
-
-// Register the assessment question plugins once at module load.
-bootstrapPlugins();
 
 const SUBTITLES: Record<ModuleId, string> = {
   dashboard: "Panel ejecutivo de selección y reclutamiento.",

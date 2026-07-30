@@ -1,16 +1,13 @@
 /**
- * Apps Script data provider.
+ * Proveedor de datos de Apps Script.
  *
- * ProcessOS keeps using the shared Web App and its `type`-routed POST protocol
- * over the `Procesos` worksheet (GET `action=list_procesos`, writes
- * `{ type:"proceso", action, row }`) — see APPS_SCRIPT_INTEGRATION.md. That part
- * is unchanged.
+ * ProcessOS usa el Web App compartido del ATS y su protocolo POST enrutado por
+ * `type` sobre la hoja `Procesos` (GET `action=list_procesos`, escrituras
+ * `{ type:"proceso", action, row }`).
  *
- * Assessments now go through `AppsScriptAssessmentService`, which speaks the
- * normalized Evaluaciones API (`apps-script/evaluations/`) documented in
- * docs/evaluations/API_CONTRACT.md. The legacy single-row `type:"evaluacion"`
- * handler remains deployed server-side for backwards compatibility, but the
- * module no longer uses it.
+ * Evaluaciones NO pasa por aquí: tiene su propio libro, su propio Web App y su
+ * propio transporte (`features/evaluaciones/api`). Los dos backends son
+ * independientes a propósito, para que un problema en uno no arrastre al otro.
  */
 
 import { ok, err, appError } from "../../../shared/result";
@@ -24,7 +21,6 @@ import type {
 import { toProcessSummary, type ProcessSummary, type RecruitmentProcess } from "../../../features/processes/domain/models";
 import { processToRow, rowToProcess, type ProcesoRow } from "../../mappers/processMapper";
 import { apiGet, apiPost } from "./client";
-import { appsScriptAssessmentService } from "./assessmentService";
 import { newId } from "../../../shared/ids";
 
 function filterRows<T extends Record<string, unknown>>(
@@ -107,5 +103,4 @@ async function transitionProcess(
 export const appsScriptProvider: DataProvider = {
   name: "google-apps-script",
   processes: processRepo,
-  assessments: appsScriptAssessmentService,
 };

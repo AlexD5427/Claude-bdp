@@ -11,13 +11,13 @@ import { StatusPill } from "../../../design-system/liquid-glass/StatusPill";
 import { Field, TextInput, TextArea, Select, NumberField, Switch } from "../../../design-system/liquid-glass/fields";
 import { toast } from "../../../design-system/liquid-glass/toast";
 import { useUnsavedChangesWarning } from "../../../shared/hooks";
-import { useAuditTrail } from "../../assessments/audit/auditLog";
+import { useAuditTrail } from "../../shared/auditTrail";
 import {
   WORK_MODE_LABELS, EMPLOYMENT_TYPE_LABELS, EXPERIENCE_LEVEL_LABELS, VISIBILITY_LABELS, toOptions,
 } from "../domain/enums";
 import { PROCESS_STATUS_META, PUBLICATION_STATUS_META } from "../domain/status";
 import type { RecruitmentProcess, PublicContentBlock } from "../domain";
-import type { AssessmentSummary } from "../../assessments/domain/assessment";
+import type { LinkableAssessment } from "../../evaluaciones";
 import { PublicContentEditor } from "./PublicContentEditor";
 import type { TalentPermissions } from "../../shared/permissions";
 
@@ -40,7 +40,7 @@ const SECTIONS: { key: SectionKey; label: string; icon: React.ReactNode }[] = [
 
 interface EditorProps {
   process: RecruitmentProcess;
-  assessments: AssessmentSummary[];
+  assessments: LinkableAssessment[];
   permissions: TalentPermissions;
   onClose: () => void;
   onSave: (next: RecruitmentProcess) => Promise<void>;
@@ -316,7 +316,7 @@ function ApplicationFormSection() {
   );
 }
 
-function AssessmentsSection({ draft, patch, assessments }: { draft: RecruitmentProcess; patch: (p: Partial<RecruitmentProcess>) => void; assessments: AssessmentSummary[] }) {
+function AssessmentsSection({ draft, patch, assessments }: { draft: RecruitmentProcess; patch: (p: Partial<RecruitmentProcess>) => void; assessments: LinkableAssessment[] }) {
   const toggle = (id: string) => {
     const has = draft.assessmentIds.includes(id);
     patch({ assessmentIds: has ? draft.assessmentIds.filter((a) => a !== id) : [...draft.assessmentIds, id] });

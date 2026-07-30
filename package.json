@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Dashboard de Evaluación de Talento RR.HH. con estética Liquid Glass",
+  "description": "Dashboard de Evaluaci\u00f3n de Talento RR.HH. con est\u00e9tica Liquid Glass",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -11,8 +11,7 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "node scripts/check-evaluations.mjs",
-    "visual-qa": "node scripts/visual-qa.mjs"
+    "backend:check": "node scripts/evaluaciones-backend-check.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",
