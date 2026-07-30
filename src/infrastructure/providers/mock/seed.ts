@@ -8,7 +8,6 @@
 
 import { createProcess } from "../../../features/processes/domain/factory";
 import { recruitmentProcessSchema, type RecruitmentProcess } from "../../../features/processes/domain/models";
-import { newId } from "../../../shared/ids";
 
 export function seedProcesses(): RecruitmentProcess[] {
   const defs: Array<Partial<RecruitmentProcess> & { title: string }> = [

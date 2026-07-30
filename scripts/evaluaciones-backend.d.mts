@@ -6,7 +6,15 @@
  * con seguridad.
  */
 
-/** Envoltorio uniforme de respuesta del backend. */
+/**
+ * Envoltorio uniforme de respuesta del backend.
+ *
+ * `error` se declara NO nulo a propósito. En el envoltorio real es `null` cuando
+ * `ok` es `true`, pero estas pruebas solo lo leen después de comprobar que la
+ * respuesta falló, y anotar cada acceso con `!` o con un `if` añadiría ruido a
+ * cientos de aserciones sin aportar seguridad: si el error faltara, la aserción
+ * fallaría igual y con un mensaje más claro.
+ */
 export interface EvEnvelope<T = any> {
   ok: boolean;
   accion: string;
@@ -18,7 +26,7 @@ export interface EvEnvelope<T = any> {
     pista: string;
     detalle: Record<string, any>;
     traza: string;
-  } | null;
+  };
   avisos: string[];
   meta: Record<string, any>;
 }

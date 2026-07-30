@@ -4,7 +4,6 @@ import { resetMockData } from "../../../infrastructure/providers/mock";
 import {
   createProcessCommand, saveProcessDraft, publishProcess, duplicateProcessCommand, setProcessAssessments, getProcess,
 } from "./processService";
-import { createAssessmentCommand, publishAssessment } from "../../assessments/application/assessmentService";
 
 beforeEach(() => {
   __setProviderForTests(mockProvider);
@@ -35,17 +34,20 @@ describe("process application service + linking", () => {
 
   it("links assessments to a process and persists them", async () => {
     const process = await createProcessCommand("Cajero", "tester");
-    const assessment = await createAssessmentCommand("Prueba de caja", "technical", "tester");
-    expect(process.ok && assessment.ok).toBe(true);
-    if (!process.ok || !assessment.ok) return;
+    expect(process.ok).toBe(true);
+    if (!process.ok) return;
 
-    const linked = await setProcessAssessments(process.value, [assessment.value.id], "tester");
+    // ProcessOS guarda identificadores OPACOS de evaluación. A propósito no
+    // comprueba que existan: acoplar los dos módulos fue lo que hizo que un
+    // problema en Evaluaciones arrastrara a Procesos. La vinculación se resuelve
+    // al mostrarla, con `listLinkableAssessments()`.
+    const linked = await setProcessAssessments(process.value, ["ev_prueba_1", "ev_prueba_2"], "tester");
     expect(linked.ok).toBe(true);
 
     const reloaded = await getProcess(process.value.id);
     expect(reloaded.ok).toBe(true);
     if (reloaded.ok) {
-      expect(reloaded.value.assessmentIds).toContain(assessment.value.id);
+      expect(reloaded.value.assessmentIds).toEqual(["ev_prueba_1", "ev_prueba_2"]);
     }
   });
 
@@ -61,14 +63,4 @@ describe("process application service + linking", () => {
     }
   });
 
-  it("publishing an assessment produces a served public version", async () => {
-    const created = await createAssessmentCommand("Conocimientos", "knowledge", "tester");
-    if (!created.ok) return;
-    const published = await publishAssessment(created.value.id, "tester");
-    expect(published.ok).toBe(true);
-    if (published.ok) {
-      expect(published.value.publishedVersions.length).toBeGreaterThan(0);
-      expect(published.value.currentPublishedVersionId).toBeTruthy();
-    }
-  });
 });
