@@ -1,9 +1,9 @@
 /**
- * Provider-neutral repository contracts.
+ * Contratos de repositorio independientes del proveedor.
  *
- * The UI and application services depend ONLY on these interfaces — never on a
- * concrete provider (Apps Script today, Supabase later). Swapping the backend
- * means writing a new adapter that satisfies these contracts; no module change.
+ * La interfaz y los servicios de aplicación dependen SOLO de estas interfaces,
+ * nunca de un proveedor concreto (Apps Script hoy, Supabase mañana). Cambiar de
+ * backend es escribir un adaptador nuevo, no tocar los módulos.
  *
  * Every method returns a `Result` so failures are values the UI can branch on,
  * and writes carry an `entityVersion` for optimistic-concurrency / stale-update
@@ -15,14 +15,6 @@ import type {
   ProcessSummary,
   RecruitmentProcess,
 } from "../../features/processes/domain/models";
-import type {
-  AssessmentDefinition,
-  AssessmentSummary,
-} from "../../features/assessments/domain/assessment";
-import type {
-  AssessmentResults,
-  AttemptDetail,
-} from "../../features/assessments/domain/attempts";
 
 export interface ListQuery {
   /** Free-text search across code/title/etc. */
@@ -58,34 +50,8 @@ export interface ProcessRepository {
   duplicate(id: string, by: string): Promise<Result<RecruitmentProcess>>;
 }
 
-export interface AssessmentRepository {
-  list(query?: ListQuery): Promise<Result<ListResult<AssessmentSummary>>>;
-  get(id: string): Promise<Result<AssessmentDefinition>>;
-  create(assessment: AssessmentDefinition): Promise<Result<AssessmentDefinition>>;
-  updateDraft(
-    assessment: AssessmentDefinition,
-    expectedEntityVersion: number,
-  ): Promise<Result<AssessmentDefinition>>;
-  publish(id: string, by: string, notes?: string): Promise<Result<AssessmentDefinition>>;
-  pause(id: string, by: string): Promise<Result<AssessmentDefinition>>;
-  close(id: string, by: string): Promise<Result<AssessmentDefinition>>;
-  archive(id: string, by: string): Promise<Result<AssessmentDefinition>>;
-  /** Restore an archived assessment back to an editable draft. */
-  restore(id: string, by: string): Promise<Result<AssessmentDefinition>>;
-  duplicate(id: string, by: string): Promise<Result<AssessmentDefinition>>;
-  rollback(id: string, versionId: string, by: string): Promise<Result<AssessmentDefinition>>;
-  /**
-   * Attempts and grades for an assessment. The grades are ALWAYS computed
-   * server-side; this repository only reads them.
-   */
-  listResults(id: string): Promise<Result<AssessmentResults>>;
-  /** One attempt with its answers, including the reviewer-only answer key. */
-  getAttemptDetail(attemptId: string): Promise<Result<AttemptDetail>>;
-}
-
-/** A provider bundles both repositories plus a small identity/health surface. */
+/** Un proveedor agrupa los repositorios del ATS y su etiqueta de origen. */
 export interface DataProvider {
   readonly name: "mock" | "google-apps-script" | "supabase";
   processes: ProcessRepository;
-  assessments: AssessmentRepository;
 }

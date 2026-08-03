@@ -1,17 +1,19 @@
 /**
- * Mock data provider.
+ * Proveedor de datos de demostración.
  *
- * A fully functional, localStorage-backed implementation of both repositories.
- * It lets every ProcessOS / AssessmentOS workflow run end-to-end without a
- * deployed backend, and doubles as the offline/demo fallback. Latency is
- * simulated so loading/optimistic states are visible during development.
+ * Implementación completa del repositorio de Procesos sobre `localStorage`. Deja
+ * que ProcessOS funcione de extremo a extremo sin backend desplegado y sirve de
+ * respaldo sin conexión. La latencia se simula para que los estados de carga se
+ * vean durante el desarrollo.
+ *
+ * Evaluaciones ya NO pasa por aquí: tiene su propio backend y su propio
+ * simulador en memoria (`features/evaluaciones/backend`).
  */
 
 import { ok, err, appError } from "../../../shared/result";
 import type { Result } from "../../../shared/result";
 import { createStore } from "../../../shared/store";
 import type {
-  AssessmentRepository,
   DataProvider,
   ListQuery,
   ListResult,
@@ -23,30 +25,13 @@ import {
   type RecruitmentProcess,
 } from "../../../features/processes/domain/models";
 import { duplicateProcess } from "../../../features/processes/domain/factory";
-import {
-  toAssessmentSummary,
-  type AssessmentDefinition,
-  type AssessmentSummary,
-} from "../../../features/assessments/domain/assessment";
-import { duplicateAssessment } from "../../../features/assessments/domain/factory";
-import { publishDraft, rollbackToVersion } from "../../../features/assessments/versioning/operations";
-import {
-  emptyResultsSummary,
-  type AssessmentResults,
-  type AttemptDetail,
-} from "../../../features/assessments/domain/attempts";
-import { seedAssessments, seedProcesses } from "./seed";
+import { seedProcesses } from "./seed";
 
 const PROCESS_KEY = "bdp-mock-processes";
-const ASSESSMENT_KEY = "bdp-mock-assessments";
 
 const processStore = createStore<RecruitmentProcess[]>(seedProcesses(), {
   persistKey: PROCESS_KEY,
 });
-const assessmentStore = createStore<AssessmentDefinition[]>(seedAssessments(), {
-  persistKey: ASSESSMENT_KEY,
-});
-
 const delay = (ms = 180) => new Promise((r) => setTimeout(r, ms));
 
 function matches(haystack: string[], search?: string): boolean {
@@ -149,149 +134,12 @@ async function transitionProcess(
   return ok(next);
 }
 
-/**
- * MockAssessmentService — la ÚNICA puerta a los datos de demostración.
- *
- * Los datos mock solo son alcanzables a través de este objeto y solo cuando la
- * configuración lo selecciona explícitamente (`VITE_ASSESSMENTS_PROVIDER=mock`,
- * que es el valor por omisión). El módulo muestra siempre el origen activo, así
- * que nunca hay una mezcla silenciosa entre demo y datos reales.
- *
- * Los intentos NO se simulan: `listResults` devuelve una lista vacía con
- * agregados en `null`, porque inventar métricas sería peor que no tenerlas.
- */
-const assessmentRepo: AssessmentRepository = {
-  async list(query) {
-    await delay();
-    const all = assessmentStore.get();
-    const filtered = all.filter((a) => matches([a.code, a.name, a.category], query?.search));
-    const { page, total } = paginate(filtered, query);
-    const items: AssessmentSummary[] = page.map(toAssessmentSummary);
-    return ok<ListResult<AssessmentSummary>>({
-      items,
-      total,
-      syncedAt: new Date().toISOString(),
-    });
-  },
-
-  async get(id) {
-    await delay();
-    const found = assessmentStore.get().find((a) => a.id === id);
-    return found ? ok(found) : err(appError("not_found", "Evaluación no encontrada."));
-  },
-
-  async create(assessment) {
-    await delay();
-    assessmentStore.set((prev) => [{ ...assessment, synchronizationStatus: "synced" }, ...prev]);
-    return ok(assessment);
-  },
-
-  async updateDraft(assessment, expectedEntityVersion) {
-    await delay();
-    const current = assessmentStore.get().find((a) => a.id === assessment.id);
-    if (current && current.entityVersion > expectedEntityVersion) {
-      return err(appError("conflict", "Otro usuario actualizó esta evaluación."));
-    }
-    const next: AssessmentDefinition = {
-      ...assessment,
-      entityVersion: assessment.entityVersion + 1,
-      updatedAt: new Date().toISOString(),
-      synchronizationStatus: "synced",
-    };
-    assessmentStore.set((prev) => prev.map((a) => (a.id === next.id ? next : a)));
-    return ok(next);
-  },
-
-  async publish(id, by, notes) {
-    await delay();
-    const current = assessmentStore.get().find((a) => a.id === id);
-    if (!current) return err(appError("not_found", "Evaluación no encontrada."));
-    const next = { ...publishDraft(current, by, notes), synchronizationStatus: "synced" as const };
-    assessmentStore.set((prev) => prev.map((a) => (a.id === id ? next : a)));
-    return ok(next);
-  },
-
-  async pause(id, by) {
-    return transitionAssessment(id, by, { lifecycle: "paused", publication: "paused" });
-  },
-  async close(id, by) {
-    return transitionAssessment(id, by, { lifecycle: "closed", publication: "closed" });
-  },
-  async archive(id, by) {
-    return transitionAssessment(id, by, { lifecycle: "archived", publication: "archived" });
-  },
-  async restore(id, by) {
-    return transitionAssessment(id, by, { lifecycle: "draft", publication: "unpublished" });
-  },
-
-  async duplicate(id, by) {
-    await delay();
-    const source = assessmentStore.get().find((a) => a.id === id);
-    if (!source) return err(appError("not_found", "Evaluación no encontrada."));
-    const copy = duplicateAssessment(source, by);
-    assessmentStore.set((prev) => [{ ...copy, synchronizationStatus: "synced" }, ...prev]);
-    return ok(copy);
-  },
-
-  async rollback(id, versionId, by) {
-    await delay();
-    const current = assessmentStore.get().find((a) => a.id === id);
-    if (!current) return err(appError("not_found", "Evaluación no encontrada."));
-    const next = { ...rollbackToVersion(current, versionId, by), synchronizationStatus: "synced" as const };
-    assessmentStore.set((prev) => prev.map((a) => (a.id === id ? next : a)));
-    return ok(next);
-  },
-
-  async listResults(id): Promise<Result<AssessmentResults>> {
-    await delay();
-    const exists = assessmentStore.get().some((a) => a.id === id);
-    if (!exists) return err(appError("not_found", "Evaluación no encontrada."));
-    // Sin backend no hay intentos reales, y no se fabrican datos sintéticos.
-    return ok({ attempts: [], summary: emptyResultsSummary() });
-  },
-
-  async getAttemptDetail(): Promise<Result<AttemptDetail>> {
-    await delay();
-    return err(
-      appError(
-        "not_found",
-        "Los intentos de candidatos requieren el backend real de Apps Script.",
-      ),
-    );
-  },
-};
-
-/** Alias explícito del servicio de evaluaciones de demostración. */
-export const MockAssessmentService = assessmentRepo;
-
-async function transitionAssessment(
-  id: string,
-  by: string,
-  patch: Partial<AssessmentDefinition>,
-): Promise<Result<AssessmentDefinition>> {
-  await delay();
-  const current = assessmentStore.get().find((a) => a.id === id);
-  if (!current) return err(appError("not_found", "Evaluación no encontrada."));
-  const next: AssessmentDefinition = {
-    ...current,
-    ...patch,
-    entityVersion: current.entityVersion + 1,
-    updatedAt: new Date().toISOString(),
-    updatedBy: by,
-    synchronizationStatus: "synced",
-  };
-  assessmentStore.set((prev) => prev.map((a) => (a.id === id ? next : a)));
-  return ok(next);
-}
-
 export const mockProvider: DataProvider = {
   name: "mock",
   processes: processRepo,
-  assessments: assessmentRepo,
 };
 
-/** Test/utility hook: reset the mock stores to freshly seeded data. */
+/** Utilidad de pruebas: restablece los datos sembrados. */
 export function resetMockData(): void {
   processStore.set(seedProcesses());
-  assessmentStore.set(seedAssessments());
 }

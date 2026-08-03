@@ -11,7 +11,7 @@ import { getProvider } from "../../../infrastructure/providers";
 import { syncState } from "../../../infrastructure/synchronization/syncState";
 import { recruitmentProcessSchema, type RecruitmentProcess } from "../domain/models";
 import { createProcess } from "../domain/factory";
-import { logAudit } from "../../assessments/audit/auditLog";
+import { logAudit } from "../../shared/auditTrail";
 import type { ListQuery } from "../../../infrastructure/repositories/contracts";
 import type { Result } from "../../../shared/result";
 

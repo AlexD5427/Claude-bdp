@@ -27,13 +27,13 @@ import { CaraACara } from "./modules/CaraACara";
 import { NuevoComparador } from "./modules/NuevoComparador";
 import { ToastViewport } from "./design-system/liquid-glass/toast";
 import { LoadingState } from "./components/States";
-import { bootstrapPlugins } from "./features/assessments/question-types";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
 import { Perfiles } from "./modules/Perfiles";
 import { Documentacion } from "./modules/Documentacion";
 import { Configuracion } from "./modules/Configuracion";
 import { HerramientasPanel } from "./components/tools/HerramientasPanel";
 import { DOCK_ITEMS } from "./constants";
+import { codigoDesdeHash } from "./features/evaluaciones";
 import type { ModuleId } from "./types";
 
 // Route-level code splitting: the heavy ProcessOS/AssessmentOS bundles (builder,
@@ -42,11 +42,18 @@ const ProcesosModule = lazy(() =>
   import("./features/processes").then((m) => ({ default: m.ProcesosModule })),
 );
 const EvaluacionesModule = lazy(() =>
-  import("./features/assessments").then((m) => ({ default: m.EvaluacionesModule })),
+  import("./features/evaluaciones").then((m) => ({ default: m.EvaluacionesModule })),
 );
 
-// Register the assessment question plugins once at module load.
-bootstrapPlugins();
+/**
+ * Runner del candidato.
+ *
+ * Se carga aparte y, sobre todo, se monta ANTES del acceso al ATS: el enlace
+ * público de una evaluación no puede exigir cuenta, y el candidato no tiene una.
+ */
+const EvaluacionRunner = lazy(() =>
+  import("./features/evaluaciones").then((m) => ({ default: m.Runner })),
+);
 
 const SUBTITLES: Record<ModuleId, string> = {
   dashboard: "Panel ejecutivo de selección y reclutamiento.",
@@ -201,7 +208,42 @@ function Shell() {
   );
 }
 
+/**
+ * Ruta pública del candidato: `#/evaluacion/EV-XXXX-1234`.
+ *
+ * Se resuelve con el hash y no con un router porque la aplicación no tiene ninguno
+ * (ver docs/evaluaciones/ARQUITECTURA.md). Escuchar `hashchange` basta y no añade
+ * dependencias.
+ */
+function useCodigoEvaluacion(): string {
+  const [codigo, setCodigo] = useState(() => codigoDesdeHash(window.location.hash));
+  useEffect(() => {
+    const alCambiar = () => setCodigo(codigoDesdeHash(window.location.hash));
+    window.addEventListener("hashchange", alCambiar);
+    return () => window.removeEventListener("hashchange", alCambiar);
+  }, []);
+  return codigo;
+}
+
 export default function App() {
+  const codigoEvaluacion = useCodigoEvaluacion();
+
+  // El runner vive fuera del acceso al ATS y sin el dock ni los paneles internos:
+  // es una página para alguien de fuera de la organización.
+  if (codigoEvaluacion) {
+    return (
+      <ThemeProvider>
+        <div className="relative min-h-screen">
+          <MeshBackground />
+          <Suspense fallback={<LoadingState />}>
+            <EvaluacionRunner codigo={codigoEvaluacion} />
+          </Suspense>
+          <ToastViewport />
+        </div>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider>
       <TalentDataProvider>
