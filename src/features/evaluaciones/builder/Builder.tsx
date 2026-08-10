@@ -44,6 +44,7 @@ import { logAudit } from "../../shared/auditTrail";
 import { guardarEvaluacion, publicarEvaluacion, nuevaSolicitudId, revertirVersion } from "../api/client";
 import { enlacePublico } from "../api/connection";
 import { contarContenido, estimarMinutos } from "../domain/factory";
+import { objetivoPuntaje } from "../domain/puntaje";
 import { puedePublicar, revisarDocumento, soloAvisos, soloErrores } from "../domain/validation";
 import type { DocumentoEvaluacion } from "../domain/model";
 import {
@@ -109,11 +110,23 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
   const [confirmarSalida, setConfirmarSalida] = useState(false);
   const [versiones, setVersiones] = useState(documento.versiones);
   const [recuperable, setRecuperable] = useState<{ titulo: string; guardadoEn: string } | null>(null);
+  /**
+   * Petición de foco para el paso de preguntas.
+   *
+   * El contador cambia en cada petición: es lo que permite volver a saltar a la
+   * MISMA pregunta desde el panel de revisión (sin él, el segundo clic sobre el
+   * mismo bloqueo no movería nada).
+   */
+  const [foco, setFoco] = useState<{ preguntaId: string | null; nonce: number }>({
+    preguntaId: null,
+    nonce: 0,
+  });
 
   const solicitudGuardado = useRef<string>(nuevaSolicitudId());
   const sucio = tieneCambios(estado);
   const contenido = estado.actual;
   const conteos = useMemo(() => contarContenido(contenido.secciones), [contenido.secciones]);
+  const objetivo = objetivoPuntaje(contenido.evaluacion);
   const estimados = useMemo(() => estimarMinutos(contenido.secciones), [contenido.secciones]);
   const hallazgos = useMemo(
     () => revisarDocumento(contenido.evaluacion, contenido.secciones),
@@ -345,7 +358,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
                   <button
                     type="button"
                     onClick={() => setHistorialAbierto(true)}
-                    className="inline-flex items-center gap-1 rounded-full bg-indigo-500/15 px-2.5 py-1 text-[0.7rem] font-semibold text-indigo-200 ring-1 ring-indigo-400/30 transition-colors hover:bg-indigo-500/25"
+                    className="inline-flex items-center gap-1 rounded-full tone-acento tone-ring px-2.5 py-1 text-[0.7rem] font-semibold transition-colors hover:bg-indigo-500/25"
                   >
                     <History className="h-3 w-3" />
                     {evaluacion.versionEtiqueta} · {versiones.length} versión{versiones.length === 1 ? "" : "es"}
@@ -391,11 +404,20 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
         </div>
 
         {/* Métricas vivas */}
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-[color:var(--hairline)] pt-3">
+        <motion.div
+          initial="oculto"
+          animate="mostrar"
+          variants={{ oculto: {}, mostrar: { transition: { staggerChildren: 0.04 } } }}
+          className="mt-3 flex flex-wrap gap-2 border-t border-[color:var(--hairline)] pt-3"
+        >
           <Metrica etiqueta="Preguntas" valor={conteos.preguntas} />
           <Metrica etiqueta="Calificables" valor={conteos.calificables} />
           {conteos.manuales > 0 && <Metrica etiqueta="Con revisión" valor={conteos.manuales} />}
-          <Metrica etiqueta="Puntos" valor={conteos.puntos} />
+          <Metrica
+            etiqueta="Puntos"
+            valor={conteos.puntos}
+            title={objetivo !== null ? `Repartidos automáticamente sobre un total de ${objetivo}` : "Reparto manual"}
+          />
           <Metrica
             etiqueta="Duración fijada"
             valor={evaluacion.aplicacion.duracionMinutos ?? "libre"}
@@ -403,18 +425,19 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
           />
           <Metrica etiqueta="Duración estimada" valor={estimados} sufijo="min" />
           {errores.length > 0 && (
-            <div className="flex min-w-[7rem] flex-col gap-0.5 rounded-2xl border border-rose-400/40 bg-rose-500/10 px-3 py-2">
-              <span className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-rose-300">Bloqueos</span>
-              <span className="text-lg font-black tabular-nums text-rose-200">{errores.length}</span>
-            </div>
+            <Metrica
+              etiqueta="Bloqueos"
+              valor={errores.length}
+              destacada
+              tono="peligro"
+              onClick={() => setPaso("revision")}
+              title="Ver los puntos que impiden publicar"
+            />
           )}
           {avisos.length > 0 && (
-            <div className="flex min-w-[7rem] flex-col gap-0.5 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-3 py-2">
-              <span className="text-[0.65rem] font-bold uppercase tracking-[0.14em] text-amber-300">Advertencias</span>
-              <span className="text-lg font-black tabular-nums text-amber-200">{avisos.length}</span>
-            </div>
+            <Metrica etiqueta="Advertencias" valor={avisos.length} destacada tono="aviso" />
           )}
-        </div>
+        </motion.div>
       </GlassPanel>
 
       {/* Recuperación de borrador */}
@@ -424,7 +447,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-xs text-accent"
           >
             <span>
               Hay una copia local sin guardar de <strong>{recuperable.titulo}</strong>, de{" "}
@@ -445,7 +468,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200"
+            className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs tone-text-aviso"
           >
             <p className="flex items-start gap-2 font-semibold">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -465,32 +488,50 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
         )}
       </AnimatePresence>
 
-      {/* Navegación de pasos */}
+      {/* Navegación de pasos.
+          El realce del paso activo se DESPLAZA de una pestaña a otra con un
+          `layoutId`: el ojo sigue el movimiento y entiende que cambió de sitio, en
+          lugar de tener que volver a buscar dónde está. */}
       <nav aria-label="Pasos del constructor" className="flex flex-wrap gap-1.5">
         {PASOS.map(({ id, etiqueta, corto, icono: Icono }) => {
           const activo = paso === id;
           const bloqueos = id === "revision" ? errores.length : 0;
           return (
-            <button
+            <motion.button
               key={id}
               type="button"
               onClick={() => setPaso(id)}
               aria-current={activo ? "step" : undefined}
-              className={`relative inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold ring-1 transition-all duration-300 ${
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.97 }}
+              className={`relative inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold ring-1 transition-colors duration-300 ${
                 activo
-                  ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glass ring-white/25"
+                  ? "text-white ring-white/25"
                   : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft hover:text-ink"
               }`}
             >
+              {activo && (
+                <motion.span
+                  layoutId="paso-activo"
+                  transition={{ type: "spring", stiffness: 340, damping: 30 }}
+                  className="absolute inset-0 -z-10 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glass"
+                />
+              )}
               <Icono className="h-4 w-4" />
               <span className="hidden sm:inline">{etiqueta}</span>
               <span className="sm:hidden">{corto}</span>
               {bloqueos > 0 && (
-                <span className="grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[0.6rem] font-black text-white">
+                <motion.span
+                  key={bloqueos}
+                  initial={{ scale: 0.5 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 18 }}
+                  className="grid h-4 min-w-4 place-items-center rounded-full bg-rose-600 px-1 text-[0.6rem] font-black text-white"
+                >
                   {bloqueos}
-                </span>
+                </motion.span>
               )}
-            </button>
+            </motion.button>
           );
         })}
       </nav>
@@ -501,7 +542,13 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
           <GeneralStep contenido={contenido} despachar={despachar} editable={editable} estimados={estimados} />
         )}
         {paso === "preguntas" && (
-          <QuestionsStep estado={estado} despachar={despachar} editable={editable} hallazgos={hallazgos} />
+          <QuestionsStep
+            estado={estado}
+            despachar={despachar}
+            editable={editable}
+            hallazgos={hallazgos}
+            foco={foco}
+          />
         )}
         {paso === "revision" && (
           <ReviewStep
@@ -510,6 +557,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
             versiones={versiones}
             onIrA={(seccionId, preguntaId) => {
               despachar({ tipo: "seleccionar", seccionId, preguntaId });
+              if (preguntaId) setFoco((previo) => ({ preguntaId, nonce: previo.nonce + 1 }));
               setPaso(preguntaId ? "preguntas" : "general");
             }}
             onPublicar={permisos.publish && editable ? () => setDialogoPublicar(true) : undefined}
@@ -551,7 +599,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
             {versiones.length > 0 ? "Publicar una versión nueva" : "Publicar la evaluación"}
           </h3>
           {errores.length > 0 ? (
-            <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+            <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm tone-text-peligro">
               <p className="font-bold">
                 Hay {errores.length} punto(s) que impiden publicar. La revisión los enumera con un enlace a cada campo.
               </p>
@@ -563,7 +611,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
             </p>
           )}
           {avisos.length > 0 && errores.length === 0 && (
-            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-xs tone-text-aviso">
               {avisos.length} advertencia(s) no bloqueante(s). Se pueden publicar y revisar después.
             </div>
           )}
@@ -588,7 +636,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
                 setDialogoPublicar(false);
                 setPaso("revision");
               }}
-              className="self-end text-xs font-semibold text-cyan-300 underline decoration-dotted"
+              className="self-end text-xs font-semibold text-accent underline decoration-dotted"
             >
               Ver los {errores.length} punto(s) pendientes
             </button>
@@ -662,11 +710,11 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
 function IndicadorGuardado({ estado, ultimo }: { estado: EstadoGuardado; ultimo: string }) {
   const config: Record<EstadoGuardado, { icono: typeof Cloud; texto: string; clase: string }> = {
     limpio: { icono: Cloud, texto: `Guardado ${hace(ultimo)}`, clase: "text-ink-faint" },
-    sucio: { icono: CloudOff, texto: "Cambios sin guardar", clase: "text-amber-300" },
-    guardando: { icono: Loader2, texto: "Guardando…", clase: "text-cyan-300" },
-    guardado: { icono: CheckCircle2, texto: "Guardado", clase: "text-emerald-300" },
-    error: { icono: AlertTriangle, texto: "No se pudo guardar", clase: "text-rose-300" },
-    conflicto: { icono: AlertTriangle, texto: "Conflicto con otra sesión", clase: "text-amber-300" },
+    sucio: { icono: CloudOff, texto: "Cambios sin guardar", clase: "tone-text-aviso" },
+    guardando: { icono: Loader2, texto: "Guardando…", clase: "text-accent" },
+    guardado: { icono: CheckCircle2, texto: "Guardado", clase: "tone-text-exito" },
+    error: { icono: AlertTriangle, texto: "No se pudo guardar", clase: "tone-text-peligro" },
+    conflicto: { icono: AlertTriangle, texto: "Conflicto con otra sesión", clase: "tone-text-aviso" },
   };
   const { icono: Icono, texto, clase } = config[estado];
   return (

@@ -153,7 +153,7 @@ export function ReviewStep({
                 >
                   <span className="font-bold text-ink">
                     {version.etiqueta}
-                    {version.estado === "vigente" && <span className="ml-2 text-emerald-300">vigente</span>}
+                    {version.estado === "vigente" && <span className="ml-2 tone-text-exito">vigente</span>}
                   </span>
                   <span className="text-ink-faint">
                     {version.preguntas} preguntas · {formatearFecha(version.publicadoEn)}
@@ -162,7 +162,7 @@ export function ReviewStep({
                     <button
                       type="button"
                       onClick={() => onRevertir(version.id)}
-                      className="text-cyan-300 underline decoration-dotted"
+                      className="text-accent underline decoration-dotted"
                     >
                       Servir esta
                     </button>
@@ -212,7 +212,7 @@ export function ReviewStep({
             layout
             className={`w-full ${ANCHO[dispositivo]} rounded-3xl border border-[color:var(--hairline)] bg-[color:var(--fill-1)] p-4 sm:p-6`}
           >
-            <p className="text-[0.6rem] font-black uppercase tracking-[0.2em] text-cyan-400">Evaluación</p>
+            <p className="text-[0.6rem] font-black uppercase tracking-[0.2em] text-accent">Evaluación</p>
             <h3 className="mt-1 text-xl font-black tracking-tight text-ink">
               {evaluacion.titulo || "Evaluación sin título"}
             </h3>
@@ -227,7 +227,7 @@ export function ReviewStep({
 
             {contenido.secciones.map((seccion, indiceSeccion) => (
               <section key={seccion.id} className="mt-6">
-                <h4 className="text-sm font-black uppercase tracking-[0.14em] text-cyan-300">
+                <h4 className="text-sm font-black uppercase tracking-[0.14em] text-accent">
                   {indiceSeccion + 1}. {seccion.titulo}
                 </h4>
                 <div className="mt-1">
@@ -245,9 +245,13 @@ export function ReviewStep({
                           {esPregunta(pregunta.tipo) && evaluacion.tema.mostrarNumeracion && (
                             <span className="mt-0.5 shrink-0 text-xs font-black text-ink-faint">{indice + 1}.</span>
                           )}
-                          <div className="min-w-0 flex-1">
+                          <div className="relative min-w-0 flex-1">
                             <RichText doc={pregunta.enunciado} />
-                            {pregunta.obligatoria && <span className="ml-1 text-rose-400">*</span>}
+                            {pregunta.obligatoria && (
+                              <span className="tone-text-peligro absolute -left-2.5 top-0" title="Obligatoria">
+                                *
+                              </span>
+                            )}
                           </div>
                           {pregunta.modoPuntaje !== "ninguno" && pregunta.puntos > 0 && (
                             <span className="shrink-0 text-[0.65rem] font-bold text-ink-faint">
@@ -303,8 +307,8 @@ function ItemHallazgo({
         onClick={() => hallazgo.seccionId && onIrA(hallazgo.seccionId, hallazgo.preguntaId ?? null)}
         className={`flex w-full items-start gap-2 rounded-2xl border px-3 py-2 text-left text-xs transition-colors ${
           tono === "peligro"
-            ? "border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20"
-            : "border-amber-400/30 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+            ? "border-rose-400/40 bg-rose-500/10 tone-text-peligro hover:bg-rose-500/20"
+            : "border-amber-400/30 bg-amber-500/10 tone-text-aviso hover:bg-amber-500/20"
         } ${navegable ? "" : "cursor-default"}`}
       >
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

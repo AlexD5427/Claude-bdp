@@ -55,6 +55,50 @@
     /* Cursor spotlight tint */
     --spotlight: rgba(0, 176, 216, 0.16);
 
+    /* ---- Semantic tones ------------------------------------------
+       Los módulos usaban colores fijos de Tailwind (`text-cyan-200`,
+       `text-amber-200`…) pensados para vidrio oscuro. Sobre el tema claro,
+       esos tonos quedan casi invisibles: era el caso de las píldoras de
+       puntaje y de los contadores de bloqueos en Evaluaciones. Aquí cada
+       tono declara su trío fondo/texto/borde, y CADA TEMA elige valores
+       con contraste suficiente. La interfaz pide el tono, no el color.
+       -------------------------------------------------------------- */
+    --accent-fg: #67e8f9;
+    --accent-fg-strong: #a5f3fc;
+
+    --tone-neutral-bg: rgba(255, 255, 255, 0.1);
+    --tone-neutral-fg: rgba(226, 232, 240, 0.86);
+    --tone-neutral-ring: rgba(255, 255, 255, 0.16);
+    --tone-neutral-dot: #94a3b8;
+
+    --tone-info-bg: rgba(34, 211, 238, 0.16);
+    --tone-info-fg: #a5f3fc;
+    --tone-info-ring: rgba(34, 211, 238, 0.36);
+    --tone-info-dot: #22d3ee;
+
+    --tone-exito-bg: rgba(16, 185, 129, 0.16);
+    --tone-exito-fg: #a7f3d0;
+    --tone-exito-ring: rgba(16, 185, 129, 0.36);
+    --tone-exito-dot: #34d399;
+
+    --tone-aviso-bg: rgba(245, 158, 11, 0.16);
+    --tone-aviso-fg: #fde68a;
+    --tone-aviso-ring: rgba(245, 158, 11, 0.38);
+    --tone-aviso-dot: #fbbf24;
+
+    --tone-peligro-bg: rgba(244, 63, 94, 0.16);
+    --tone-peligro-fg: #fecdd3;
+    --tone-peligro-ring: rgba(244, 63, 94, 0.38);
+    --tone-peligro-dot: #fb7185;
+
+    --tone-acento-bg: rgba(99, 102, 241, 0.18);
+    --tone-acento-fg: #c7d2fe;
+    --tone-acento-ring: rgba(99, 102, 241, 0.38);
+    --tone-acento-dot: #818cf8;
+
+    /* Selección de texto dentro del editor enriquecido: translúcida para que
+       el texto con formato que se pinta debajo siga viéndose. */
+    --rt-selection: rgba(56, 189, 248, 0.34);
   }
 
   /* ---- LIGHT THEME ("Daylight" · institutional) ------------ */
@@ -93,6 +137,45 @@
 
     --spotlight: rgba(0, 91, 170, 0.12);
 
+    /* ---- Semantic tones (light) ----------------------------------
+       Texto oscuro y saturado sobre un lavado muy tenue del mismo color: es
+       la única combinación que mantiene el aire del vidrio y a la vez pasa
+       de sobra el contraste 4.5:1 sobre blanco.
+       -------------------------------------------------------------- */
+    --accent-fg: #0e7490;
+    --accent-fg-strong: #155e75;
+
+    --tone-neutral-bg: rgba(8, 47, 95, 0.07);
+    --tone-neutral-fg: #33506f;
+    --tone-neutral-ring: rgba(8, 47, 95, 0.16);
+    --tone-neutral-dot: #64748b;
+
+    --tone-info-bg: rgba(14, 116, 144, 0.1);
+    --tone-info-fg: #0e5f74;
+    --tone-info-ring: rgba(14, 116, 144, 0.28);
+    --tone-info-dot: #0891b2;
+
+    --tone-exito-bg: rgba(4, 120, 87, 0.1);
+    --tone-exito-fg: #046c50;
+    --tone-exito-ring: rgba(4, 120, 87, 0.26);
+    --tone-exito-dot: #059669;
+
+    --tone-aviso-bg: rgba(180, 83, 9, 0.11);
+    --tone-aviso-fg: #92400e;
+    --tone-aviso-ring: rgba(180, 83, 9, 0.28);
+    --tone-aviso-dot: #d97706;
+
+    --tone-peligro-bg: rgba(190, 18, 60, 0.1);
+    --tone-peligro-fg: #a3123f;
+    --tone-peligro-ring: rgba(190, 18, 60, 0.26);
+    --tone-peligro-dot: #e11d48;
+
+    --tone-acento-bg: rgba(79, 70, 229, 0.1);
+    --tone-acento-fg: #4338ca;
+    --tone-acento-ring: rgba(79, 70, 229, 0.26);
+    --tone-acento-dot: #6366f1;
+
+    --rt-selection: rgba(8, 145, 178, 0.24);
   }
 
   html,
@@ -369,6 +452,212 @@
     }
   }
 
+  /* ---------------------------------------------------------------
+     TONOS SEMÁNTICOS — una clase por tono, con contraste garantizado
+     en los dos temas. Sustituyen a las tríadas fijas de Tailwind
+     (`bg-cyan-500/15 text-cyan-200 ring-cyan-400/30`) que el módulo de
+     Evaluaciones repetía en cincuenta sitios y que en tema claro se
+     leían mal o no se leían.
+     --------------------------------------------------------------- */
+  .tone-neutral {
+    background-color: var(--tone-neutral-bg);
+    color: var(--tone-neutral-fg);
+    --tone-ring: var(--tone-neutral-ring);
+    --tone-dot: var(--tone-neutral-dot);
+  }
+  .tone-info {
+    background-color: var(--tone-info-bg);
+    color: var(--tone-info-fg);
+    --tone-ring: var(--tone-info-ring);
+    --tone-dot: var(--tone-info-dot);
+  }
+  .tone-exito {
+    background-color: var(--tone-exito-bg);
+    color: var(--tone-exito-fg);
+    --tone-ring: var(--tone-exito-ring);
+    --tone-dot: var(--tone-exito-dot);
+  }
+  .tone-aviso {
+    background-color: var(--tone-aviso-bg);
+    color: var(--tone-aviso-fg);
+    --tone-ring: var(--tone-aviso-ring);
+    --tone-dot: var(--tone-aviso-dot);
+  }
+  .tone-peligro {
+    background-color: var(--tone-peligro-bg);
+    color: var(--tone-peligro-fg);
+    --tone-ring: var(--tone-peligro-ring);
+    --tone-dot: var(--tone-peligro-dot);
+  }
+  .tone-acento {
+    background-color: var(--tone-acento-bg);
+    color: var(--tone-acento-fg);
+    --tone-ring: var(--tone-acento-ring);
+    --tone-dot: var(--tone-acento-dot);
+  }
+  /* Anillo y punto del tono activo. */
+  .tone-ring {
+    box-shadow: inset 0 0 0 1px var(--tone-ring, var(--hairline));
+  }
+  .tone-dot {
+    background-color: var(--tone-dot, var(--ink-faint));
+  }
+  /* Sólo el color del tono, sin fondo: para números y rótulos grandes. */
+  .tone-text-neutral { color: var(--tone-neutral-fg); }
+  .tone-text-info { color: var(--tone-info-fg); }
+  .tone-text-exito { color: var(--tone-exito-fg); }
+  .tone-text-aviso { color: var(--tone-aviso-fg); }
+  .tone-text-peligro { color: var(--tone-peligro-fg); }
+  .tone-text-acento { color: var(--tone-acento-fg); }
+
+  /* Acento de la marca, legible en los dos temas. */
+  .text-accent {
+    color: var(--accent-fg);
+  }
+  .text-accent-strong {
+    color: var(--accent-fg-strong);
+  }
+  .hover\:text-accent-strong:hover {
+    color: var(--accent-fg-strong);
+  }
+
+  /* ---------------------------------------------------------------
+     EDITOR ENRIQUECIDO — formato visible DENTRO del área de escritura.
+     El área es un <textarea> con el texto transparente; debajo, una capa
+     espejo pinta el mismo texto con sus marcas. Para que coincidan al
+     píxel, las dos comparten esta caja tipográfica exacta.
+     --------------------------------------------------------------- */
+  .rt-box {
+    font-size: 0.875rem;
+    line-height: 1.55;
+    padding: 0.625rem 0.875rem;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    font-family: inherit;
+    letter-spacing: normal;
+    tab-size: 4;
+  }
+  .rt-box-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+  }
+  .rt-area {
+    color: transparent;
+    caret-color: var(--ink);
+    background: transparent;
+    resize: none;
+  }
+  .rt-area::selection {
+    background: var(--rt-selection);
+    color: transparent;
+  }
+  .rt-area::placeholder {
+    color: var(--ink-faint);
+  }
+  .rt-mirror {
+    color: var(--ink);
+    pointer-events: none;
+  }
+
+  /* ---- Marcas dentro del área de escritura ----------------------
+     Regla de oro: NADA de lo que se pinte aquí puede cambiar el ancho de
+     avance del texto, porque el cursor y la selección los dibuja el
+     <textarea> con su propia composición. `font-weight: 700` ensancha
+     ~9 % y desalinearía todo, así que la negrita se consigue engrosando
+     el trazo del glifo (`-webkit-text-stroke`), que es pura pintura.
+     Subrayado y tachado ya son decoraciones sin métrica. El
+     monoespaciado no se cambia de familia por lo mismo: se señala con un
+     lavado de fondo y se ve exacto en la vista previa.
+     -------------------------------------------------------------- */
+  .rt-b {
+    -webkit-text-stroke: 0.5px currentColor;
+    text-shadow: 0 0 0.35px currentColor;
+  }
+  .rt-i {
+    font-style: italic;
+  }
+  .rt-u {
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+  }
+  .rt-s {
+    text-decoration-line: line-through;
+  }
+  .rt-u.rt-s {
+    text-decoration-line: underline line-through;
+  }
+  .rt-c {
+    background-color: var(--fill-2);
+    border-radius: 3px;
+  }
+  .rt-link {
+    color: var(--accent-fg);
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* Destello que señala el bloque al que se acaba de navegar. */
+  .rt-flash {
+    animation: bloque-destello 1.5s cubic-bezier(0.22, 1, 0.36, 1) 1;
+  }
+  @keyframes bloque-destello {
+    0% {
+      box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.65), 0 0 0 0 rgba(34, 211, 238, 0.35);
+    }
+    35% {
+      box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.45), 0 0 34px 6px rgba(34, 211, 238, 0.28);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(34, 211, 238, 0), 0 0 0 0 rgba(34, 211, 238, 0);
+    }
+  }
+
+  /* Barra de carga superior: reconoce el progreso real por etapas y, mientras
+     una etapa está en vuelo, sigue avanzando con una onda para que nunca
+     parezca congelada. */
+  .barra-carga {
+    position: relative;
+    overflow: hidden;
+    border-radius: 9999px;
+    background: var(--fill-2);
+  }
+  .barra-carga > span {
+    display: block;
+    height: 100%;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, #00b0d8, #38bdf8, #005baa);
+    transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .barra-carga::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+    transform: translateX(-100%);
+    animation: barra-onda 1.4s ease-in-out infinite;
+  }
+  @keyframes barra-onda {
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  /* Esqueleto de carga: un lavado que recorre la pieza. */
+  .esqueleto {
+    position: relative;
+    overflow: hidden;
+    background: var(--fill-1);
+    border-radius: 1rem;
+  }
+  .esqueleto::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--fill-2), transparent);
+    transform: translateX(-100%);
+    animation: barra-onda 1.6s ease-in-out infinite;
+  }
 }
 
 @layer utilities {
@@ -501,6 +790,46 @@
 /* The print banner is injected into the live DOM, so hide it on screen. */
 .bdp-print-header {
   display: none;
+}
+
+/* =============================================================
+   ACTA INDIVIDUAL DE EVALUACIÓN — impresión.
+   El acta se dibuja como una hoja blanca dentro de una capa
+   flotante. Al imprimir con el ámbito `acta`, todo lo demás
+   desaparece y la hoja ocupa el papel: sin la capa oscura, sin
+   el dock, sin la barra de acciones y sin sombras.
+   ============================================================= */
+@media print {
+  body.bdp-scope-acta > *:not(.acta-portal) {
+    display: none !important;
+  }
+  body.bdp-scope-acta .no-print {
+    display: none !important;
+  }
+  body.bdp-scope-acta .acta-hoja {
+    max-width: none !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #12263f !important;
+  }
+  body.bdp-scope-acta .acta-hoja * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* La capa del acta deja de flotar y se convierte en el flujo de la página. */
+  body.bdp-scope-acta [role="dialog"] {
+    position: static !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: none !important;
+  }
+  body.bdp-scope-acta .print-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }
 
 /* =============================================================

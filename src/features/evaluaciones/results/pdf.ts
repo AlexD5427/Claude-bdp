@@ -80,6 +80,8 @@ interface LineaTexto {
   fuente: Fuente;
   gris?: number;
   espacioAntes?: number;
+  /** Sangría izquierda, en puntos. */
+  sangria?: number;
 }
 
 interface Regla {
@@ -87,20 +89,44 @@ interface Regla {
   espacioAntes?: number;
 }
 
+interface Banda {
+  tipo: "banda";
+  texto: string;
+  espacioAntes?: number;
+}
+
 interface Salto {
   tipo: "salto";
 }
 
-type Elemento = LineaTexto | Regla | Salto;
+type Elemento = LineaTexto | Regla | Banda | Salto;
 
 /**
  * Constructor de documentos.
  *
  * Se acumulan elementos y al final se pagina. Paginar al final y no al añadir
- * permite calcular los saltos con el alto real de cada bloque.
+ * permite calcular los saltos con el alto real de cada bloque y, sobre todo,
+ * numerar las páginas: hasta que no está todo colocado no se sabe cuántas hay, y
+ * un acta que se archiva necesita decir «página 2 de 5».
  */
 export class ConstructorPdf {
   private elementos: Elemento[] = [];
+  private encabezadoTitulo = "";
+  private encabezadoSubtitulo = "";
+  private pie = "";
+
+  /** Cabecera repetida en cada página. */
+  encabezado(titulo: string, subtitulo = ""): this {
+    this.encabezadoTitulo = titulo;
+    this.encabezadoSubtitulo = subtitulo;
+    return this;
+  }
+
+  /** Pie repetido en cada página, junto a la numeración. */
+  pieDePagina(texto: string): this {
+    this.pie = texto;
+    return this;
+  }
 
   titulo(texto: string): this {
     this.elementos.push({ tipo: "texto", texto, tamano: 18, fuente: "negrita", espacioAntes: 0 });
@@ -112,17 +138,54 @@ export class ConstructorPdf {
     return this;
   }
 
-  parrafo(texto: string, opciones: { tamano?: number; fuente?: Fuente; gris?: number } = {}): this {
+  /** Banda gris con el texto en negrita: separa las partes del acta. */
+  banda(texto: string): this {
+    this.elementos.push({ tipo: "banda", texto, espacioAntes: 12 });
+    return this;
+  }
+
+  parrafo(
+    texto: string,
+    opciones: { tamano?: number; fuente?: Fuente; gris?: number; sangria?: number } = {},
+  ): this {
     const tamano = opciones.tamano ?? 9.5;
     const fuente = opciones.fuente ?? "regular";
-    for (const linea of this.partir(texto, tamano, fuente)) {
-      this.elementos.push({ tipo: "texto", texto: linea, tamano, fuente, gris: opciones.gris, espacioAntes: 2 });
+    const sangria = opciones.sangria ?? 0;
+    for (const linea of this.partir(texto, tamano, fuente, sangria)) {
+      this.elementos.push({
+        tipo: "texto",
+        texto: linea,
+        tamano,
+        fuente,
+        gris: opciones.gris,
+        espacioAntes: 2,
+        sangria,
+      });
     }
     return this;
   }
 
   campo(etiqueta: string, valor: string): this {
     return this.parrafo(`${etiqueta}: ${valor}`, { tamano: 9.5 });
+  }
+
+  /**
+   * Una opción de respuesta tal como se le presentó al candidato.
+   *
+   * Los marcadores son de texto y no de color porque el acta se archiva y se
+   * fotocopia: `[X]` es lo que eligió, `(v)` es la correcta. Un acta que solo
+   * distinga con colores deja de decir nada en cuanto se imprime en blanco y
+   * negro.
+   */
+  opcion(letra: string, texto: string, estado: { elegida: boolean; correcta: boolean }): this {
+    const marca = estado.elegida ? "[X]" : "[ ]";
+    const cola = estado.correcta ? "  (v) correcta" : "";
+    return this.parrafo(`${marca} ${letra}) ${texto}${cola}`, {
+      tamano: 9,
+      fuente: estado.correcta || estado.elegida ? "negrita" : "regular",
+      gris: estado.correcta || estado.elegida ? 0.1 : 0.35,
+      sangria: 14,
+    });
   }
 
   regla(): this {
@@ -141,8 +204,9 @@ export class ConstructorPdf {
   }
 
   /** Parte un texto en líneas que caben en el ancho útil. */
-  private partir(texto: string, tamano: number, fuente: Fuente): string[] {
+  private partir(texto: string, tamano: number, fuente: Fuente, sangria = 0): string[] {
     const lineas: string[] = [];
+    const disponible = ANCHO_UTIL - sangria;
     for (const parrafo of String(texto ?? "").split("\n")) {
       if (!parrafo.trim()) {
         lineas.push("");
@@ -151,7 +215,7 @@ export class ConstructorPdf {
       let actual = "";
       for (const palabra of parrafo.split(/\s+/)) {
         const tentativa = actual ? `${actual} ${palabra}` : palabra;
-        if (anchoTexto(tentativa, tamano, fuente) > ANCHO_UTIL && actual) {
+        if (anchoTexto(tentativa, tamano, fuente) > disponible && actual) {
           lineas.push(actual);
           actual = palabra;
         } else {
@@ -167,12 +231,15 @@ export class ConstructorPdf {
   construir(): Blob {
     const paginas: string[] = [];
     let contenido = "";
-    let y = ALTO_PAGINA - MARGEN;
+    const altoCabecera = this.encabezadoTitulo ? 46 : 0;
+    const topeSuperior = ALTO_PAGINA - MARGEN - altoCabecera;
+    const suelo = this.pie ? MARGEN + 18 : MARGEN;
+    let y = topeSuperior;
 
     const cerrarPagina = () => {
       paginas.push(contenido);
       contenido = "";
-      y = ALTO_PAGINA - MARGEN;
+      y = topeSuperior;
     };
 
     for (const elemento of this.elementos) {
@@ -181,8 +248,8 @@ export class ConstructorPdf {
         continue;
       }
       const espacio = elemento.espacioAntes ?? 0;
-      const alto = elemento.tipo === "texto" ? elemento.tamano * 1.35 : 10;
-      if (y - espacio - alto < MARGEN) cerrarPagina();
+      const alto = elemento.tipo === "texto" ? elemento.tamano * 1.35 : elemento.tipo === "banda" ? 20 : 10;
+      if (y - espacio - alto < suelo) cerrarPagina();
       y -= espacio;
 
       if (elemento.tipo === "regla") {
@@ -190,17 +257,48 @@ export class ConstructorPdf {
         y -= 4;
         continue;
       }
+      if (elemento.tipo === "banda") {
+        y -= 15;
+        contenido +=
+          `0.92 g ${MARGEN} ${y.toFixed(2)} ${ANCHO_UTIL.toFixed(2)} 15 re f\n` +
+          `BT 0.08 g /F2 10 Tf ${(MARGEN + 6).toFixed(2)} ${(y + 4.5).toFixed(2)} Td ` +
+          `(${escapar(aWinAnsi(elemento.texto))}) Tj ET\n`;
+        y -= 4;
+        continue;
+      }
       y -= elemento.tamano;
       const gris = elemento.gris ?? 0.1;
       contenido +=
         `BT ${gris} g ${FUENTE_PDF[elemento.fuente]} ${elemento.tamano} Tf ` +
-        `${MARGEN} ${y.toFixed(2)} Td (${escapar(aWinAnsi(elemento.texto))}) Tj ET\n`;
+        `${(MARGEN + (elemento.sangria ?? 0)).toFixed(2)} ${y.toFixed(2)} Td (${escapar(aWinAnsi(elemento.texto))}) Tj ET\n`;
       y -= elemento.tamano * 0.35;
     }
     if (contenido) paginas.push(contenido);
     if (paginas.length === 0) paginas.push("");
 
-    return this.ensamblar(paginas);
+    return this.ensamblar(paginas.map((pagina, indice) => this.conAdornos(pagina, indice, paginas.length)));
+  }
+
+  /** Añade cabecera y pie a una página ya compuesta. */
+  private conAdornos(pagina: string, indice: number, total: number): string {
+    let salida = pagina;
+    if (this.encabezadoTitulo) {
+      const base = ALTO_PAGINA - MARGEN;
+      salida =
+        `BT 0.05 g /F2 11 Tf ${MARGEN} ${(base - 11).toFixed(2)} Td (${escapar(aWinAnsi(this.encabezadoTitulo))}) Tj ET\n` +
+        (this.encabezadoSubtitulo
+          ? `BT 0.45 g /F1 8.5 Tf ${MARGEN} ${(base - 23).toFixed(2)} Td (${escapar(aWinAnsi(this.encabezadoSubtitulo))}) Tj ET\n`
+          : "") +
+        `0.75 G ${MARGEN} ${(base - 30).toFixed(2)} m ${(ANCHO_PAGINA - MARGEN).toFixed(2)} ${(base - 30).toFixed(2)} l S\n` +
+        salida;
+    }
+    if (this.pie) {
+      const numero = `Página ${indice + 1} de ${total}`;
+      salida +=
+        `BT 0.5 g /F1 8 Tf ${MARGEN} ${(MARGEN - 6).toFixed(2)} Td (${escapar(aWinAnsi(this.pie))}) Tj ET\n` +
+        `BT 0.5 g /F1 8 Tf ${(ANCHO_PAGINA - MARGEN - anchoTexto(numero, 8, "regular")).toFixed(2)} ${(MARGEN - 6).toFixed(2)} Td (${escapar(aWinAnsi(numero))}) Tj ET\n`;
+    }
+    return salida;
   }
 
   /**

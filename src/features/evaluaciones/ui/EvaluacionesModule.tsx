@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 import { toast } from "../../../design-system/liquid-glass/toast";
 import { GlassDialog } from "../../../design-system/liquid-glass/GlassDialog";
-import { EmptyState, ErrorState, LoadingState } from "../../../components/States";
+import { EmptyState, ErrorState } from "../../../components/States";
 import { TextInput } from "../../../design-system/liquid-glass/fields";
 import { useDebouncedValue } from "../../../shared/hooks";
 import { useTalentPermissions } from "../../shared/permissions";
@@ -79,9 +79,12 @@ import { ResultsPanel } from "../results/ResultsPanel";
 import { ImportPanel } from "../imports/ImportPanel";
 import { ConnectionPanel } from "./ConnectionPanel";
 import {
+  BarraCarga,
   BotonCopiar,
   BotonPrimario,
   BotonSecundario,
+  EsqueletoTabla,
+  EsqueletoTarjetas,
   EstadoPill,
   GlassOverlay,
   GlassPanel,
@@ -90,9 +93,11 @@ import {
   Metrica,
   Pill,
   SeparadorMenu,
+  TextoRecorrido,
   formatearDuracion,
   hace,
 } from "./pieces";
+import { useCargaPorEtapas } from "./carga";
 
 type AccionFila =
   | "abrir"
@@ -134,17 +139,32 @@ export function EvaluacionesModule() {
   const [confirmacion, setConfirmacion] = useState<Confirmacion | null>(null);
   const [textoBorrado, setTextoBorrado] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  /** Identificador de la evaluación que se está abriendo, para anunciar la espera. */
+  const [abriendo, setAbriendo] = useState<string | null>(null);
 
   const busqueda = useDebouncedValue(listado.busqueda, 250);
+  const { estado: carga, iniciar: iniciarCarga, avanzar: avanzarCarga, terminar: terminarCarga } =
+    useCargaPorEtapas();
   const montado = useRef(true);
   useEffect(() => () => { montado.current = false; }, []);
 
   const recargar = useCallback(async () => {
     setCargando(true);
+    // Dos lecturas del libro: el estado del backend y el listado. Se lanzan en
+    // paralelo y cada una, al volver, mueve la barra: el usuario ve QUÉ se está
+    // esperando en lugar de una pantalla quieta.
+    iniciarCarga(2, "Conectando con el libro de cálculo…");
     const [estado, lista] = await Promise.all([
-      ping(),
-      listarEvaluaciones({ buscar: busqueda, incluirPapelera: listado.filtros.incluirPapelera }),
+      ping().then((r) => {
+        avanzarCarga("Leyendo el listado de evaluaciones…");
+        return r;
+      }),
+      listarEvaluaciones({ buscar: busqueda, incluirPapelera: listado.filtros.incluirPapelera }).then((r) => {
+        avanzarCarga();
+        return r;
+      }),
     ]);
+    terminarCarga();
     if (!montado.current) return;
     if (estado.ok) {
       setEstadoBackend(estado.value.datos);
@@ -160,7 +180,7 @@ export function EvaluacionesModule() {
       setError({ mensaje: lista.error.message, pista: lista.error.pista ?? "" });
     }
     setCargando(false);
-  }, [busqueda, listado.filtros.incluirPapelera]);
+  }, [avanzarCarga, busqueda, iniciarCarga, listado.filtros.incluirPapelera, terminarCarga]);
 
   useEffect(() => {
     void recargar();
@@ -180,8 +200,10 @@ export function EvaluacionesModule() {
 
   const abrir = useCallback(async (id: string) => {
     setOcupado(true);
+    setAbriendo(id);
     const res = await obtenerEvaluacion(id);
     setOcupado(false);
+    setAbriendo(null);
     if (!res.ok) {
       toast.error(res.error.message);
       return;
@@ -341,26 +363,46 @@ export function EvaluacionesModule() {
 
   /* -------------------------------- Render -------------------------------- */
 
+  /**
+   * Constructor abierto.
+   *
+   * El panel de resultados se monta TAMBIÉN aquí. Antes esta rama devolvía solo el
+   * constructor, así que el botón «Abrir resultados» del paso 4 no hacía nada: el
+   * estado cambiaba y el componente que lo dibuja se quedaba en la otra rama del
+   * `return`. Es un fallo silencioso —ningún error, ninguna pista— del tipo que
+   * hace pensar que el módulo está roto.
+   */
   if (editando) {
     return (
-      <Builder
-        documento={editando}
-        permisos={permissions}
-        actor={userName}
-        onSalir={() => {
-          setEditando(null);
-          void recargar();
-        }}
-        onDocumento={setEditando}
-        onVerResultados={(evaluacionId, titulo, codigo) =>
-          setResultadosDe({
-            ...(items.find((i) => i.id === evaluacionId) ?? ({} as ResumenEvaluacion)),
-            id: evaluacionId,
-            titulo,
-            codigo,
-          })
-        }
-      />
+      <>
+        <Builder
+          documento={editando}
+          permisos={permissions}
+          actor={userName}
+          onSalir={() => {
+            setEditando(null);
+            void recargar();
+          }}
+          onDocumento={setEditando}
+          onVerResultados={(evaluacionId, titulo, codigo) =>
+            setResultadosDe({
+              ...(items.find((i) => i.id === evaluacionId) ?? ({} as ResumenEvaluacion)),
+              id: evaluacionId,
+              titulo,
+              codigo,
+            })
+          }
+        />
+        {resultadosDe && (
+          <ResultsPanel
+            evaluacionId={resultadosDe.id}
+            titulo={resultadosDe.titulo}
+            codigo={resultadosDe.codigo}
+            actor={userName}
+            onClose={() => setResultadosDe(null)}
+          />
+        )}
+      </>
     );
   }
 
@@ -482,7 +524,7 @@ export function EvaluacionesModule() {
                       }
                       className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 transition-colors ${
                         activo
-                          ? "bg-cyan-500/20 text-cyan-100 ring-cyan-400/40"
+                          ? "tone-info tone-ring"
                           : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft"
                       }`}
                     >
@@ -501,7 +543,7 @@ export function EvaluacionesModule() {
                   }
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ring-1 transition-colors ${
                     listado.filtros.soloConIntentos
-                      ? "bg-cyan-500/20 text-cyan-100 ring-cyan-400/40"
+                      ? "tone-info tone-ring"
                       : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft"
                   }`}
                 >
@@ -535,15 +577,32 @@ export function EvaluacionesModule() {
         </div>
       )}
 
+      {/* Progreso de la lectura del libro: siempre visible mientras algo carga. */}
+      <AnimatePresence>
+        {carga.activo && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+          >
+            <BarraCarga progreso={carga.progreso} etiqueta={carga.etiqueta} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Contenido */}
       {cargando && items.length === 0 ? (
-        <LoadingState />
+        listado.vista === "tarjetas" ? (
+          <EsqueletoTarjetas />
+        ) : (
+          <EsqueletoTabla />
+        )
       ) : error ? (
         <div className="flex flex-col gap-3">
           <ErrorState message={error.mensaje} onRetry={() => void recargar()} />
           {error.pista && (
             <GlassPanel padding="p-4" className="border border-amber-400/30 bg-amber-500/5">
-              <p className="text-xs text-amber-200">{error.pista}</p>
+              <p className="text-xs tone-text-aviso">{error.pista}</p>
               <div className="mt-2">
                 <BotonSecundario onClick={() => setConexionAbierta(true)}>
                   <Settings2 className="h-4 w-4" /> Abrir conexión y diagnóstico
@@ -639,6 +698,38 @@ export function EvaluacionesModule() {
         />
       )}
 
+      {/* Apertura de una evaluación: leer el documento completo del libro tarda, y
+          sin este aviso el clic parecía no haber hecho nada. */}
+      <AnimatePresence>
+        {abriendo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[145] grid place-items-center bg-slate-950/40 backdrop-blur-sm"
+            role="status"
+            aria-live="polite"
+          >
+            <motion.div
+              initial={{ scale: 0.94, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 260, damping: 24 }}
+              className="glass-heavy flex w-[min(22rem,90vw)] flex-col gap-3 rounded-3xl p-5 text-center"
+            >
+              <span className="mx-auto grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </span>
+              <p className="text-sm font-bold text-ink">Abriendo la evaluación…</p>
+              <p className="text-xs text-ink-soft">
+                Se está leyendo el documento completo del libro de cálculo: secciones, preguntas, opciones y
+                versiones publicadas.
+              </p>
+              <BarraCarga progreso={0.55} />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Confirmaciones */}
       <GlassDialog
         open={confirmacion !== null && confirmacion.accion !== "borrar"}
@@ -667,7 +758,7 @@ export function EvaluacionesModule() {
             respuestas de los candidatos. No se puede deshacer.
           </p>
           <p className="text-sm text-ink-soft">
-            Escribe <strong className="font-mono text-rose-300">ELIMINAR</strong> para confirmar.
+            Escribe <strong className="font-mono tone-text-peligro">ELIMINAR</strong> para confirmar.
           </p>
           <TextInput
             value={textoBorrado}
@@ -727,8 +818,8 @@ function BarraSuperior({
     <div
       className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-xs ${
         demostracion
-          ? "border-cyan-400/30 bg-cyan-500/10 text-cyan-100"
-          : "border-amber-400/40 bg-amber-500/10 text-amber-200"
+          ? "border-cyan-400/30 bg-cyan-500/10 text-accent"
+          : "border-amber-400/40 bg-amber-500/10 tone-text-aviso"
       }`}
     >
       <div className="flex items-start gap-2">
@@ -803,9 +894,9 @@ function Tarjetas({
               <button
                 type="button"
                 onClick={() => onAbrir(item.id)}
-                className="text-left text-base font-black leading-tight text-ink transition-colors hover:text-cyan-300"
+                className="block w-full text-left text-base font-black leading-tight text-ink transition-colors hover:text-accent-strong"
               >
-                {item.titulo}
+                <TextoRecorrido texto={item.titulo} />
               </button>
               <p className="mt-0.5 font-mono text-[0.7rem] text-ink-faint">{item.codigo}</p>
             </div>
@@ -837,7 +928,7 @@ function Tarjetas({
                 <button
                   type="button"
                   onClick={() => onResultados(item)}
-                  className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[0.7rem] font-bold text-emerald-200 ring-1 ring-emerald-400/30 transition-colors hover:bg-emerald-500/25"
+                  className="inline-flex items-center gap-1 rounded-full tone-exito tone-ring px-2.5 py-1 text-[0.7rem] font-bold transition-colors hover:bg-emerald-500/25"
                 >
                   <BarChart3 className="h-3 w-3" />
                   {item.intentos} intento{item.intentos === 1 ? "" : "s"}
@@ -896,9 +987,9 @@ function Tabla({
                   <button
                     type="button"
                     onClick={() => onAbrir(item.id)}
-                    className="text-left font-semibold text-ink transition-colors hover:text-cyan-300"
+                    className="block max-w-[22rem] text-left font-semibold text-ink transition-colors hover:text-accent-strong"
                   >
-                    {item.titulo}
+                    <TextoRecorrido texto={item.titulo} />
                   </button>
                   <p className="font-mono text-[0.68rem] text-ink-faint">{item.codigo}</p>
                 </td>

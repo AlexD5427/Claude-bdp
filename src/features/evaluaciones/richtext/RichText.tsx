@@ -14,12 +14,33 @@ import type { ReactNode } from "react";
 import type { RichBlock, RichDoc, RichMark, RichSpan } from "../domain/richText";
 import { sanitizeRichDoc } from "../domain/richText";
 
-const CLASE_MARCA: Record<RichMark, string> = {
+/**
+ * Clases de cada marca.
+ *
+ * Se exporta porque el EDITOR pinta el texto con formato dentro del área de
+ * escritura usando exactamente estas clases: si el editor y el renderizador
+ * usaran tablas distintas, lo que se ve al escribir dejaría de ser lo que ve el
+ * candidato — que es justo el problema que este modelo quiere evitar.
+ *
+ * `c` (monoespaciado) no lleva fondo ni relleno propio en el editor porque
+ * alteraría el ancho del texto y desalinearía el espejo; ese detalle lo resuelve
+ * `CLASE_MARCA_EDITOR`.
+ */
+export const CLASE_MARCA: Record<RichMark, string> = {
   b: "font-bold",
   i: "italic",
   u: "underline decoration-1 underline-offset-2",
   s: "line-through",
   c: "font-mono text-[0.94em] rounded bg-[color:var(--fill-2)] px-1 py-[1px]",
+};
+
+/** Variante para el espejo del editor: sin nada que cambie el ancho del texto. */
+export const CLASE_MARCA_EDITOR: Record<RichMark, string> = {
+  b: "rt-b",
+  i: "rt-i",
+  u: "rt-u",
+  s: "rt-s",
+  c: "rt-c",
 };
 
 function Fragmento({ span }: { span: RichSpan }) {
@@ -31,7 +52,7 @@ function Fragmento({ span }: { span: RichSpan }) {
       href={span.l}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-cyan-300 underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-cyan-200"
+      className="text-accent underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-accent-strong"
     >
       {contenido}
     </a>

@@ -61,9 +61,9 @@ const ICONO_SEVERIDAD: Record<Hallazgo["severidad"], typeof Info> = {
 };
 
 const TONO_SEVERIDAD: Record<Hallazgo["severidad"], string> = {
-  critico: "border-rose-400/40 bg-rose-500/10 text-rose-200",
-  alto: "border-amber-400/40 bg-amber-500/10 text-amber-200",
-  medio: "border-cyan-400/30 bg-cyan-500/10 text-cyan-100",
+  critico: "border-rose-400/40 bg-rose-500/10 tone-text-peligro",
+  alto: "border-amber-400/40 bg-amber-500/10 tone-text-aviso",
+  medio: "border-cyan-400/30 bg-cyan-500/10 text-accent",
   info: "border-[color:var(--hairline)] bg-[color:var(--fill-1)] text-ink-soft",
 };
 
@@ -159,7 +159,7 @@ export function ConnectionPanel({ onCambio }: { onCambio?: () => void }) {
   return (
     <div className="flex flex-col gap-4">
       {AVISO_CONFIGURACION && (
-        <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+        <div className="rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs tone-text-aviso">
           {AVISO_CONFIGURACION}
         </div>
       )}
@@ -262,9 +262,9 @@ export function ConnectionPanel({ onCambio }: { onCambio?: () => void }) {
       {errorPrueba && (
         <GlassPanel className="border border-rose-400/40 bg-rose-500/5">
           <div className="flex items-start gap-3">
-            <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-300" />
+            <XCircle className="mt-0.5 h-5 w-5 shrink-0 tone-text-peligro" />
             <div>
-              <p className="text-sm font-bold text-rose-200">{errorPrueba.mensaje}</p>
+              <p className="text-sm font-bold tone-text-peligro">{errorPrueba.mensaje}</p>
               {errorPrueba.pista && <p className="mt-1 text-xs text-rose-100/90">{errorPrueba.pista}</p>}
             </div>
           </div>
@@ -305,7 +305,7 @@ export function ConnectionPanel({ onCambio }: { onCambio?: () => void }) {
             </p>
           )}
           {avisos.includes("ADMIN_SIN_LLAVE") && (
-            <div className="mt-3 flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            <div className="mt-3 flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs tone-text-aviso">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 La administración está abierta: cualquiera que conozca la URL puede crear y publicar evaluaciones.
@@ -315,7 +315,7 @@ export function ConnectionPanel({ onCambio }: { onCambio?: () => void }) {
             </div>
           )}
           {!estado.autorizacion.secretoIntentos && (
-            <div className="mt-2 flex items-start gap-2 rounded-2xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            <div className="mt-2 flex items-start gap-2 rounded-2xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-xs tone-text-peligro">
               <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 Falta el secreto de firma de intentos: ningún candidato podrá empezar una prueba. Pulsa
@@ -358,7 +358,7 @@ function OpcionModo({
       <span className="flex items-center gap-2 text-sm font-bold text-ink">
         {icono}
         {titulo}
-        {activa && <CheckCircle2 className="ml-auto h-4 w-4 text-cyan-300" />}
+        {activa && <CheckCircle2 className="ml-auto h-4 w-4 text-accent" />}
       </span>
       <span className="text-xs text-ink-soft">{descripcion}</span>
     </button>
@@ -404,7 +404,7 @@ function DiagnosticoDetalle({ diagnostico }: { diagnostico: Diagnostico }) {
       )}
 
       {diagnostico.hallazgos.length === 0 ? (
-        <p className="flex items-center gap-2 text-sm text-emerald-300">
+        <p className="flex items-center gap-2 text-sm tone-text-exito">
           <CheckCircle2 className="h-4 w-4" /> Sin hallazgos. Todo en orden.
         </p>
       ) : (
@@ -457,9 +457,9 @@ function DiagnosticoDetalle({ diagnostico }: { diagnostico: Diagnostico }) {
                     <td className="py-1.5 pr-3 tabular-nums">{hoja.dataRows}</td>
                     <td className="py-1.5 pr-3">
                       {hoja.missingColumns.length === 0 ? (
-                        <span className="text-emerald-300">—</span>
+                        <span className="tone-text-exito">—</span>
                       ) : (
-                        <span className="text-rose-300">{hoja.missingColumns.join(", ")}</span>
+                        <span className="tone-text-peligro">{hoja.missingColumns.join(", ")}</span>
                       )}
                     </td>
                     <td className="py-1.5">{hoja.describe}</td>
