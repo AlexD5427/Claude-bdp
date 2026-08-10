@@ -110,6 +110,8 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
   const [confirmarSalida, setConfirmarSalida] = useState(false);
   const [versiones, setVersiones] = useState(documento.versiones);
   const [recuperable, setRecuperable] = useState<{ titulo: string; guardadoEn: string } | null>(null);
+  /** Versión recién publicada, para el acuse visible. */
+  const [celebrar, setCelebrar] = useState<string | null>(null);
   /**
    * Petición de foco para el paso de preguntas.
    *
@@ -300,6 +302,11 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
       { version: res.value.version.etiqueta },
     );
     setNotasPublicacion("");
+    // Publicar es la acción con más consecuencias del módulo: el enlace del
+    // candidato empieza a servir otra versión. Un acuse que se ve —y que dice qué
+    // versión— evita la duda de «¿se publicó o no?» y el segundo clic.
+    setCelebrar(res.value.version.etiqueta);
+    setTimeout(() => setCelebrar(null), 2600);
     toast.success(
       `Publicada como ${res.value.version.etiqueta}. El enlace público ya sirve esta versión.`,
     );
@@ -688,6 +695,41 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
           Revertir no borra versiones ni altera intentos. Solo cambia qué versión reciben los candidatos nuevos.
         </p>
       </GlassOverlay>
+
+      {/* Acuse de publicación */}
+      <AnimatePresence>
+        {celebrar && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none fixed inset-0 z-[160] grid place-items-center"
+            role="status"
+            aria-live="polite"
+          >
+            <motion.div
+              initial={{ scale: 0.7, y: 18 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 260, damping: 18 }}
+              className="glass-heavy flex flex-col items-center gap-2 rounded-3xl px-8 py-6 text-center"
+            >
+              <motion.span
+                initial={{ scale: 0.4, rotate: -20 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 320, damping: 14, delay: 0.08 }}
+                className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-glass"
+              >
+                <CheckCircle2 className="h-7 w-7" />
+              </motion.span>
+              <p className="text-lg font-black text-ink">Publicada como {celebrar}</p>
+              <p className="max-w-xs text-xs text-ink-soft">
+                El enlace del candidato ya sirve esta versión. Los intentos que ya empezaron siguen con la suya.
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <GlassDialog
         open={confirmarSalida}

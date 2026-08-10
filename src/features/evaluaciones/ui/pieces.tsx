@@ -239,7 +239,7 @@ export function Metrica({
     >
       <span
         className={`flex items-center gap-1.5 text-[0.65rem] font-bold uppercase tracking-[0.14em] ${
-          destacada ? "opacity-80" : "text-ink-faint"
+          destacada ? "opacity-90" : "text-ink-faint"
         }`}
       >
         {icono}

@@ -410,18 +410,20 @@ function PanelKpis({ kpis, aprobacion }: { kpis: KpisConvocatoria; aprobacion: n
           <p className="mb-2 text-[0.65rem] font-black uppercase tracking-[0.16em] text-ink-faint">
             Distribución de notas
           </p>
-          <div className="flex h-24 items-end gap-2">
+          {/* Las barras se miden en PÍXELES y no en porcentaje: un alto relativo
+              dentro de un contenedor flexible sin alto definido se resuelve a cero,
+              y el histograma aparecía plano aunque los datos estuvieran bien. */}
+          <div className="flex items-end gap-2">
             {kpis.distribucion.map((tramo) => (
               <div key={tramo.etiqueta} className="flex flex-1 flex-col items-center gap-1">
                 <span className="text-[0.68rem] font-black tabular-nums text-ink-soft">{tramo.cuantos}</span>
                 <motion.div
                   initial={{ height: 0 }}
-                  animate={{ height: `${(tramo.cuantos / maximo) * 100}%` }}
+                  animate={{ height: Math.max(tramo.cuantos > 0 ? 8 : 3, (tramo.cuantos / maximo) * 78) }}
                   transition={{ type: "spring", stiffness: 140, damping: 20 }}
                   className={`w-full rounded-t-lg bg-gradient-to-t ${
-                    tramo.desde >= 60 ? "from-emerald-500/35 to-emerald-400/80" : "from-rose-500/30 to-rose-400/70"
+                    tramo.desde >= 60 ? "from-emerald-500/40 to-emerald-400/90" : "from-rose-500/35 to-rose-400/80"
                   }`}
-                  style={{ minHeight: tramo.cuantos > 0 ? 6 : 2 }}
                 />
                 <span className="text-[0.62rem] tabular-nums text-ink-faint">{tramo.etiqueta}</span>
               </div>
