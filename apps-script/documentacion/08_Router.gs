@@ -196,7 +196,8 @@ var DOC_ACCIONES_ESCRITURA = {
   'mantenimiento.autoreparar': true, 'mantenimiento.respaldar': true,
   'mantenimiento.restaurar': true, 'mantenimiento.deduplicar': true,
   'mantenimiento.recalcular': true, 'mantenimiento.recolorear': true,
-  'mantenimiento.compactar': true, 'entrega.registrar': true
+  'mantenimiento.compactar': true, 'entrega.registrar': true,
+  'auxiliar.reparar': true
 };
 
 function docDispatch_(params, metodo) {
@@ -303,6 +304,23 @@ function docExecute_(accion, params, actor, metodo, avisos) {
       });
       return creada;
     }
+
+    /* --- Catalogos administrables: la pestana `Auxiliar` ---
+     *
+     * Ninguna de las tres exige que el libro este instalado, igual que
+     * `diagnostico` e `instalar`. Es a proposito: la pestana `Auxiliar` es justo
+     * lo que hay que poder revisar y arreglar ANTES de que el modulo funcione.
+     * Pedir instalacion para reparar la hoja que la instalacion necesita seria
+     * un circulo cerrado.
+     */
+    case 'auxiliar.opciones':
+      return docAuxOptions_(params.refrescar === true || params.refrescar === 'true');
+
+    case 'auxiliar.validar':
+      return docAuxValidate_();
+
+    case 'auxiliar.reparar':
+      return docAuxRepair_(actor, params.origen || 'web');
 
     /* --- Expedientes --- */
     case 'expedientes.listar':
@@ -508,6 +526,7 @@ function docExecute_(accion, params, actor, metodo, avisos) {
 function docActionList_() {
   return [
     'estado', 'diagnostico', 'verificar', 'instalar', 'reparar', 'crear-anio',
+    'auxiliar.opciones', 'auxiliar.validar', 'auxiliar.reparar',
     'expedientes.listar', 'expediente.obtener', 'expediente.guardar', 'expediente.borrar',
     'expedientes.importar', 'expedientes.exportar', 'aviso.registrar',
     'configuracion.obtener', 'configuracion.guardar', 'catalogo.guardar',
