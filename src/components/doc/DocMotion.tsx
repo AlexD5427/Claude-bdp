@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { motion, type Transition, type Variants } from "framer-motion";
 import { useDocStore } from "../../lib/docStore";
+import "./doc-motion.css";
 
 /* ------------------------------------------------------------------ */
 /* Preferencias                                                        */
