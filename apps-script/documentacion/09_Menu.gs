@@ -1,201 +1,275 @@
 /**
- * 09_Menu.gs - menu dentro del libro y tareas programadas.
+ * 09_Menu.gs - el menu del libro y las tareas programadas.
  *
- * -- Por que hay un menu si ya existe la web --------------------------------
- * Porque el acuerdo con el area es que puede seguir trabajando en Sheets cuando
- * le convenga. Si para reparar el libro o sacar un respaldo tuviera que abrir el
- * navegador, ese acuerdo seria falso. Las mismas acciones estan en los dos
- * sitios y hacen exactamente lo mismo.
+ * Quien administra este libro no siempre entra por la aplicacion web. Todo lo
+ * que se puede hacer desde la web se puede hacer tambien desde aqui, con la
+ * ventaja de que Apps Script pide los permisos de forma explicita la primera vez.
  *
- * -- Las tareas programadas --------------------------------------------------
- * Una diaria que saca respaldo, recalcula metricas y compacta bitacoras. Se
- * instala desde el menu, no automaticamente: un disparador que aparece solo en
- * el libro de alguien es una sorpresa desagradable.
+ * Regla de este archivo: cada entrada del menu llama a `docMenuRun_`, que se
+ * encarga del envoltorio comun -reiniciar el registro, confirmar los cambios,
+ * mostrar el resultado y, sobre todo, mostrar el ERROR de forma legible-. Un
+ * fallo dentro de `onOpen` que nadie captura deja el menu a medias sin decir por
+ * que.
  */
 
-/** Menu del libro. Google la ejecuta al abrirlo. */
 function onOpen() {
-  try {
-    SpreadsheetApp.getUi()
-      .createMenu('Documentacion')
-      .addItem('Instalar o reparar', 'docMenuInstalar')
-      .addItem('Diagnosticar', 'docMenuDiagnosticar')
-      .addItem('Reparar automaticamente', 'docMenuAutoreparar')
-      .addSeparator()
-      .addItem('Crear pestana del ano en curso', 'docMenuCrearAnio')
-      .addItem('Recalcular avances', 'docMenuRecalcular')
-      .addItem('Repintar colores', 'docMenuRecolorear')
-      .addSeparator()
-      .addItem('Guardar respaldo', 'docMenuRespaldar')
-      .addItem('Ver respaldos', 'docMenuVerRespaldos')
-      .addItem('Buscar duplicados', 'docMenuDuplicados')
-      .addItem('Compactar bitacoras', 'docMenuCompactar')
-      .addSeparator()
-      .addItem('Activar tarea diaria', 'docInstalarDisparadores')
-      .addItem('Desactivar tarea diaria', 'docQuitarDisparadores')
-      .addItem('Ejecutar pruebas', 'docMenuPruebas')
-      .addToUi();
-  } catch (e) { /* sin interfaz disponible */ }
+  SpreadsheetApp.getUi()
+    .createMenu('Documentacion')
+    .addItem('Instalar o reparar', 'docMenuInstalar')
+    .addItem('Diagnosticar', 'docMenuDiagnosticar')
+    .addItem('Reparar automaticamente', 'docMenuAutoreparar')
+    .addSeparator()
+    .addItem('Validar catalogos (Auxiliar)', 'docMenuAuxiliar')
+    .addItem('Reparar catalogos (Auxiliar)', 'docMenuAuxiliarReparar')
+    .addSeparator()
+    .addItem('Crear pestana del ano en curso', 'docMenuCrearAnio')
+    .addItem('Recalcular avances', 'docMenuRecalcular')
+    .addItem('Repintar colores', 'docMenuRecolorear')
+    .addSeparator()
+    .addItem('Guardar respaldo', 'docMenuRespaldar')
+    .addItem('Ver respaldos', 'docMenuVerRespaldos')
+    .addItem('Buscar duplicados', 'docMenuDuplicados')
+    .addItem('Compactar bitacoras', 'docMenuCompactar')
+    .addSeparator()
+    .addItem('Activar tarea diaria', 'docInstalarDisparadores')
+    .addItem('Desactivar tarea diaria', 'docQuitarDisparadores')
+    .addItem('Ejecutar pruebas', 'docMenuPruebas')
+    .addToUi();
 }
 
-/** Envoltorio comun: prepara el contexto, ejecuta y avisa del resultado. */
+/**
+ * Envoltorio comun de las entradas del menu.
+ *
+ * Reinicia el registro, ejecuta, confirma los cambios pendientes y muestra el
+ * resultado. Si algo falla, muestra el mensaje ya clasificado en lugar de la
+ * excepcion cruda: el codigo de `01_Core.gs` es comprensible, el volcado de la
+ * pila no lo es.
+ */
 function docMenuRun_(titulo, fn) {
-  docLogReset_('menu');
+  var ui = SpreadsheetApp.getUi();
+  docLogReset_(titulo);
   docStoreReset_();
   docYearsReset_();
-  var ui = null;
-  try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
   try {
     var mensaje = fn();
     docCommit_();
     docYearsCommit_();
     docFlushLog_();
     docCommit_();
-    if (ui) ui.alert(titulo, mensaje, ui.ButtonSet.OK);
-    return mensaje;
+    ui.alert(titulo, String(mensaje || 'Listo.'), ui.ButtonSet.OK);
   } catch (error) {
     docRollback_();
     var info = docClassify_(error);
-    var texto = info.message + (info.docHint ? '\n\nQue hacer: ' + info.docHint : '');
-    if (ui) ui.alert(titulo + ' - no se pudo completar', texto, ui.ButtonSet.OK);
-    return texto;
+    ui.alert(titulo + ' - error',
+      info.message + (info.docHint ? '\n\n' + info.docHint : ''),
+      ui.ButtonSet.OK);
   }
 }
 
 function docMenuInstalar() {
-  return docMenuRun_('Instalar o reparar', function () {
-    var r = docInstallSchema_(docActor_(null), []);
-    var lineas = [];
-    for (var i = 0; i < r.acciones.length; i++) {
-      lineas.push('- ' + r.acciones[i].hoja + ': ' + r.acciones[i].accion);
-    }
-    return 'Listo.\n\n' + lineas.join('\n');
+  docMenuRun_('Instalar o reparar', function () {
+    var r = docInstallSchema_(docActor_({}), []);
+    return r.acciones.length
+      ? r.acciones.length + ' cambio(s):\n\n' + r.acciones.map(function (a) {
+        return '- ' + a.hoja + ': ' + a.accion;
+      }).join('\n')
+      : 'La estructura ya estaba completa. No hizo falta cambiar nada.';
   });
 }
 
 function docMenuDiagnosticar() {
-  return docMenuRun_('Diagnostico', function () {
+  docMenuRun_('Diagnostico', function () {
     var d = docDiagnose_();
-    if (d.ok && !d.hallazgos.length) {
-      return 'Todo correcto.\n\nExpedientes: ' + d.resumen.expedientes +
-        '\nAnos: ' + d.resumen.anios.join(', ') +
-        '\nLineas de auditoria: ' + d.resumen.auditoria;
-    }
-    var lineas = ['Expedientes: ' + d.resumen.expedientes + '   Anos: ' + d.resumen.anios.join(', '), ''];
-    for (var i = 0; i < d.hallazgos.length; i++) {
-      var h = d.hallazgos[i];
-      lineas.push('[' + h.severidad.toUpperCase() + '] ' + h.titulo);
-      lineas.push('   ' + h.detalle);
-      if (h.accion) lineas.push('   Se corrige con: ' + h.accion);
-      lineas.push('');
-    }
-    return lineas.join('\n');
+    if (!d.hallazgos.length) return 'Sin problemas. Esquema ' + d.esquema + '.';
+    return d.criticos + ' critico(s), ' + (d.hallazgos.length - d.criticos) + ' aviso(s):\n\n' +
+      d.hallazgos.slice(0, 12).map(function (h) {
+        return '[' + h.severidad + '] ' + h.titulo;
+      }).join('\n');
   });
 }
 
 function docMenuAutoreparar() {
-  return docMenuRun_('Reparar automaticamente', function () {
-    var r = docAutoRepair_(docActor_(null), 'menu');
-    if (!r.aplicadas.length) return 'No hizo falta reparar nada.';
+  docMenuRun_('Reparacion automatica', function () {
+    var r = docAutoRepair_(docActor_({}), 'menu');
+    return r.acciones.length
+      ? r.acciones.length + ' correccion(es) aplicada(s).'
+      : 'No habia nada que reparar automaticamente.';
+  });
+}
+
+/**
+ * Revisa la pestana `Auxiliar` sin tocarla.
+ *
+ * Solo lectura, siempre. Se puede pulsar sin pensarlo dos veces, que es
+ * justamente por lo que esta separada de la reparacion.
+ */
+function docMenuAuxiliar() {
+  docMenuRun_('Catalogos (Auxiliar)', function () {
+    var v = docAuxValidate_();
     var lineas = [];
-    for (var i = 0; i < r.aplicadas.length; i++) {
-      lineas.push('- ' + r.aplicadas[i].accion + ': ' + (r.aplicadas[i].detalle || r.aplicadas[i].error || ''));
+
+    lineas.push('Agencias cargadas: ' + v.opciones.agencias.length);
+    lineas.push('Gerencias cargadas: ' + v.opciones.gerencias.length);
+
+    if (!v.hallazgos.length) {
+      lineas.push('');
+      lineas.push('Sin problemas: las cabeceras agencia_bdp y gerencia_bdp estan');
+      lineas.push('bien escritas y sus valores se leen correctamente.');
+      return lineas.join('\n');
     }
-    return lineas.join('\n') + '\n\nProblemas criticos restantes: ' + r.despues.criticos;
+
+    lineas.push('');
+    lineas.push(v.criticos + ' critico(s), ' + (v.hallazgos.length - v.criticos) + ' aviso(s):');
+    lineas.push('');
+    for (var i = 0; i < v.hallazgos.length && i < 10; i++) {
+      var h = v.hallazgos[i];
+      lineas.push('[' + h.severidad + '] ' + h.titulo);
+      lineas.push('   ' + h.detalle);
+    }
+    if (v.criticos > 0) {
+      lineas.push('');
+      lineas.push('Usa "Reparar catalogos (Auxiliar)" para corregir lo que se pueda');
+      lineas.push('corregir sin riesgo. Nunca borra valores.');
+    }
+    return lineas.join('\n');
+  });
+}
+
+/**
+ * Repara la pestana `Auxiliar`.
+ *
+ * Crea la hoja o las cabeceras que falten y adopta una variante de cabecera solo
+ * cuando es inequivoca. NUNCA borra un valor.
+ *
+ * El informe distingue lo aplicado de lo PENDIENTE. Lo pendiente es lo
+ * importante: son los casos ambiguos que el codigo se niega a resolver por su
+ * cuenta -dos cabeceras parecidas, cabeceras duplicadas- y que necesitan que una
+ * persona mire la hoja.
+ */
+function docMenuAuxiliarReparar() {
+  docMenuRun_('Reparar catalogos (Auxiliar)', function () {
+    var r = docAuxRepair_(docActor_({}), 'menu');
+    var lineas = [];
+
+    if (r.acciones.length) {
+      lineas.push(r.acciones.length + ' cambio(s) aplicado(s):');
+      for (var i = 0; i < r.acciones.length; i++) {
+        lineas.push('- ' + r.acciones[i].accion + ': ' + r.acciones[i].detalle);
+      }
+    } else {
+      lineas.push('No hizo falta cambiar nada.');
+    }
+
+    if (r.pendientes.length) {
+      lineas.push('');
+      lineas.push('Requiere tu decision (' + r.pendientes.length + '):');
+      for (var p = 0; p < r.pendientes.length; p++) {
+        lineas.push('- ' + r.pendientes[p].cabecera + ': ' + r.pendientes[p].motivo);
+      }
+    }
+
+    lineas.push('');
+    lineas.push('Agencias: ' + r.opciones.agencias.length +
+      ' | Gerencias: ' + r.opciones.gerencias.length);
+    return lineas.join('\n');
   });
 }
 
 function docMenuCrearAnio() {
-  return docMenuRun_('Crear pestana anual', function () {
-    var anio = new Date().getFullYear();
-    var r = docEnsureYearSheet_(anio);
-    return 'Pestana ' + r.hoja + ': ' + r.accion + '.';
+  docMenuRun_('Crear pestana del ano', function () {
+    var r = docEnsureYearSheet_(new Date().getFullYear());
+    return 'Pestana "' + r.hoja + '": ' + r.accion + '.';
   });
 }
 
 function docMenuRecalcular() {
-  return docMenuRun_('Recalcular avances', function () {
-    var r = docRecalc_(null, docActor_(null));
-    return r.actualizadas + ' fila(s) recalculada(s).\n' +
-      r.omitidas + ' fila(s) sin checklist se dejaron intactas.';
+  docMenuRun_('Recalcular avances', function () {
+    var r = docRecalc_(0, docActor_({}));
+    return r.actualizados + ' expediente(s) actualizado(s) de ' + r.revisados + ' revisado(s).';
   });
 }
 
 function docMenuRecolorear() {
-  return docMenuRun_('Repintar colores', function () {
-    var r = docRecolor_(null, docActor_(null));
-    return r.pintadas + ' fila(s) repintada(s) en ' + r.anios.length + ' pestana(s).';
+  docMenuRun_('Repintar colores', function () {
+    var r = docRecolor_(0, docActor_({}));
+    return r.filas + ' fila(s) repintada(s) en ' + r.hojas + ' pestana(s).';
   });
 }
 
 function docMenuRespaldar() {
-  return docMenuRun_('Guardar respaldo', function () {
-    var r = docBackup_('manual desde el menu', docActor_(null));
-    return 'Respaldo ' + r.id + '\n' + r.expedientes + ' expediente(s), ' + r.bytes + ' caracteres.';
+  docMenuRun_('Guardar respaldo', function () {
+    var r = docBackup_('manual desde el menu', docActor_({}));
+    return 'Respaldo ' + r.id + ' guardado con ' + r.expedientes + ' expediente(s).';
   });
 }
 
 function docMenuVerRespaldos() {
-  return docMenuRun_('Respaldos', function () {
+  docMenuRun_('Respaldos', function () {
     var lista = docListBackups_();
-    if (!lista.length) return 'Todavia no hay ningun respaldo.';
-    var lineas = [];
-    for (var i = 0; i < Math.min(lista.length, 15); i++) {
-      lineas.push(String(lista[i].momento).slice(0, 16).replace('T', ' ') +
-        '  ' + lista[i].expedientes + ' exp.  ' + lista[i].motivo);
-    }
-    return lineas.join('\n');
+    if (!lista.length) return 'Todavia no hay respaldos guardados.';
+    return lista.slice(0, 15).map(function (b) {
+      return b.id + '  |  ' + b.creado_en + '  |  ' + b.expedientes + ' exp.  |  ' + b.motivo;
+    }).join('\n');
   });
 }
 
 function docMenuDuplicados() {
-  return docMenuRun_('Duplicados', function () {
-    var r = docDedupe_(null, false, docActor_(null), 'menu');
-    if (!r.grupos.length) return 'No se encontraron duplicados.';
-    var lineas = ['Se encontraron ' + r.grupos.length + ' grupo(s):', ''];
-    for (var i = 0; i < Math.min(r.grupos.length, 20); i++) {
-      lineas.push('- ' + r.grupos[i].nombre + ' (' + r.grupos[i].anio + '): ' +
-        r.grupos[i].total + ' filas. Se conservaria ' + r.grupos[i].conservar);
-    }
-    lineas.push('');
-    lineas.push('No se elimino nada. Fusionar expedientes se hace desde el modulo.');
-    return lineas.join('\n');
+  docMenuRun_('Duplicados', function () {
+    var r = docDedupe_(0, false, docActor_({}), 'menu');
+    if (!r.grupos.length) return 'No hay identificadores repetidos.';
+    return r.grupos.length + ' identificador(es) repetido(s):\n\n' +
+      r.grupos.slice(0, 15).map(function (g) {
+        return '- ' + g.identificador + ' (' + g.filas + ' filas)';
+      }).join('\n');
   });
 }
 
 function docMenuCompactar() {
-  return docMenuRun_('Compactar', function () {
-    var r = docCompact_(docActor_(null));
-    return r.eliminadas + ' linea(s) antigua(s) retirada(s).';
+  docMenuRun_('Compactar bitacoras', function () {
+    var r = docCompact_(docActor_({}));
+    return r.eliminadas + ' fila(s) antigua(s) eliminada(s).';
   });
 }
 
 function docMenuPruebas() {
-  return docMenuRun_('Pruebas', function () {
-    return docFormatTestReport_(docEjecutarPruebas());
+  docMenuRun_('Pruebas', function () {
+    var r = docRunTests_();
+    return r.fallidas === 0
+      ? r.total + ' prueba(s), todas correctas.'
+      : r.fallidas + ' de ' + r.total + ' prueba(s) fallaron:\n\n' +
+        r.detalle.filter(function (d) { return !d.ok; })
+          .map(function (d) { return '- ' + d.nombre + ': ' + d.mensaje; })
+          .join('\n');
   });
 }
 
 /* ------------------------------ Disparadores ------------------------------ */
 
-/** Activa la tarea diaria de madrugada. Quita antes las anteriores. */
+/**
+ * Activa la tarea diaria.
+ *
+ * Se quitan antes los disparadores existentes para que pulsar el menu dos veces
+ * no deje dos tareas ejecutandose a la misma hora.
+ */
 function docInstalarDisparadores() {
-  return docMenuRun_('Tarea diaria', function () {
+  var ui = SpreadsheetApp.getUi();
+  try {
     docQuitarDisparadoresInterno_();
-    ScriptApp.newTrigger('docTareaDiaria')
-      .timeBased()
-      .atHour(3)
-      .everyDays(1)
-      .create();
-    return 'Tarea diaria activada. Cada madrugada guardara un respaldo, recalculara los avances y compactara las bitacoras.';
-  });
+    ScriptApp.newTrigger('docTareaDiaria').timeBased().atHour(3).everyDays(1).create();
+    ui.alert('Tarea diaria', 'Activada. Se ejecutara cada dia alrededor de las 3 de la manana.', ui.ButtonSet.OK);
+  } catch (error) {
+    ui.alert('Tarea diaria - error', docClassify_(error).message, ui.ButtonSet.OK);
+  }
 }
 
 function docQuitarDisparadores() {
-  return docMenuRun_('Tarea diaria', function () {
-    var n = docQuitarDisparadoresInterno_();
-    return n ? ('Se desactivaron ' + n + ' tarea(s).') : 'No habia ninguna tarea activa.';
-  });
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var quitados = docQuitarDisparadoresInterno_();
+    ui.alert('Tarea diaria', quitados + ' disparador(es) desactivado(s).', ui.ButtonSet.OK);
+  } catch (error) {
+    ui.alert('Tarea diaria - error', docClassify_(error).message, ui.ButtonSet.OK);
+  }
 }
 
 function docQuitarDisparadoresInterno_() {
@@ -211,59 +285,75 @@ function docQuitarDisparadoresInterno_() {
 }
 
 /**
- * Tarea diaria.
+ * Mantenimiento nocturno.
  *
- * Cada paso va protegido por separado: que falle el respaldo no puede impedir
- * que se recalculen los avances, y al reves.
+ * Cada paso va en su propio try: que falle el respaldo no puede impedir que se
+ * recalculen los avances. Un mantenimiento que se detiene en el primer tropiezo
+ * es un mantenimiento que deja de hacerse.
  */
 function docTareaDiaria() {
-  docLogReset_('tarea.diaria');
+  docLogReset_('tarea-diaria');
   docStoreReset_();
   docYearsReset_();
+
   var pasos = [];
 
   try {
     docEnsureYearSheet_(new Date().getFullYear());
-    pasos.push('pestana del ano en curso verificada');
-  } catch (e) { pasos.push('pestana anual: ' + docClassify_(e).message); }
+    pasos.push('pestana del ano verificada');
+  } catch (e) { pasos.push('pestana del ano: ' + docClassify_(e).message); }
 
   try {
-    if (String(docConfigGet_('respaldo_automatico', 'TRUE')).toUpperCase() !== 'FALSE') {
-      var b = docBackup_('automatico diario', 'tarea programada');
-      pasos.push('respaldo ' + b.id + ' con ' + b.expedientes + ' expediente(s)');
+    var r = docRecalc_(0, 'tarea-diaria');
+    pasos.push(r.actualizados + ' avance(s) recalculado(s)');
+  } catch (e) { pasos.push('recalculo: ' + docClassify_(e).message); }
+
+  // La cache de catalogos se tira aqui para que un alta hecha el viernes por la
+  // tarde este disponible el lunes sin que nadie pulse "actualizar".
+  try {
+    docAuxInvalidate_();
+    pasos.push('cache de catalogos renovada');
+  } catch (e) { pasos.push('cache de catalogos: ' + docClassify_(e).message); }
+
+  try {
+    if (docConfigGet_('respaldo_automatico', 'TRUE') === 'TRUE') {
+      var b = docBackup_('automatico', 'tarea-diaria');
+      pasos.push('respaldo ' + b.id);
     }
   } catch (e) { pasos.push('respaldo: ' + docClassify_(e).message); }
 
   try {
-    var r = docRecalc_(new Date().getFullYear(), 'tarea programada');
-    pasos.push(r.actualizadas + ' avance(s) recalculado(s)');
-  } catch (e) { pasos.push('recalculo: ' + docClassify_(e).message); }
-
-  try {
-    var c = docCompact_('tarea programada');
-    pasos.push(c.eliminadas + ' linea(s) compactada(s)');
-  } catch (e) { pasos.push('compactacion: ' + docClassify_(e).message); }
+    docCompact_('tarea-diaria');
+    pasos.push('bitacoras compactadas');
+  } catch (e) { pasos.push('compactado: ' + docClassify_(e).message); }
 
   try {
     docAudit_({
-      accion: DOC_ACCION.MANTENIMIENTO, entidad: 'sistema',
-      actor: 'tarea programada', origen: 'trigger',
-      campo: 'tarea diaria', nuevo: pasos.join(' | ')
+      accion: DOC_ACCION.MANTENIMIENTO,
+      entidad: 'sistema',
+      actor: 'tarea-diaria',
+      origen: 'disparador',
+      nuevo: pasos.join(' | ')
     });
-    docCommit_();
-    docYearsCommit_();
-    docFlushLog_();
-    docCommit_();
-  } catch (e) { /* la tarea ya hizo su trabajo */ }
+  } catch (e) { /* la auditoria no manda sobre el mantenimiento */ }
 
-  return pasos;
+  docCommit_();
+  docYearsCommit_();
+  docFlushLog_();
+  docCommit_();
 }
 
-/** Muestra la URL de la aplicacion web para pegarla en el frontend. */
+/** Muestra la URL de la aplicacion web para pegarla en la configuracion. */
 function docMostrarUrl() {
-  return docMenuRun_('URL del backend', function () {
+  var ui = SpreadsheetApp.getUi();
+  try {
     var url = ScriptApp.getService().getUrl();
-    if (!url) return 'Todavia no hay una implementacion publicada. Ve a Implementar y crea una implementacion de tipo Aplicacion web.';
-    return 'Pega esta direccion en SCRIPT_URL dentro de src/constants.ts:\n\n' + url;
-  });
+    ui.alert('URL del backend',
+      url
+        ? url + '\n\nPegala en Documentacion > Configuracion > Conexion.'
+        : 'Todavia no hay implementacion publicada. Publica el proyecto como aplicacion web.',
+      ui.ButtonSet.OK);
+  } catch (error) {
+    ui.alert('URL del backend - error', docClassify_(error).message, ui.ButtonSet.OK);
+  }
 }
