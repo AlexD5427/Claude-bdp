@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { abrirEvaluacion, enviarIntento, guardarProgreso, iniciarIntento, latido } from "../api/client";
 import { RichText } from "../richtext/RichText";
+import { isRichEmpty } from "../domain/richText";
 import { tipoSpec } from "../domain/questionTypes";
 import type {
   EventoEnviado,
@@ -85,13 +86,13 @@ export function Runner({ codigo }: { codigo: string }) {
         <AnimatePresence mode="wait">
           {fase === "cargando" && (
             <motion.div key="cargando" className="grid place-items-center py-24" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <Loader2 className="h-8 w-8 animate-spin text-cyan-400" />
+              <Loader2 className="h-8 w-8 animate-spin text-accent" />
             </motion.div>
           )}
 
           {fase === "error" && error && (
             <motion.div key="error" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-6">
-              <XCircle className="mb-3 h-8 w-8 text-rose-400" />
+              <XCircle className="tone-text-peligro mb-3 h-8 w-8" />
               <h1 className="text-xl font-black text-ink">No se pudo abrir la evaluación</h1>
               <p className="mt-2 text-sm text-ink-soft">{error.mensaje}</p>
               {error.pista && <p className="mt-1 text-xs text-ink-faint">{error.pista}</p>}
@@ -138,7 +139,7 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
   if (!portada.disponible) {
     return (
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="glass rounded-3xl p-6 text-center">
-        <Clock className="mx-auto mb-3 h-8 w-8 text-amber-400" />
+        <Clock className="tone-text-aviso mx-auto mb-3 h-8 w-8" />
         <h1 className="text-xl font-black text-ink">{portada.titulo}</h1>
         <p className="mt-2 text-sm text-ink-soft">{portada.mensaje}</p>
       </motion.div>
@@ -187,13 +188,13 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
         {portada.tema?.logoUrl && (
           <img src={portada.tema.logoUrl} alt="" className="mb-4 h-10 w-auto object-contain" />
         )}
-        <p className="text-[0.65rem] font-black uppercase tracking-[0.2em] text-cyan-400">Evaluación</p>
+        <p className="text-[0.65rem] font-black uppercase tracking-[0.2em] text-accent">Evaluación</p>
         <h1 className="mt-1 text-2xl font-black tracking-tight text-ink sm:text-3xl">{portada.titulo}</h1>
         {portada.descripcion && <p className="mt-2 text-sm text-ink-soft">{portada.descripcion}</p>}
 
         <div className="mt-4 flex flex-wrap gap-2">
           {portada.duracionMinutos != null && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-bold text-cyan-100 ring-1 ring-cyan-400/30">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-bold text-accent ring-1 ring-cyan-400/30">
               <Clock className="h-3.5 w-3.5" /> {portada.duracionMinutos} minutos
             </span>
           )}
@@ -201,13 +202,13 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
             {portada.totalPreguntas} preguntas
           </span>
           {portada.intentosMaximos === 1 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold text-amber-200 ring-1 ring-amber-400/30">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-bold tone-text-aviso ring-1 ring-amber-400/30">
               Un solo intento
             </span>
           )}
         </div>
 
-        {portada.instrucciones && (
+        {portada.instrucciones && !isRichEmpty(portada.instrucciones) && (
           <div className="mt-4 rounded-2xl fill-softer p-4 ring-1 ring-[color:var(--hairline)]">
             <RichText doc={portada.instrucciones} />
           </div>
@@ -215,7 +216,7 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
 
         {/* Se anuncia el registro ANTES de empezar. */}
         {portada.integridad && (
-          <div className="mt-4 flex items-start gap-2 rounded-2xl border border-cyan-400/25 bg-cyan-500/5 px-4 py-3 text-xs text-cyan-100">
+          <div className="mt-4 flex items-start gap-2 rounded-2xl border border-cyan-400/25 bg-cyan-500/5 px-4 py-3 text-xs text-accent">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               Durante la prueba se registran, para verificar su integridad: los cambios de pestaña, la pérdida de foco de
@@ -235,7 +236,7 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
             <div key={campo.clave} className="flex flex-col gap-1.5">
               <label htmlFor={`c-${campo.clave}`} className="text-xs font-bold uppercase tracking-wide text-ink-soft">
                 {campo.etiqueta}
-                {campo.obligatorio && <span className="ml-1 text-rose-400">*</span>}
+                {campo.obligatorio && <span className="tone-text-peligro ml-1">*</span>}
               </label>
               <input
                 id={`c-${campo.clave}`}
@@ -244,7 +245,7 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
                 autoComplete={campo.clave === "correo" ? "email" : campo.clave === "nombre" ? "name" : "off"}
                 className="w-full rounded-2xl fill-soft px-3.5 py-2.5 text-sm text-ink outline-none ring-1 ring-[color:var(--hairline)] focus-visible:ring-2 focus-visible:ring-cyan-300"
               />
-              {errores[campo.clave] && <p className="text-xs font-semibold text-rose-300">{errores[campo.clave]}</p>}
+              {errores[campo.clave] && <p className="text-xs font-semibold tone-text-peligro">{errores[campo.clave]}</p>}
             </div>
           ))}
         </div>
@@ -262,7 +263,7 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
         )}
 
         {errores.general && (
-          <p className="mt-3 rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-2.5 text-xs text-rose-200">
+          <p className="mt-3 rounded-2xl border border-rose-400/40 bg-rose-500/10 px-4 py-2.5 text-xs tone-text-peligro">
             {errores.general}
           </p>
         )}
@@ -444,8 +445,8 @@ function Prueba({ inicio, onEnviado }: { inicio: InicioIntento; onEnviado: (resu
             {prueba.aplicacion.mostrarProgreso && (
               <p className="text-[0.7rem] text-ink-soft">
                 {respondidas} de {contestables.length} respondidas
-                {guardando && <span className="ml-2 text-cyan-300">guardando…</span>}
-                {!guardando && ultimoGuardado && <span className="ml-2 text-emerald-300">progreso guardado</span>}
+                {guardando && <span className="ml-2 text-accent">guardando…</span>}
+                {!guardando && ultimoGuardado && <span className="ml-2 tone-text-exito">progreso guardado</span>}
               </p>
             )}
           </div>
@@ -455,8 +456,8 @@ function Prueba({ inicio, onEnviado }: { inicio: InicioIntento; onEnviado: (resu
               transition={critico ? { repeat: Infinity, duration: 1.6 } : { duration: 0.2 }}
               className={`inline-flex items-center gap-2 rounded-full px-4 py-2 font-mono text-lg font-black tabular-nums ring-1 ${
                 critico
-                  ? "bg-rose-500/20 text-rose-200 ring-rose-400/40"
-                  : "bg-cyan-500/15 text-cyan-100 ring-cyan-400/30"
+                  ? "bg-rose-500/20 tone-text-peligro ring-rose-400/40"
+                  : "bg-cyan-500/15 text-accent ring-cyan-400/30"
               }`}
             >
               <Clock className="h-4 w-4" />
@@ -476,7 +477,7 @@ function Prueba({ inicio, onEnviado }: { inicio: InicioIntento; onEnviado: (resu
       </div>
 
       {aviso && (
-        <div className="flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs tone-text-aviso">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           {aviso}
         </div>
@@ -583,7 +584,7 @@ function Prueba({ inicio, onEnviado }: { inicio: InicioIntento; onEnviado: (resu
                 Has respondido {respondidas} de {contestables.length} preguntas. Una vez enviada no podrás modificarla.
               </p>
               {faltanObligatorias.length > 0 && (
-                <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                <p className="mt-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs tone-text-aviso">
                   Faltan {faltanObligatorias.length} pregunta(s) obligatoria(s) sin responder.
                 </p>
               )}
@@ -671,20 +672,27 @@ function BloquePregunta({
     <li ref={contenedor} className="flex flex-col gap-2">
       {primeraDeSeccion && seccion && (
         <div className="mb-1">
-          <h2 className="text-sm font-black uppercase tracking-[0.14em] text-cyan-300">{seccion}</h2>
+          <h2 className="text-sm font-black uppercase tracking-[0.14em] text-accent">{seccion}</h2>
           <RichText doc={descripcionSeccion} compacto />
         </div>
       )}
       <div className="glass rounded-3xl p-4 sm:p-5">
         <div className="flex items-start gap-2.5">
           {numero > 0 && spec?.kind === "pregunta" && (
-            <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-cyan-500/15 text-[0.7rem] font-black text-cyan-200">
+            <span className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-cyan-500/15 text-[0.7rem] font-black text-accent">
               {numero}
             </span>
           )}
-          <div className="min-w-0 flex-1">
+          {/* El asterisco de obligatoria va junto al enunciado en la misma línea:
+              como el renderizador devuelve bloques, ponerlo detrás lo dejaba
+              flotando en un renglón propio, como si fuera parte de la pregunta. */}
+          <div className="relative min-w-0 flex-1">
             <RichText doc={pregunta.enunciado} />
-            {pregunta.obligatoria && <span className="ml-1 font-black text-rose-400">*</span>}
+            {pregunta.obligatoria && (
+              <span className="tone-text-peligro absolute -left-2.5 top-0 font-black" title="Respuesta obligatoria">
+                *
+              </span>
+            )}
           </div>
           {pregunta.puntos !== undefined && pregunta.puntos > 0 && (
             <span className="shrink-0 rounded-full fill-softer px-2 py-0.5 text-[0.65rem] font-bold text-ink-faint">
@@ -754,7 +762,7 @@ function Resultado({ resultado }: { resultado: ResultadoCandidato }) {
       <p className="mt-1 font-mono text-[0.7rem] text-ink-faint">Comprobante: {resultado.intentoId}</p>
 
       {resultado.calificacionPendiente && (
-        <p className="mx-auto mt-4 max-w-md rounded-2xl border border-cyan-400/25 bg-cyan-500/10 px-4 py-3 text-xs text-cyan-100">
+        <p className="mx-auto mt-4 max-w-md rounded-2xl border border-cyan-400/25 bg-cyan-500/10 px-4 py-3 text-xs text-accent">
           Hay preguntas abiertas que revisará una persona del equipo evaluador, así que la nota final todavía no está
           disponible.
         </p>
@@ -768,8 +776,8 @@ function Resultado({ resultado }: { resultado: ResultadoCandidato }) {
             <span
               className={`rounded-full px-4 py-1 text-sm font-black ring-1 ${
                 aprobado
-                  ? "bg-emerald-500/20 text-emerald-200 ring-emerald-400/40"
-                  : "bg-rose-500/20 text-rose-200 ring-rose-400/40"
+                  ? "bg-emerald-500/20 tone-text-exito ring-emerald-400/40"
+                  : "bg-rose-500/20 tone-text-peligro ring-rose-400/40"
               }`}
             >
               {aprobado ? "Aprobado" : "No aprobado"}

@@ -10,31 +10,43 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { Check, Copy, ExternalLink } from "lucide-react";
 import type { EstadoEvaluacion, EstadoIntento } from "../domain/model";
 import { ESTADO_INTENTO_LABEL, ESTADO_LABEL } from "../domain/model";
 
 /* --------------------------------- Píldoras ------------------------------- */
 
-type Tono = "neutral" | "info" | "exito" | "aviso" | "peligro" | "acento";
+export type Tono = "neutral" | "info" | "exito" | "aviso" | "peligro" | "acento";
 
-const TONO: Record<Tono, string> = {
-  neutral: "bg-[color:var(--fill-2)] text-ink-soft ring-[color:var(--hairline)]",
-  info: "bg-cyan-500/15 text-cyan-200 ring-cyan-400/30",
-  exito: "bg-emerald-500/15 text-emerald-200 ring-emerald-400/30",
-  aviso: "bg-amber-500/15 text-amber-200 ring-amber-400/30",
-  peligro: "bg-rose-500/15 text-rose-200 ring-rose-400/30",
-  acento: "bg-indigo-500/15 text-indigo-200 ring-indigo-400/30",
+/**
+ * Clases de tono.
+ *
+ * Antes cada píldora traía su tríada de colores fijos de Tailwind
+ * (`tone-info tone-ring`), elegida mirando el tema
+ * oscuro. En el tema claro, un texto `cyan-200` sobre vidrio blanco es
+ * prácticamente invisible —era el caso de los puntos de cada pregunta, del
+ * contador de bloqueos y de media docena de rótulos más—. Ahora el color lo
+ * decide el TEMA a través de `--tone-*` (ver `src/index.css`) y la interfaz solo
+ * pide el tono.
+ */
+export const TONO: Record<Tono, string> = {
+  neutral: "tone-neutral tone-ring",
+  info: "tone-info tone-ring",
+  exito: "tone-exito tone-ring",
+  aviso: "tone-aviso tone-ring",
+  peligro: "tone-peligro tone-ring",
+  acento: "tone-acento tone-ring",
 };
 
-const PUNTO: Record<Tono, string> = {
-  neutral: "bg-slate-400",
-  info: "bg-cyan-400",
-  exito: "bg-emerald-400",
-  aviso: "bg-amber-400",
-  peligro: "bg-rose-400",
-  acento: "bg-indigo-400",
+/** Solo el color del texto del tono, para números y rótulos sin fondo. */
+export const TONO_TEXTO: Record<Tono, string> = {
+  neutral: "tone-text-neutral",
+  info: "tone-text-info",
+  exito: "tone-text-exito",
+  aviso: "tone-text-aviso",
+  peligro: "tone-text-peligro",
+  acento: "tone-text-acento",
 };
 
 export function Pill({
@@ -42,17 +54,20 @@ export function Pill({
   children,
   punto = true,
   className = "",
+  title,
 }: {
   tono?: Tono;
   children: ReactNode;
   punto?: boolean;
   className?: string;
+  title?: string;
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold ring-1 ${TONO[tono]} ${className}`}
+      title={title}
+      className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.7rem] font-semibold ${TONO[tono]} ${className}`}
     >
-      {punto && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${PUNTO[tono]}`} />}
+      {punto && <span className="tone-dot h-1.5 w-1.5 shrink-0 rounded-full" />}
       {children}
     </span>
   );
@@ -109,12 +124,34 @@ export function GlassPanel({
   children,
   className = "",
   padding = "p-5",
+  /** Entrada animada. Se apaga en listas largas, donde el escalonado lo pone el padre. */
+  animado = false,
+  id,
 }: {
   children: ReactNode;
   className?: string;
   padding?: string;
+  animado?: boolean;
+  id?: string;
 }) {
-  return <div className={`glass rounded-3xl ${padding} ${className}`}>{children}</div>;
+  if (!animado) {
+    return (
+      <div id={id} className={`glass rounded-3xl ${padding} ${className}`}>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <motion.div
+      id={id}
+      initial={{ opacity: 0, y: 14, scale: 0.99 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: "spring", stiffness: 220, damping: 26 }}
+      className={`glass rounded-3xl ${padding} ${className}`}
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 export function SectionTitle({
@@ -139,30 +176,235 @@ export function SectionTitle({
 
 /* ------------------------------ Indicadores ------------------------------- */
 
+/**
+ * Número que se anima hasta su valor.
+ *
+ * Un contador que salta de 3 a 41 no comunica que algo cambió; uno que recorre
+ * la distancia sí, y de paso dirige la mirada al dato que se movió. Se usa un
+ * muelle sobre un valor de movimiento, así que la animación vive fuera del ciclo
+ * de renderizado de React: no re-renderiza nada por fotograma.
+ */
+export function NumeroAnimado({
+  valor,
+  decimales = 0,
+  className = "",
+}: {
+  valor: number;
+  decimales?: number;
+  className?: string;
+}) {
+  const crudo = useMotionValue(valor);
+  const suave = useSpring(crudo, { stiffness: 90, damping: 18, restDelta: 0.001 });
+  const texto = useTransform(suave, (v) =>
+    (Math.round(v * 10 ** decimales) / 10 ** decimales).toFixed(decimales),
+  );
+  useEffect(() => {
+    crudo.set(valor);
+  }, [crudo, valor]);
+  return <motion.span className={`tabular-nums ${className}`}>{texto}</motion.span>;
+}
+
 export function Metrica({
   etiqueta,
   valor,
   sufijo = "",
   tono = "neutral",
   icono,
+  destacada = false,
+  onClick,
+  title,
 }: {
   etiqueta: string;
   valor: string | number;
   sufijo?: string;
   tono?: Tono;
   icono?: ReactNode;
+  /** Resalta la métrica con el color del tono en lugar de tinta neutra. */
+  destacada?: boolean;
+  onClick?: () => void;
+  title?: string;
 }) {
+  const numerico = typeof valor === "number" && Number.isFinite(valor);
+  const decimales = numerico && !Number.isInteger(valor) ? 1 : 0;
+  const Contenedor = onClick ? motion.button : motion.div;
   return (
-    <div className="flex min-w-[7rem] flex-col gap-0.5 rounded-2xl fill-softer px-3 py-2 ring-1 ring-[color:var(--hairline)]">
-      <span className="flex items-center gap-1.5 text-[0.65rem] font-bold uppercase tracking-[0.14em] text-ink-faint">
+    <Contenedor
+      layout
+      {...(onClick ? { type: "button" as const, onClick } : {})}
+      title={title}
+      whileHover={onClick ? { y: -2 } : undefined}
+      className={`flex min-w-[7rem] flex-col gap-0.5 rounded-2xl px-3 py-2 text-left transition-shadow duration-300 ${
+        destacada ? `${TONO[tono]}` : "fill-softer ring-1 ring-[color:var(--hairline)]"
+      } ${onClick ? "cursor-pointer hover:shadow-glass" : ""}`}
+    >
+      <span
+        className={`flex items-center gap-1.5 text-[0.65rem] font-bold uppercase tracking-[0.14em] ${
+          destacada ? "opacity-90" : "text-ink-faint"
+        }`}
+      >
         {icono}
         {etiqueta}
       </span>
-      <span className={`text-lg font-black tabular-nums ${tono === "neutral" ? "text-ink" : ""}`}>
-        {valor}
-        {sufijo && <span className="ml-0.5 text-xs font-bold text-ink-soft">{sufijo}</span>}
+      <span className={`text-lg font-black tabular-nums ${destacada ? "" : "text-ink"}`}>
+        {numerico ? <NumeroAnimado valor={valor as number} decimales={decimales} /> : valor}
+        {sufijo && <span className="ml-0.5 text-xs font-bold opacity-70">{sufijo}</span>}
       </span>
+    </Contenedor>
+  );
+}
+
+/* ------------------------------ Estados de carga -------------------------- */
+
+/**
+ * Barra de progreso de una carga por ETAPAS.
+ *
+ * El módulo lee de una hoja de cálculo a través de Apps Script: una espera de
+ * dos o tres segundos es normal y antes no se anunciaba de ninguna manera, así
+ * que la pantalla parecía colgada. Esta barra muestra el progreso real —cuántas
+ * de las etapas previstas terminaron— y, mientras una etapa está en vuelo,
+ * avanza con una onda para no quedarse quieta. Nunca finge llegar al 100 %: el
+ * último tramo lo cierra el propio final de la carga.
+ */
+export function BarraCarga({
+  progreso,
+  etiqueta,
+  className = "",
+}: {
+  /** 0 a 1. */
+  progreso: number;
+  etiqueta?: string;
+  className?: string;
+}) {
+  const porcentaje = Math.round(Math.max(0.04, Math.min(1, progreso)) * 100);
+  return (
+    <div className={`flex flex-col gap-1 ${className}`} role="status" aria-live="polite">
+      {etiqueta && (
+        <div className="flex items-center justify-between gap-2 text-[0.68rem] font-semibold text-ink-soft">
+          <span className="truncate">{etiqueta}</span>
+          <span className="tabular-nums text-ink-faint">{porcentaje} %</span>
+        </div>
+      )}
+      <div className="barra-carga h-1.5 w-full">
+        <span style={{ width: `${porcentaje}%` }} />
+      </div>
     </div>
+  );
+}
+
+/** Rectángulo de carga. Se usa para dibujar la FORMA de lo que va a llegar. */
+export function Esqueleto({ className = "" }: { className?: string }) {
+  return <div className={`esqueleto ${className}`} aria-hidden />;
+}
+
+/**
+ * Esqueleto del listado.
+ *
+ * Preferimos la silueta al giro de una ruleta: enseña la estructura de la
+ * pantalla, así que cuando llegan los datos nada se mueve de sitio.
+ */
+export function EsqueletoTarjetas({ cuantas = 6 }: { cuantas?: number }) {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-hidden>
+      {Array.from({ length: cuantas }, (_, i) => (
+        <div key={i} className="glass flex flex-col gap-3 rounded-3xl p-4">
+          <div className="flex items-center gap-2">
+            <Esqueleto className="h-5 w-20 rounded-full" />
+            <Esqueleto className="h-5 w-24 rounded-full" />
+          </div>
+          <Esqueleto className="h-5 w-3/4" />
+          <Esqueleto className="h-3 w-1/3" />
+          <div className="grid grid-cols-3 gap-2">
+            <Esqueleto className="h-10" />
+            <Esqueleto className="h-10" />
+            <Esqueleto className="h-10" />
+          </div>
+          <Esqueleto className="h-3 w-2/5" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Esqueleto de una tabla, con su cabecera. */
+export function EsqueletoTabla({ filas = 6, columnas = 6 }: { filas?: number; columnas?: number }) {
+  return (
+    <div className="glass overflow-hidden rounded-3xl p-4" aria-hidden>
+      <div className="mb-3 flex gap-3">
+        {Array.from({ length: columnas }, (_, i) => (
+          <Esqueleto key={i} className="h-3 flex-1" />
+        ))}
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {Array.from({ length: filas }, (_, f) => (
+          <div key={f} className="flex items-center gap-3">
+            {Array.from({ length: columnas }, (_, c) => (
+              <Esqueleto key={c} className={`h-4 flex-1 ${c === 0 ? "max-w-[14rem]" : ""}`} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Texto que se desplaza sobre su propio renglón cuando no cabe.
+ *
+ * Recortar con puntos suspensivos oculta justo la parte que distingue dos
+ * títulos parecidos («Analista de riesgo · conocimientos» y «… · situacional»).
+ * Aquí el texto se mide y, solo si desborda, recorre su renglón al pasar el
+ * puntero: en reposo no se mueve nada, que es lo que se espera de una lista.
+ */
+export function TextoRecorrido({
+  texto,
+  className = "",
+  /** Píxeles por segundo del recorrido. */
+  velocidad = 34,
+}: {
+  texto: string;
+  className?: string;
+  velocidad?: number;
+}) {
+  const caja = useRef<HTMLSpanElement>(null);
+  const interior = useRef<HTMLSpanElement>(null);
+  const [desborde, setDesborde] = useState(0);
+
+  useEffect(() => {
+    const medir = () => {
+      const c = caja.current;
+      const i = interior.current;
+      if (!c || !i) return;
+      const diferencia = i.scrollWidth - c.clientWidth;
+      setDesborde(diferencia > 3 ? diferencia : 0);
+    };
+    medir();
+    const observador = new ResizeObserver(medir);
+    if (caja.current) observador.observe(caja.current);
+    if (interior.current) observador.observe(interior.current);
+    return () => observador.disconnect();
+  }, [texto]);
+
+  const recorrido = desborde + 6;
+  const duracion = Math.max(2.4, recorrido / velocidad);
+
+  return (
+    <motion.span
+      ref={caja}
+      title={texto}
+      initial="reposo"
+      whileHover={desborde > 0 ? "recorre" : "reposo"}
+      whileFocus={desborde > 0 ? "recorre" : "reposo"}
+      className={`relative block overflow-hidden whitespace-nowrap ${className}`}
+    >
+      <motion.span
+        ref={interior}
+        className="inline-block will-change-transform"
+        variants={{ reposo: { x: 0 }, recorre: { x: -recorrido } }}
+        transition={{ duration: duracion, ease: "easeInOut" }}
+      >
+        {texto}
+      </motion.span>
+    </motion.span>
   );
 }
 
@@ -290,7 +532,7 @@ export function BotonSecundario({
       title={title}
       className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-semibold ring-1 transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-45 ${
         activo
-          ? "bg-cyan-500/20 text-cyan-100 ring-cyan-400/40"
+          ? "tone-info tone-ring"
           : "fill-softer text-ink ring-[color:var(--hairline)] hover:fill-soft"
       } ${className}`}
     >
@@ -315,7 +557,7 @@ export function BotonCopiar({ texto, etiqueta = "Copiar" }: { texto: string; eti
       }}
       className="inline-flex items-center gap-1.5 rounded-full fill-softer px-2.5 py-1 text-[0.7rem] font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)] transition-colors hover:fill-soft hover:text-ink"
     >
-      {copiado ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+      {copiado ? <Check className="tone-text-exito h-3 w-3" /> : <Copy className="h-3 w-3" />}
       {copiado ? "Copiado" : etiqueta}
     </button>
   );
@@ -327,7 +569,7 @@ export function EnlaceExterno({ href, children }: { href: string; children: Reac
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="inline-flex items-center gap-1 text-cyan-300 underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-cyan-200"
+      className="inline-flex items-center gap-1 text-accent underline decoration-cyan-400/40 underline-offset-2 transition-colors hover:text-accent-strong"
     >
       {children}
       <ExternalLink className="h-3 w-3" />
@@ -434,7 +676,7 @@ export function ItemMenu({
       disabled={disabled}
       onClick={onClick}
       className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        destructivo ? "text-rose-300 hover:bg-rose-500/15" : "text-ink hover:fill-soft"
+        destructivo ? "tone-text-peligro hover:bg-rose-500/15" : "text-ink hover:fill-soft"
       }`}
     >
       {icono && <span className="shrink-0 opacity-80">{icono}</span>}

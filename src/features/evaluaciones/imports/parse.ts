@@ -21,12 +21,16 @@
  */
 
 import { unzipSync, strFromU8 } from "fflate";
-import { newId } from "../../../shared/ids";
 import { richFromPlain } from "../domain/richText";
 import { nuevaOpcion, nuevaPregunta, nuevaSeccion } from "../domain/factory";
 import type { Pregunta, Seccion } from "../domain/model";
+import { extraerLineasDocx, type LineaDocumento } from "./docxTexto";
+import { extraerLineasPdf } from "./pdfTexto";
+import { analizarPreguntas, comoLineasDocumento, type ResultadoAnalisis } from "./questionParser";
 
-export type FormatoArchivo = "xlsx" | "csv" | "docx" | "pdf" | "desconocido";
+export { marcaImportacion } from "./questionParser";
+
+export type FormatoArchivo = "xlsx" | "csv" | "docx" | "pdf" | "texto" | "desconocido";
 
 export interface FilaTabla {
   [columna: string]: string;
@@ -39,6 +43,14 @@ export interface Deteccion {
   filas: FilaTabla[];
   /** Texto plano, cuando el archivo no es tabular. */
   lineas: string[];
+  /**
+   * Líneas CON FORMATO, cuando el origen lo trae (`.docx`).
+   *
+   * Es lo que permite que la respuesta correcta se detecte sola: en los documentos
+   * del equipo va subrayada o resaltada, y esa marca solo sobrevive si el texto
+   * viaja con sus tramos hasta el analizador.
+   */
+  lineasDoc: LineaDocumento[];
   aviso: string;
 }
 
@@ -88,30 +100,48 @@ export async function detectarArchivo(archivo: File): Promise<Deteccion> {
   const nombre = archivo.name.toLowerCase();
   const bytes = new Uint8Array(await archivo.arrayBuffer());
 
-  if (nombre.endsWith(".csv") || nombre.endsWith(".tsv") || nombre.endsWith(".txt")) {
+  if (nombre.endsWith(".csv") || nombre.endsWith(".tsv")) {
     const texto = strFromU8(bytes);
     const separador = nombre.endsWith(".tsv") || texto.split("\n")[0]?.includes("\t") ? "\t" : detectarSeparador(texto);
     const { columnas, filas } = leerDelimitado(texto, separador);
-    return { formato: "csv", columnas, filas, lineas: texto.split(/\r?\n/), aviso: "" };
+    const lineas = texto.split(/\r?\n/);
+    return { formato: "csv", columnas, filas, lineas, lineasDoc: comoLineasDocumento(lineas), aviso: "" };
+  }
+  if (nombre.endsWith(".txt") || nombre.endsWith(".md")) {
+    // Un texto suelto se trata como prosa, no como tabla: es lo que ocurre cuando
+    // alguien copia la prueba de un correo y la guarda.
+    const lineas = strFromU8(bytes).split(/\r?\n/);
+    return { formato: "texto", columnas: [], filas: [], lineas, lineasDoc: comoLineasDocumento(lineas), aviso: "" };
   }
   if (nombre.endsWith(".xlsx") || nombre.endsWith(".xlsm")) {
     return leerXlsx(bytes);
   }
   if (nombre.endsWith(".docx")) {
-    const lineas = leerDocx(bytes);
-    return { formato: "docx", columnas: [], filas: [], lineas, aviso: "" };
+    const lineasDoc = extraerLineasDocx(bytes);
+    return {
+      formato: "docx",
+      columnas: [],
+      filas: [],
+      lineas: lineasDoc.map((linea) => linea.texto),
+      lineasDoc,
+      aviso:
+        lineasDoc.length === 0
+          ? "No se pudo leer el documento de Word. Si es un .doc antiguo, ábrelo y guárdalo como .docx."
+          : "",
+    };
   }
   if (nombre.endsWith(".pdf")) {
-    const lineas = leerPdf(bytes);
+    const lineas = extraerLineasPdf(bytes).map((linea) => linea.texto);
     return {
       formato: "pdf",
       columnas: [],
       filas: [],
       lineas,
+      lineasDoc: comoLineasDocumento(lineas),
       aviso:
         lineas.length === 0
-          ? "No se pudo extraer texto del PDF. Suele significar que es un documento escaneado (una imagen): conviértelo antes con un OCR o copia el texto a un Word."
-          : "",
+          ? "No se pudo extraer texto del PDF: casi siempre significa que es un escaneo (una imagen). Pásalo por un OCR, o abre el Word original y súbelo, que además trae marcada la respuesta correcta."
+          : "En un PDF el subrayado es un dibujo, no un atributo del texto, así que la respuesta correcta no se puede detectar sola. Si tienes el Word original, súbelo: de ahí sí se leen las claves.",
     };
   }
   return {
@@ -119,8 +149,20 @@ export async function detectarArchivo(archivo: File): Promise<Deteccion> {
     columnas: [],
     filas: [],
     lineas: [],
-    aviso: "Formato no reconocido. Admite .xlsx, .csv, .tsv, .docx y .pdf.",
+    lineasDoc: [],
+    aviso: "Formato no reconocido. Admite .xlsx, .csv, .tsv, .docx, .pdf y .txt.",
   };
+}
+
+/** Texto pegado a mano en el panel: la salida de emergencia cuando nada más sirve. */
+export function detectarTextoPegado(texto: string): Deteccion {
+  const lineas = texto.split(/\r?\n/);
+  return { formato: "texto", columnas: [], filas: [], lineas, lineasDoc: comoLineasDocumento(lineas), aviso: "" };
+}
+
+/** Analiza la prosa de un documento. Es la ruta de Word, PDF y texto pegado. */
+export function convertirDocumento(deteccion: Deteccion): ResultadoAnalisis {
+  return analizarPreguntas(deteccion.lineasDoc);
 }
 
 function detectarSeparador(texto: string): string {
@@ -211,7 +253,7 @@ function leerXlsx(bytes: Uint8Array): Deteccion {
         .filter((clave) => /^xl\/worksheets\/sheet\d+\.xml$/.test(clave))
         .sort()[0] ?? "";
     if (!nombreHoja) {
-      return { formato: "xlsx", columnas: [], filas: [], lineas: [], aviso: "El archivo no contiene hojas legibles." };
+      return { formato: "xlsx", columnas: [], filas: [], lineas: [], lineasDoc: [], aviso: "El archivo no contiene hojas legibles." };
     }
     const hoja = strFromU8(zip[nombreHoja]);
     const matriz: string[][] = [];
@@ -241,7 +283,7 @@ function leerXlsx(bytes: Uint8Array): Deteccion {
     }
     const utiles = matriz.filter((fila) => fila.some((celda) => (celda ?? "").trim() !== ""));
     if (utiles.length === 0) {
-      return { formato: "xlsx", columnas: [], filas: [], lineas: [], aviso: "La primera hoja está vacía." };
+      return { formato: "xlsx", columnas: [], filas: [], lineas: [], lineasDoc: [], aviso: "La primera hoja está vacía." };
     }
     const columnas = utiles[0].map((celda, i) => (celda || "").trim() || `Columna ${i + 1}`);
     const filas = utiles.slice(1).map((fila) => {
@@ -251,13 +293,14 @@ function leerXlsx(bytes: Uint8Array): Deteccion {
       });
       return objeto;
     });
-    return { formato: "xlsx", columnas, filas, lineas: [], aviso: "" };
+    return { formato: "xlsx", columnas, filas, lineas: [], lineasDoc: [], aviso: "" };
   } catch (error) {
     return {
       formato: "xlsx",
       columnas: [],
       filas: [],
       lineas: [],
+      lineasDoc: [],
       aviso: `No se pudo leer el archivo de Excel (${error instanceof Error ? error.message : "error desconocido"}). Si está protegido con contraseña, quítala y vuelve a intentarlo.`,
     };
   }
@@ -277,71 +320,6 @@ function desescapar(texto: string): string {
     .replace(/&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, codigo) => String.fromCodePoint(Number(codigo)))
     .replace(/&amp;/g, "&");
-}
-
-/** Lector de `.docx`: también un ZIP; el texto vive en `word/document.xml`. */
-function leerDocx(bytes: Uint8Array): string[] {
-  try {
-    const zip = unzipSync(bytes);
-    const documento = zip["word/document.xml"];
-    if (!documento) return [];
-    const xml = strFromU8(documento);
-    const parrafos: string[] = [];
-    for (const bloque of xml.split("</w:p>")) {
-      const texto = [...bloque.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => desescapar(m[1])).join("");
-      const limpio = texto.trim();
-      if (limpio) parrafos.push(limpio);
-    }
-    return parrafos;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Lector de `.pdf` por operadores de texto.
- *
- * Funciona con los PDF generados digitalmente (los flujos sin comprimir y los
- * comprimidos con Flate). No funciona con documentos escaneados, que son imágenes;
- * en ese caso `detectarArchivo` lo dice explícitamente en lugar de devolver un
- * resultado vacío sin explicación.
- */
-function leerPdf(bytes: Uint8Array): string[] {
-  const lineas: string[] = [];
-  try {
-    // `unzlibSync` de fflate descomprime los flujos FlateDecode del PDF.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const texto = extraerTextoPdf(bytes);
-    for (const linea of texto.split("\n")) {
-      const limpio = linea.replace(/\s+/g, " ").trim();
-      if (limpio) lineas.push(limpio);
-    }
-  } catch {
-    return [];
-  }
-  return lineas;
-}
-
-function extraerTextoPdf(bytes: Uint8Array): string {
-  const crudo = new TextDecoder("latin1").decode(bytes);
-  const trozos: string[] = [];
-  // Los operadores de texto viven entre BT y ET. Se toman los literales de `Tj`
-  // y los arreglos de `TJ`, que es lo que produce cualquier generador de PDF.
-  for (const bloque of crudo.split("BT").slice(1)) {
-    const hasta = bloque.indexOf("ET");
-    const contenido = hasta >= 0 ? bloque.slice(0, hasta) : bloque;
-    let linea = "";
-    for (const literal of contenido.matchAll(/\(((?:\\.|[^\\()])*)\)/g)) {
-      linea += literal[1]
-        .replace(/\\n/g, " ")
-        .replace(/\\r/g, " ")
-        .replace(/\\t/g, " ")
-        .replace(/\\([()\\])/g, "$1")
-        .replace(/\\(\d{1,3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8)));
-    }
-    if (linea.trim()) trozos.push(linea.trim());
-  }
-  return trozos.join("\n");
 }
 
 /* -------------------------------- Conversión ------------------------------ */
@@ -458,101 +436,4 @@ function esLaCorrecta(clave: string, texto: string, indice: number): boolean {
   if (normalizada === letra) return true;
   if (normalizada === String(indice + 1)) return true;
   return false;
-}
-
-/**
- * Líneas → secciones. Es la ruta del `.docx` y del `.pdf`.
- *
- * Heurística explícita, para que se pueda ajustar sin adivinar:
- *   · «1.» / «1)» / texto que acaba en «?»  → pregunta nueva
- *   · «a)» / «-» / «•» / «*»                → opción de la pregunta en curso
- *   · un «*» al final de una opción          → esa es la correcta
- *   · «Sección: X» / «SECCIÓN X»            → sección nueva
- */
-export function convertirLineas(lineas: string[]): ResultadoConversion {
-  const avisos: string[] = [];
-  const secciones: Seccion[] = [];
-  let seccionActual: Seccion | null = null;
-  let preguntaActual: Pregunta | null = null;
-  let total = 0;
-
-  const nuevaSeccionCon = (titulo: string) => {
-    seccionActual = nuevaSeccion(secciones.length, titulo);
-    secciones.push(seccionActual);
-    return seccionActual;
-  };
-
-  for (const cruda of lineas) {
-    const linea = cruda.trim();
-    if (!linea) continue;
-
-    const seccion = /^(secci[oó]n|bloque|m[oó]dulo|parte)\s*[:\-.]?\s*(.+)$/i.exec(linea);
-    if (seccion && seccion[2].length < 80) {
-      nuevaSeccionCon(seccion[2].trim());
-      preguntaActual = null;
-      continue;
-    }
-
-    const opcion = /^(?:[a-hA-H][).\-]|[-•*+])\s*(.+)$/.exec(linea);
-    if (opcion && preguntaActual) {
-      let texto = opcion[1].trim();
-      let correcta = false;
-      if (/\s*\*$/.test(texto) || /\s*\(correcta\)$/i.test(texto)) {
-        correcta = true;
-        texto = texto.replace(/\s*\*$/, "").replace(/\s*\(correcta\)$/i, "").trim();
-      }
-      const nueva = nuevaOpcion(preguntaActual.opciones.length, texto);
-      nueva.correcta = correcta;
-      preguntaActual.opciones.push(nueva);
-      continue;
-    }
-
-    const numerada = /^\d+\s*[).\-]\s*(.+)$/.exec(linea);
-    const esPregunta = !!numerada || /\?\s*$/.test(linea);
-    if (esPregunta) {
-      if (!seccionActual) nuevaSeccionCon("Importadas");
-      const texto = (numerada ? numerada[1] : linea).trim();
-      preguntaActual = nuevaPregunta("opcion_unica", seccionActual!.id, seccionActual!.preguntas.length);
-      preguntaActual.enunciado = richFromPlain(texto);
-      preguntaActual.opciones = [];
-      seccionActual!.preguntas.push(preguntaActual);
-      total += 1;
-      continue;
-    }
-
-    // Línea suelta: se añade como contenido explicativo, no se descarta.
-    if (!seccionActual) nuevaSeccionCon("Importadas");
-    const contenido = nuevaPregunta("contenido_parrafo", seccionActual!.id, seccionActual!.preguntas.length);
-    contenido.enunciado = richFromPlain(linea);
-    seccionActual!.preguntas.push(contenido);
-  }
-
-  // Las preguntas que quedaron sin opciones pasan a ser abiertas: una de opción
-  // única sin opciones no se puede publicar, y convertirla es lo que el autor
-  // habría hecho a mano.
-  let convertidas = 0;
-  for (const seccion of secciones) {
-    seccion.preguntas = seccion.preguntas.map((pregunta) => {
-      if (pregunta.tipo !== "opcion_unica" || pregunta.opciones.length >= 2) return pregunta;
-      convertidas += 1;
-      return { ...pregunta, tipo: "texto_largo", modoPuntaje: "manual", opciones: [] };
-    });
-  }
-  if (convertidas > 0) {
-    avisos.push(
-      `${convertidas} pregunta(s) no tenían opciones detectables y se convirtieron en respuesta abierta con revisión manual.`,
-    );
-  }
-  if (total === 0) {
-    avisos.push(
-      "No se detectó ninguna pregunta. Comprueba que cada una empiece por un número o termine en «?», y que las opciones empiecen por «a)», «-» o «•».",
-    );
-  }
-
-  return { secciones, preguntas: total, avisos };
-}
-
-/** Identificador de importación, para trazar de dónde vino un borrador. */
-export function marcaImportacion(nombreArchivo: string): Record<string, unknown> {
-  return { importacion: { archivo: nombreArchivo, en: new Date().toISOString(), id: newId("imp") } };
 }

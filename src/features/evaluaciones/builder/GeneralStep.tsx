@@ -34,8 +34,15 @@ import {
   type Navegacion,
   type VisibilidadResultado,
 } from "../domain/model";
+import {
+  describirReparto,
+  objetivoPuntaje,
+  preguntasConPuntaje,
+  puntosDeclarados,
+  PUNTAJE_TOTAL_POR_OMISION,
+} from "../domain/puntaje";
 import type { AccionConstructor, Contenido } from "../state/builderStore";
-import { GlassPanel, Pill, SectionTitle } from "../ui/pieces";
+import { BotonSecundario, GlassPanel, Pill, SectionTitle } from "../ui/pieces";
 
 const CAMPOS_DISPONIBLES = [
   { clave: "nombre", etiqueta: "Nombre completo", fijo: true },
@@ -189,7 +196,7 @@ export function GeneralStep({
           </div>
 
           {app.duracionMinutos !== null && estimados > app.duracionMinutos * 1.4 && (
-            <p className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            <p className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs tone-text-aviso">
               El contenido actual necesita unos <strong>{estimados} min</strong> y el límite es de {app.duracionMinutos}.
               Considera ampliarlo o recortar preguntas.
             </p>
@@ -225,6 +232,8 @@ export function GeneralStep({
               />
             </Field>
           </div>
+
+          <PuntajeTotal contenido={contenido} despachar={despachar} editable={editable} />
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Abre el" htmlFor="ev-desde" hint="Vacío = disponible desde que se publica.">
@@ -359,7 +368,7 @@ export function GeneralStep({
                           }}
                           className={`rounded-full px-2 py-0.5 text-[0.6rem] font-bold ring-1 ${
                             actual?.obligatorio
-                              ? "bg-rose-500/20 text-rose-200 ring-rose-400/30"
+                              ? "bg-rose-500/20 tone-text-peligro ring-rose-400/30"
                               : "fill-softer text-ink-faint ring-[color:var(--hairline)]"
                           }`}
                         >
@@ -488,7 +497,7 @@ export function GeneralStep({
             />
           </Field>
           {integridad.bloquearPegado && (
-            <p className="mt-2 flex items-start gap-1.5 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100">
+            <p className="mt-2 flex items-start gap-1.5 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs text-accent">
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               Bloquear el pegado se le explica al candidato antes de empezar. Un impedimento sin explicación se
               interpreta como un fallo de la página.
@@ -551,7 +560,7 @@ export function GeneralStep({
 
         <GlassPanel padding="p-4">
           <p className="flex items-start gap-2 text-xs text-ink-soft">
-            <Eye className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+            <Eye className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
             <span>
               En <strong>Revisión</strong> puedes ver la prueba exactamente como la verá el candidato, con este mismo
               tema y estas mismas reglas.
@@ -559,6 +568,89 @@ export function GeneralStep({
           </p>
         </GlassPanel>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Puntaje total de la evaluación.
+ *
+ * La escala del equipo es sobre 100, y antes cada pregunta valía 1 punto: una
+ * prueba de 20 preguntas valía 20 y otra de 33 valía 33, con lo que «necesita 70
+ * puntos para aprobar» significaba cosas distintas en cada una. Aquí se declara el
+ * total una vez y el módulo lo reparte; el reparto se recalcula solo cada vez que
+ * el contenido cambia.
+ */
+function PuntajeTotal({
+  contenido,
+  despachar,
+  editable,
+}: {
+  contenido: Contenido;
+  despachar: Dispatch<AccionConstructor>;
+  editable: boolean;
+}) {
+  const objetivo = objetivoPuntaje(contenido.evaluacion);
+  const declarados = puntosDeclarados(contenido.secciones);
+  const cuantas = preguntasConPuntaje(contenido.secciones);
+  const cuadra = objetivo === null || Math.abs(declarados - objetivo) < 0.01;
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-2xl fill-softer p-3 ring-1 ring-[color:var(--hairline)]">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-ink-soft">
+          <Target className="h-3.5 w-3.5" /> Puntaje total de la evaluación
+        </span>
+        <Switch
+          checked={objetivo !== null}
+          onChange={(v) =>
+            despachar({ tipo: "fijarObjetivoPuntaje", objetivo: v ? PUNTAJE_TOTAL_POR_OMISION : null })
+          }
+          label="Repartir automáticamente"
+        />
+      </div>
+
+      {objetivo !== null ? (
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Total" htmlFor="ev-total" className="w-28">
+            <NumberField
+              id="ev-total"
+              min={1}
+              max={10000}
+              value={objetivo}
+              disabled={!editable}
+              onChange={(valor) =>
+                despachar({ tipo: "fijarObjetivoPuntaje", objetivo: valor && valor > 0 ? valor : PUNTAJE_TOTAL_POR_OMISION })
+              }
+            />
+          </Field>
+          <div className="min-w-0 flex-1">
+            <p className="text-[0.72rem] text-ink-soft">{describirReparto(contenido.secciones, objetivo)}</p>
+            <p className="mt-0.5 text-[0.68rem] text-ink-faint">
+              Cada pregunta que puntúa recibe su parte; las centésimas sobrantes se reparten para que la suma sea
+              exactamente {objetivo}. El peso de una sección multiplica la parte de sus preguntas.
+            </p>
+          </div>
+          <BotonSecundario
+            onClick={() => despachar({ tipo: "repartirPuntaje" })}
+            disabled={!editable || cuantas === 0}
+            title="Vuelve a repartir el total entre las preguntas que puntúan"
+          >
+            <Target className="h-4 w-4" /> Repartir ahora
+          </BotonSecundario>
+        </div>
+      ) : (
+        <p className="text-[0.72rem] text-ink-soft">
+          Reparto manual: los puntos de cada pregunta se ponen a mano en el inspector. Ahora mismo la evaluación reparte{" "}
+          <strong className="text-ink">{declarados}</strong> punto(s) entre {cuantas} pregunta(s).
+        </p>
+      )}
+
+      {!cuadra && (
+        <p className="tone-aviso tone-ring rounded-xl px-3 py-2 text-[0.7rem]">
+          Los puntos declarados suman {declarados} y el objetivo es {objetivo}. Pulsa «Repartir ahora» para cuadrarlo.
+        </p>
+      )}
     </div>
   );
 }

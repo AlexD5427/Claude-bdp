@@ -287,7 +287,7 @@ export function AnswerField({ pregunta, valor, onChange, bloquearPegado, onPegar
                 className="flex items-center gap-2 rounded-2xl fill-soft px-3 py-2 ring-1 ring-[color:var(--hairline)]"
               >
                 <GripVertical className="h-4 w-4 shrink-0 text-ink-faint" />
-                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-cyan-500/15 text-xs font-black text-cyan-200">
+                <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-cyan-500/15 text-xs font-black text-accent">
                   {indice + 1}
                 </span>
                 <span className="min-w-0 flex-1">

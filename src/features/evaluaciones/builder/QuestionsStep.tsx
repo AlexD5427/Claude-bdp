@@ -9,7 +9,7 @@
  * el inspector, todo lo que no es contenido (puntaje, clave, validación, ayuda).
  */
 
-import { useMemo, useRef, useState, type Dispatch } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import * as Iconos from "lucide-react";
 import {
@@ -20,7 +20,9 @@ import {
   GripVertical,
   Plus,
   Search,
+  Target,
   Trash2,
+  Wand2,
   X,
 } from "lucide-react";
 import { Field, NumberField, Select, Switch, TextArea, TextInput } from "../../../design-system/liquid-glass/fields";
@@ -35,10 +37,32 @@ import {
   tiposPorGrupo,
   type ModoPuntaje,
 } from "../domain/questionTypes";
+import { objetivoPuntaje } from "../domain/puntaje";
 import type { Pregunta, Seccion } from "../domain/model";
 import type { HallazgoRevision } from "../domain/validation";
 import type { AccionConstructor, EstadoConstructor } from "../state/builderStore";
-import { BotonSecundario, GlassPanel, Pill, SectionTitle } from "../ui/pieces";
+import { BotonSecundario, GlassPanel, Pill, SectionTitle, TextoRecorrido } from "../ui/pieces";
+
+/** Letra de una opción: A, B, C… Es como el candidato la va a ver enumerada. */
+function letraOpcion(indice: number): string {
+  return String.fromCharCode(65 + (indice % 26));
+}
+
+/**
+ * Número de una pregunta dentro de su sección, contando SOLO preguntas.
+ *
+ * Los bloques de contenido (títulos, párrafos, avisos) no se numeran, ni aquí ni
+ * en la prueba del candidato: si se contaran, la «pregunta 7» del panel de
+ * revisión no sería la «7» que el candidato ve.
+ */
+function numeroDePregunta(seccion: Seccion, preguntaId: string): number {
+  let numero = 0;
+  for (const pregunta of seccion.preguntas) {
+    if (esPregunta(pregunta.tipo)) numero += 1;
+    if (pregunta.id === preguntaId) return esPregunta(pregunta.tipo) ? numero : 0;
+  }
+  return 0;
+}
 
 /** Icono de `lucide-react` por nombre, con respaldo. */
 function Icono({ nombre, className = "h-4 w-4" }: { nombre: string; className?: string }) {
@@ -51,24 +75,51 @@ export function QuestionsStep({
   despachar,
   editable,
   hallazgos,
+  foco,
 }: {
   estado: EstadoConstructor;
   despachar: Dispatch<AccionConstructor>;
   editable: boolean;
   hallazgos: HallazgoRevision[];
+  /**
+   * Pregunta a la que hay que llevar la vista, con un contador que cambia en cada
+   * petición. El contador es lo que permite volver a saltar a la MISMA pregunta:
+   * sin él, pulsar dos veces el mismo bloqueo no haría nada la segunda vez.
+   */
+  foco?: { preguntaId: string | null; nonce: number } | null;
 }) {
   const contenido = estado.actual;
   const [paletaAbierta, setPaletaAbierta] = useState(false);
   const [busquedaIndice, setBusquedaIndice] = useState("");
+  const [enfoque, setEnfoque] = useState<{ preguntaId: string | null; nonce: number }>({
+    preguntaId: null,
+    nonce: 0,
+  });
   const seleccion = estado.seleccion;
   const seccionActiva = contenido.secciones.find((s) => s.id === seleccion?.seccionId) ?? contenido.secciones[0];
   const preguntaActiva = seccionActiva?.preguntas.find((p) => p.id === seleccion?.preguntaId) ?? null;
+  const objetivo = objetivoPuntaje(contenido.evaluacion);
 
-  const erroresPorPregunta = useMemo(() => {
-    const mapa = new Map<string, number>();
+  // Una petición de foco que llega de fuera (del panel de revisión) se adopta como
+  // si el usuario hubiese pulsado la pregunta en el índice.
+  useEffect(() => {
+    if (!foco || !foco.preguntaId) return;
+    setEnfoque({ preguntaId: foco.preguntaId, nonce: foco.nonce });
+  }, [foco]);
+
+  /** Selecciona la pregunta y pide que la vista salte hasta ella. */
+  const irAPregunta = (seccionId: string, preguntaId: string | null) => {
+    despachar({ tipo: "seleccionar", seccionId, preguntaId });
+    if (preguntaId) setEnfoque((previo) => ({ preguntaId, nonce: previo.nonce + 1 }));
+  };
+
+  const hallazgosPorPregunta = useMemo(() => {
+    const mapa = new Map<string, HallazgoRevision[]>();
     for (const hallazgo of hallazgos) {
-      if (hallazgo.severidad !== "error" || !hallazgo.preguntaId) continue;
-      mapa.set(hallazgo.preguntaId, (mapa.get(hallazgo.preguntaId) ?? 0) + 1);
+      if (!hallazgo.preguntaId) continue;
+      const lista = mapa.get(hallazgo.preguntaId) ?? [];
+      lista.push(hallazgo);
+      mapa.set(hallazgo.preguntaId, lista);
     }
     return mapa;
   }, [hallazgos]);
@@ -115,7 +166,7 @@ export function QuestionsStep({
                   onClick={() => despachar({ tipo: "seleccionar", seccionId: seccion.id, preguntaId: null })}
                   className={`mb-1 w-full truncate rounded-xl px-2 py-1.5 text-left text-xs font-bold transition-colors ${
                     seccionActiva?.id === seccion.id && !seleccion?.preguntaId
-                      ? "bg-cyan-500/20 text-cyan-100"
+                      ? "bg-cyan-500/20 text-accent"
                       : "text-ink-soft hover:fill-soft hover:text-ink"
                   }`}
                 >
@@ -123,25 +174,30 @@ export function QuestionsStep({
                 </button>
                 <ol className="ml-2 flex flex-col gap-0.5 border-l border-[color:var(--hairline)] pl-2">
                   {coincidencias.map((pregunta) => {
-                    const errores = erroresPorPregunta.get(pregunta.id) ?? 0;
+                    const errores = (hallazgosPorPregunta.get(pregunta.id) ?? []).filter(
+                      (h) => h.severidad === "error",
+                    ).length;
                     const activa = seleccion?.preguntaId === pregunta.id;
                     const texto = richToPlain(pregunta.enunciado).trim();
+                    const numero = numeroDePregunta(seccion, pregunta.id);
                     return (
                       <li key={pregunta.id}>
                         <button
                           type="button"
-                          onClick={() =>
-                            despachar({ tipo: "seleccionar", seccionId: seccion.id, preguntaId: pregunta.id })
-                          }
+                          onClick={() => irAPregunta(seccion.id, pregunta.id)}
                           className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[0.7rem] transition-colors ${
-                            activa ? "bg-cyan-500/15 text-cyan-100" : "text-ink-soft hover:fill-soft hover:text-ink"
+                            activa ? "tone-info tone-ring font-semibold" : "text-ink-soft hover:fill-soft hover:text-ink"
                           }`}
                         >
                           <Icono nombre={tipoSpec(pregunta.tipo)?.icono ?? "Circle"} className="h-3 w-3 shrink-0 opacity-70" />
-                          <span className="min-w-0 flex-1 truncate">
-                            {texto || <em className="opacity-60">sin enunciado</em>}
-                          </span>
-                          {errores > 0 && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />}
+                          {numero > 0 && <span className="shrink-0 tabular-nums opacity-70">{numero}.</span>}
+                          <TextoRecorrido texto={texto || "sin enunciado"} className="min-w-0 flex-1" />
+                          {errores > 0 && (
+                            <span
+                              title={`${errores} bloqueo(s) en esta pregunta`}
+                              className="tone-dot tone-peligro h-1.5 w-1.5 shrink-0 rounded-full"
+                            />
+                          )}
                         </button>
                       </li>
                     );
@@ -254,16 +310,19 @@ export function QuestionsStep({
                 key={pregunta.id}
                 pregunta={pregunta}
                 indice={indice}
+                numero={numeroDePregunta(seccionActiva, pregunta.id)}
                 total={seccionActiva.preguntas.length}
                 seleccionada={seleccion?.preguntaId === pregunta.id}
                 editable={editable}
-                errores={erroresPorPregunta.get(pregunta.id) ?? 0}
+                hallazgos={hallazgosPorPregunta.get(pregunta.id) ?? []}
                 numerar={contenido.evaluacion.tema.mostrarNumeracion}
                 despachar={despachar}
                 onSeleccionar={() =>
                   despachar({ tipo: "seleccionar", seccionId: seccionActiva.id, preguntaId: pregunta.id })
                 }
                 secciones={contenido.secciones}
+                enfoque={enfoque.preguntaId === pregunta.id ? enfoque.nonce : 0}
+                objetivoPuntaje={objetivo}
               />
             ))}
           </ol>
@@ -273,7 +332,7 @@ export function QuestionsStep({
           <button
             type="button"
             onClick={() => setPaletaAbierta(true)}
-            className="group flex items-center justify-center gap-2 rounded-3xl border border-dashed border-[color:var(--hairline)] py-4 text-sm font-bold text-ink-soft transition-all duration-300 hover:border-cyan-400/50 hover:bg-cyan-500/5 hover:text-cyan-200"
+            className="group flex items-center justify-center gap-2 rounded-3xl border border-dashed border-[color:var(--hairline)] py-4 text-sm font-bold text-ink-soft transition-all duration-300 hover:border-cyan-400/50 hover:bg-cyan-500/5 hover:text-accent-strong"
           >
             <Plus className="h-4 w-4 transition-transform duration-300 group-hover:rotate-90" />
             Agregar bloque
@@ -284,7 +343,12 @@ export function QuestionsStep({
       {/* Inspector */}
       <div className="h-fit xl:sticky xl:top-20">
         {preguntaActiva ? (
-          <Inspector pregunta={preguntaActiva} editable={editable} despachar={despachar} />
+          <Inspector
+            pregunta={preguntaActiva}
+            editable={editable}
+            despachar={despachar}
+            objetivoPuntaje={objetivo}
+          />
         ) : (
           <GlassPanel padding="p-4">
             <p className="text-xs text-ink-soft">
@@ -320,45 +384,81 @@ export function QuestionsStep({
 function BloqueEditor({
   pregunta,
   indice,
+  numero,
   total,
   seleccionada,
   editable,
-  errores,
+  hallazgos,
   numerar,
   despachar,
   onSeleccionar,
   secciones,
+  enfoque,
+  objetivoPuntaje: objetivo,
 }: {
   pregunta: Pregunta;
   indice: number;
+  numero: number;
   total: number;
   seleccionada: boolean;
   editable: boolean;
-  errores: number;
+  hallazgos: HallazgoRevision[];
   numerar: boolean;
   despachar: Dispatch<AccionConstructor>;
   onSeleccionar: () => void;
   secciones: Seccion[];
+  /** Cambia de valor cada vez que hay que traer la vista a este bloque. */
+  enfoque: number;
+  objetivoPuntaje: number | null;
 }) {
   const spec = tipoSpec(pregunta.tipo);
   const contenidoPuro = spec?.kind === "contenido";
+  const errores = hallazgos.filter((h) => h.severidad === "error");
+  const avisos = hallazgos.filter((h) => h.severidad === "aviso");
+  const caja = useRef<HTMLLIElement>(null);
+  const [destello, setDestello] = useState(false);
+
+  /**
+   * Salto a la pregunta.
+   *
+   * Antes, pulsar una pregunta en el índice —o un bloqueo en el panel de
+   * revisión— solo cambiaba la selección: la vista se quedaba donde estaba, así
+   * que con veinte preguntas parecía que el botón no hacía nada. Peor aún: el
+   * bloqueo «falta la respuesta correcta» dejaba al autor mirando la PRIMERA
+   * pregunta, que estaba bien, y la conclusión razonable era que el sistema se
+   * equivocaba. Ahora la vista se desplaza y el bloque destella un momento.
+   */
+  useEffect(() => {
+    if (!enfoque || !caja.current) return;
+    caja.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    setDestello(true);
+    const timer = setTimeout(() => setDestello(false), 1600);
+    return () => clearTimeout(timer);
+  }, [enfoque]);
+
   return (
     <motion.li
+      ref={caja}
       layout
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 260, damping: 28 }}
       onClick={onSeleccionar}
-      className={`glass relative rounded-3xl p-4 transition-all duration-300 ${
-        seleccionada ? "ring-2 ring-cyan-400/60" : errores > 0 ? "ring-1 ring-rose-400/40" : ""
+      className={`glass relative scroll-mt-24 rounded-3xl p-4 transition-all duration-300 ${destello ? "rt-flash" : ""} ${
+        seleccionada
+          ? "ring-2 ring-cyan-400/60"
+          : errores.length > 0
+            ? "ring-1 ring-[color:var(--tone-peligro-ring)]"
+            : ""
       }`}
     >
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="grid h-7 w-7 place-items-center rounded-xl fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)]">
             <Icono nombre={spec?.icono ?? "Circle"} className="h-3.5 w-3.5" />
           </span>
           <span className="text-xs font-bold text-ink">
-            {numerar && !contenidoPuro ? `${indice + 1}. ` : ""}
+            {numerar && !contenidoPuro && numero > 0 ? `${numero}. ` : ""}
             {spec?.etiqueta ?? pregunta.tipo}
           </span>
           {pregunta.obligatoria && (
@@ -367,13 +467,18 @@ function BloqueEditor({
             </Pill>
           )}
           {!contenidoPuro && pregunta.modoPuntaje !== "ninguno" && (
-            <Pill tono="acento" punto={false}>
+            <Pill
+              tono="acento"
+              punto={false}
+              title={objetivo !== null ? `Parte del reparto automático de ${objetivo} puntos` : undefined}
+            >
+              {objetivo !== null && <Target className="h-3 w-3" />}
               {pregunta.puntos} pt{pregunta.puntos === 1 ? "" : "s"}
             </Pill>
           )}
-          {errores > 0 && (
+          {errores.length > 0 && (
             <Pill tono="peligro">
-              <AlertCircle className="h-3 w-3" /> {errores}
+              <AlertCircle className="h-3 w-3" /> {errores.length}
             </Pill>
           )}
         </div>
@@ -431,6 +536,34 @@ function BloqueEditor({
         )}
       </div>
 
+      {/* Los bloqueos de ESTA pregunta, aquí mismo y con el arreglo a un clic. El
+          panel de revisión enumera todo; este aviso resuelve. */}
+      <AnimatePresence initial={false}>
+        {(errores.length > 0 || avisos.length > 0) && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <ul className="mb-2 flex flex-col gap-1.5">
+              {[...errores, ...avisos].map((hallazgo, i) => (
+                <li
+                  key={`${hallazgo.codigo}-${i}`}
+                  className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-[0.72rem] ${
+                    hallazgo.severidad === "error" ? "tone-peligro tone-ring" : "tone-aviso tone-ring"
+                  }`}
+                >
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1">{hallazgo.mensaje}</span>
+                  {editable && <ArregloRapido hallazgo={hallazgo} pregunta={pregunta} despachar={despachar} />}
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {pregunta.tipo === "contenido_separador" ? (
         <div className="my-2 h-px bg-[color:var(--hairline)]" />
       ) : (
@@ -440,6 +573,8 @@ function BloqueEditor({
           marcador={contenidoPuro ? "Escribe el contenido…" : "Escribe el enunciado…"}
           sinVistaPrevia
           filasMinimas={contenidoPuro ? 3 : 2}
+          barraAlEnfocar
+          disabled={!editable}
         />
       )}
 
@@ -452,6 +587,64 @@ function BloqueEditor({
       )}
     </motion.li>
   );
+}
+
+/**
+ * Botón que resuelve el hallazgo sin salir del bloque.
+ *
+ * La diferencia entre un panel de validación útil y una lista de reproches es
+ * poder actuar desde donde se lee el problema. Solo aparece cuando hay UNA acción
+ * evidente y sin pérdida: nunca inventa una respuesta correcta, porque adivinar la
+ * clave de una pregunta sería mucho peor que dejar el bloqueo.
+ */
+function ArregloRapido({
+  hallazgo,
+  pregunta,
+  despachar,
+}: {
+  hallazgo: HallazgoRevision;
+  pregunta: Pregunta;
+  despachar: Dispatch<AccionConstructor>;
+}) {
+  const boton = (etiqueta: string, accion: AccionConstructor, titulo: string) => (
+    <button
+      type="button"
+      title={titulo}
+      onClick={(e) => {
+        e.stopPropagation();
+        despachar(accion);
+      }}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color:var(--fill-2)] px-2.5 py-1 text-[0.68rem] font-bold ring-1 ring-[color:var(--hairline)] transition-transform hover:-translate-y-0.5"
+    >
+      <Wand2 className="h-3 w-3" />
+      {etiqueta}
+    </button>
+  );
+
+  switch (hallazgo.codigo) {
+    case "SIN_CLAVE":
+      return boton(
+        "Cambiar a revisión manual",
+        { tipo: "editarPregunta", preguntaId: pregunta.id, cambios: { modoPuntaje: "manual" } },
+        "La calificará una persona desde el panel de resultados",
+      );
+    case "PUNTOS_CERO":
+      return boton(
+        "Poner 1 punto",
+        { tipo: "editarPregunta", preguntaId: pregunta.id, cambios: { puntos: 1 } },
+        "Le asigna un punto para que puntúe",
+      );
+    case "OPCIONES_INSUFICIENTES":
+      return boton("Agregar opción", { tipo: "agregarOpcion", preguntaId: pregunta.id }, "Añade una opción más");
+    case "VARIAS_CORRECTAS":
+      return boton(
+        "Cambiar a opción múltiple",
+        { tipo: "editarPregunta", preguntaId: pregunta.id, cambios: { tipo: "opcion_multiple", modoPuntaje: "parcial" } },
+        "Si de verdad hay varias respuestas correctas, este es el tipo que corresponde",
+      );
+    default:
+      return null;
+  }
 }
 
 function IconoBoton({
@@ -478,7 +671,7 @@ function IconoBoton({
         onClick();
       }}
       className={`grid h-7 w-7 place-items-center rounded-lg transition-colors disabled:opacity-30 ${
-        destructivo ? "text-rose-300 hover:bg-rose-500/15" : "text-ink-soft hover:fill-soft hover:text-ink"
+        destructivo ? "tone-text-peligro hover:bg-rose-500/15" : "text-ink-soft hover:fill-soft hover:text-ink"
       }`}
     >
       {children}
@@ -563,35 +756,55 @@ function EditorOpciones({
       )}
 
       <ol className="flex flex-col gap-1.5">
+        <AnimatePresence initial={false}>
         {pregunta.opciones.map((opcion, indice) => (
-          <li key={opcion.id} className="flex items-start gap-2">
+          <motion.li
+            key={opcion.id}
+            layout
+            initial={{ opacity: 0, x: -8 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 8, height: 0 }}
+            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+            className={`flex items-start gap-2 rounded-xl px-1 py-0.5 transition-colors ${
+              opcion.correcta ? "tone-exito" : ""
+            }`}
+          >
             {conCorrectas && (
-              <button
+              <motion.button
                 type="button"
                 disabled={!editable}
-                onClick={() =>
+                whileTap={{ scale: 0.85 }}
+                onClick={(e) => {
+                  e.stopPropagation();
                   despachar({
                     tipo: "marcarCorrecta",
                     preguntaId: pregunta.id,
                     opcionId: opcion.id,
                     correcta: !opcion.correcta,
-                  })
-                }
+                  });
+                }}
                 aria-label={opcion.correcta ? "Quitar como correcta" : "Marcar como correcta"}
                 aria-pressed={opcion.correcta}
-                title={unica ? "Solo una puede ser correcta" : "Marcar como correcta"}
+                title={
+                  unica
+                    ? "Marcar como la respuesta correcta (solo una puede serlo)"
+                    : "Marcar como respuesta correcta"
+                }
                 className={`mt-2 grid h-5 w-5 shrink-0 place-items-center transition-all duration-200 ${
                   unica ? "rounded-full" : "rounded-md"
                 } ${
                   opcion.correcta
-                    ? "bg-emerald-500 text-white ring-2 ring-emerald-300/50"
-                    : "fill-soft text-transparent ring-1 ring-[color:var(--hairline)] hover:ring-emerald-400/50"
+                    ? "bg-emerald-600 text-white ring-2 ring-emerald-400/60"
+                    : "fill-softer text-ink-faint ring-1 ring-[color:var(--hairline)] hover:ring-2 hover:ring-emerald-500/60"
                 }`}
               >
-                <Iconos.Check className="h-3 w-3" />
-              </button>
+                <Iconos.Check className={`h-3 w-3 ${opcion.correcta ? "" : "opacity-30"}`} />
+              </motion.button>
             )}
             {!conCorrectas && <GripVertical className="mt-2 h-4 w-4 shrink-0 text-ink-faint" />}
+            <span className="mt-2 w-4 shrink-0 text-center text-[0.68rem] font-black tabular-nums text-ink-faint">
+              {esMatriz ? indice + 1 : letraOpcion(indice)}
+            </span>
 
             <div className="min-w-0 flex-1">
               <RichTextEditor
@@ -601,7 +814,9 @@ function EditorOpciones({
                 }
                 unaLinea
                 sinVistaPrevia
-                marcador={`${esMatriz ? "Fila" : "Opción"} ${indice + 1}`}
+                barraAlEnfocar
+                disabled={!editable}
+                marcador={`${esMatriz ? "Fila" : "Opción"} ${esMatriz ? indice + 1 : letraOpcion(indice)}`}
                 filasMinimas={1}
               />
               {conClave && (
@@ -706,18 +921,24 @@ function EditorOpciones({
                 </IconoBoton>
               </div>
             )}
-          </li>
+          </motion.li>
         ))}
+        </AnimatePresence>
       </ol>
 
       {editable && (
-        <button
+        <motion.button
           type="button"
-          onClick={() => despachar({ tipo: "agregarOpcion", preguntaId: pregunta.id })}
-          className="self-start text-xs font-bold text-cyan-300 underline decoration-dotted hover:text-cyan-200"
+          whileHover={{ x: 2 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={(e) => {
+            e.stopPropagation();
+            despachar({ tipo: "agregarOpcion", preguntaId: pregunta.id });
+          }}
+          className="inline-flex self-start items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold text-accent ring-1 ring-[color:var(--hairline)] transition-colors hover:fill-soft"
         >
-          + Agregar {esMatriz ? "fila" : "opción"}
-        </button>
+          <Plus className="h-3 w-3" /> Agregar {esMatriz ? "fila" : "opción"}
+        </motion.button>
       )}
     </div>
   );
@@ -789,7 +1010,7 @@ function EditorHuecos({
               { clave: `h${huecos.length + 1}`, respuestas: [], ignorarMayusculas: true, ignorarAcentos: true },
             ])
           }
-          className="self-start text-xs font-bold text-cyan-300 underline decoration-dotted hover:text-cyan-200"
+          className="self-start text-xs font-bold text-accent underline decoration-dotted hover:text-accent-strong"
         >
           + Agregar hueco
         </button>
@@ -804,10 +1025,12 @@ function Inspector({
   pregunta,
   editable,
   despachar,
+  objetivoPuntaje: objetivo,
 }: {
   pregunta: Pregunta;
   editable: boolean;
   despachar: Dispatch<AccionConstructor>;
+  objetivoPuntaje: number | null;
 }) {
   const spec = tipoSpec(pregunta.tipo);
   const modos = modosPuntajeDe(pregunta.tipo);
@@ -841,12 +1064,19 @@ function Inspector({
             </Field>
             {pregunta.modoPuntaje !== "ninguno" && (
               <div className="grid grid-cols-2 gap-2">
-                <Field label="Puntos">
+                <Field
+                  label="Puntos"
+                  hint={
+                    objetivo !== null
+                      ? `Los reparte el total de ${objetivo} puntos. Para ponerlos a mano, desactiva el reparto automático en Configuración general.`
+                      : undefined
+                  }
+                >
                   <NumberField
                     min={0}
                     step={0.5}
                     value={pregunta.puntos}
-                    disabled={!editable}
+                    disabled={!editable || objetivo !== null}
                     onChange={(valor) => editar({ puntos: valor ?? 0 })}
                   />
                 </Field>
@@ -865,7 +1095,7 @@ function Inspector({
             {/* Clave para tipos sin opciones */}
             {sinOpciones && pregunta.modoPuntaje !== "ninguno" && pregunta.modoPuntaje !== "manual" && spec.auto && (
               <div className="flex flex-col gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/5 p-3">
-                <span className="text-[0.68rem] font-bold uppercase tracking-wide text-emerald-300">
+                <span className="text-[0.68rem] font-bold uppercase tracking-wide tone-text-exito">
                   Respuesta correcta
                 </span>
                 {spec.expects === "numero" || spec.expects === "escala" ? (
@@ -1218,7 +1448,7 @@ function Paleta({ onClose, onElegir }: { onClose: () => void; onElegir: (tipo: s
                     onClick={() => onElegir(id)}
                     className="group flex items-start gap-2.5 rounded-2xl fill-softer p-3 text-left ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-cyan-500/10 hover:ring-cyan-400/40"
                   >
-                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#00b0d8]/20 to-[#005baa]/20 text-cyan-300 ring-1 ring-cyan-400/20">
+                    <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#00b0d8]/20 to-[#005baa]/20 text-accent ring-1 ring-cyan-400/20">
                       <Icono nombre={spec.icono} className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">

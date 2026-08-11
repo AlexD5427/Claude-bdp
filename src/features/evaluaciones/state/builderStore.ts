@@ -21,6 +21,7 @@ import { duplicarPregunta, duplicarSeccion, nuevaPregunta, nuevaSeccion } from "
 import type { Evaluacion, Opcion, Pregunta, Seccion } from "../domain/model";
 import type { RichDoc } from "../domain/richText";
 import { nuevaOpcion } from "../domain/factory";
+import { conObjetivoPuntaje, objetivoPuntaje, repartirPuntaje, repartirSiCorresponde } from "../domain/puntaje";
 
 const MAX_HISTORIAL = 60;
 
@@ -63,6 +64,8 @@ export type AccionConstructor =
   | { tipo: "moverOpcion"; preguntaId: string; opcionId: string; delta: number }
   | { tipo: "eliminarOpcion"; preguntaId: string; opcionId: string }
   | { tipo: "marcarCorrecta"; preguntaId: string; opcionId: string; correcta: boolean }
+  | { tipo: "fijarObjetivoPuntaje"; objetivo: number | null }
+  | { tipo: "repartirPuntaje" }
   | { tipo: "seleccionar"; seccionId: string; preguntaId: string | null }
   | { tipo: "deshacer" }
   | { tipo: "rehacer" };
@@ -103,7 +106,13 @@ function conHistorial(estado: EstadoConstructor, siguiente: Contenido): EstadoCo
   };
 }
 
-/** Reordena y renumera secciones y preguntas. Se aplica tras cada cambio. */
+/**
+ * Reordena, renumera y reparte el puntaje. Se aplica tras cada cambio de estructura.
+ *
+ * El reparto vive aquí y no en cada acción por la misma razón que el orden: es una
+ * invariante del documento («los puntos suman el objetivo declarado»), y las
+ * invariantes se mantienen en un solo sitio o no se mantienen.
+ */
 function normalizar(contenido: Contenido): Contenido {
   const secciones = contenido.secciones.map((seccion, i) => ({
     ...seccion,
@@ -115,7 +124,7 @@ function normalizar(contenido: Contenido): Contenido {
       opciones: pregunta.opciones.map((opcion, k) => ({ ...opcion, orden: k })),
     })),
   }));
-  return { ...contenido, secciones };
+  return { ...contenido, secciones: repartirSiCorresponde(contenido.evaluacion, secciones) };
 }
 
 function mapSecciones(contenido: Contenido, fn: (seccion: Seccion) => Seccion): Contenido {
@@ -253,11 +262,18 @@ export function reducirConstructor(estado: EstadoConstructor, accion: AccionCons
       };
     }
 
-    case "editarPregunta":
+    case "editarPregunta": {
+      const siguiente = mapPregunta(estado.actual, accion.preguntaId, (pregunta) => ({
+        ...pregunta,
+        ...accion.cambios,
+      }));
+      // Cambiar el modo de puntaje mete o saca la pregunta del reparto, así que hay
+      // que volver a repartir; el resto de ediciones no lo afectan.
       return conHistorial(
         estado,
-        mapPregunta(estado.actual, accion.preguntaId, (pregunta) => ({ ...pregunta, ...accion.cambios })),
+        "modoPuntaje" in accion.cambios ? normalizar(siguiente) : siguiente,
       );
+    }
 
     case "moverPregunta": {
       const encontrada = buscarPregunta(estado.actual, accion.preguntaId);
@@ -397,6 +413,27 @@ export function reducirConstructor(estado: EstadoConstructor, accion: AccionCons
           };
         }),
       );
+
+    case "fijarObjetivoPuntaje": {
+      const evaluacion = {
+        ...estado.actual.evaluacion,
+        extras: conObjetivoPuntaje(estado.actual.evaluacion.extras ?? {}, accion.objetivo),
+      };
+      const secciones =
+        accion.objetivo === null
+          ? estado.actual.secciones
+          : repartirPuntaje(estado.actual.secciones, accion.objetivo);
+      return conHistorial(estado, { ...estado.actual, evaluacion, secciones });
+    }
+
+    case "repartirPuntaje": {
+      const objetivo = objetivoPuntaje(estado.actual.evaluacion);
+      if (objetivo === null) return estado;
+      return conHistorial(estado, {
+        ...estado.actual,
+        secciones: repartirPuntaje(estado.actual.secciones, objetivo),
+      });
+    }
 
     case "seleccionar":
       return { ...estado, seleccion: { seccionId: accion.seccionId, preguntaId: accion.preguntaId } };

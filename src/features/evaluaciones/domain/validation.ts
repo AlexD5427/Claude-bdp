@@ -28,6 +28,16 @@ export interface HallazgoRevision {
   /** Identificadores para poder navegar hasta el bloque. */
   seccionId?: string;
   preguntaId?: string;
+  /**
+   * Ubicación legible: «Sección 1 · Pregunta 7».
+   *
+   * Existe porque el panel de revisión decía solo «puntúa automáticamente pero no
+   * tiene respuesta correcta» junto a un identificador interno
+   * (`pr_2d9ed8c5-…`). Con cuarenta preguntas de opción única, eso no dice cuál,
+   * y la conclusión razonable de quien lo lee es que el sistema se equivoca —fue
+   * exactamente lo que pasó—. Ahora el hallazgo dice dónde está.
+   */
+  ubicacion?: string;
   datos?: Record<string, unknown>;
 }
 
@@ -132,16 +142,21 @@ export function revisarDocumento(evaluacion: Evaluacion, secciones: Seccion[]): 
   let calificables = 0;
   let manuales = 0;
 
-  for (const seccion of secciones) {
+  for (const [indiceSeccion, seccion] of secciones.entries()) {
+    let numeroPregunta = 0;
     for (const pregunta of seccion.preguntas) {
       const spec = tipoSpec(pregunta.tipo);
+      if (spec?.kind === "pregunta") numeroPregunta += 1;
+      const ubicacion = `Sección ${indiceSeccion + 1} «${seccion.titulo}»${
+        spec?.kind === "pregunta" ? ` · Pregunta ${numeroPregunta}` : " · bloque de contenido"
+      }`;
       if (!spec) {
         hallazgos.push(
           error(
             "TIPO_DESCONOCIDO",
             `El bloque usa el tipo «${pregunta.tipo}», que este backend no conoce.`,
             `preguntas.${pregunta.id}`,
-            { seccionId: seccion.id, preguntaId: pregunta.id },
+            { seccionId: seccion.id, preguntaId: pregunta.id, ubicacion },
           ),
         );
         continue;
@@ -152,6 +167,7 @@ export function revisarDocumento(evaluacion: Evaluacion, secciones: Seccion[]): 
             aviso("CONTENIDO_VACIO", "Hay un bloque de contenido sin texto.", `preguntas.${pregunta.id}.enunciado`, {
               seccionId: seccion.id,
               preguntaId: pregunta.id,
+              ubicacion,
             }),
           );
         }
@@ -159,7 +175,7 @@ export function revisarDocumento(evaluacion: Evaluacion, secciones: Seccion[]): 
       }
 
       const ruta = `preguntas.${pregunta.id}`;
-      const contexto = { seccionId: seccion.id, preguntaId: pregunta.id };
+      const contexto = { seccionId: seccion.id, preguntaId: pregunta.id, ubicacion };
 
       if (isRichEmpty(pregunta.enunciado)) {
         hallazgos.push(error("ENUNCIADO_VACIO", "Hay una pregunta sin enunciado.", `${ruta}.enunciado`, contexto));
@@ -237,7 +253,9 @@ export function revisarDocumento(evaluacion: Evaluacion, secciones: Seccion[]): 
         hallazgos.push(
           error(
             "SIN_CLAVE",
-            "Puntúa automáticamente pero no tiene respuesta correcta definida. Márcala como manual o define la clave.",
+            spec.options === "requeridas"
+              ? `Ninguna de sus ${pregunta.opciones.length} opciones está marcada como correcta, y la pregunta puntúa automáticamente. Marca la correcta con el círculo verde de la izquierda, o cambia el modo de puntaje a «Revisión manual».`
+              : "Puntúa automáticamente pero no tiene respuesta correcta definida. Escribe la clave en el inspector o cambia el modo de puntaje a «Revisión manual».",
             `${ruta}.respuestaEsperada`,
             contexto,
           ),
