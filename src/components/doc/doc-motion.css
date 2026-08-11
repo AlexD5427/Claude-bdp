@@ -1,0 +1,111 @@
+/**
+ * doc-motion.css — estilos de movimiento del módulo de Documentación.
+ *
+ * Vive junto al módulo y no en `index.css` a propósito: así no altera el aspecto
+ * de los demás módulos y puede retirarse sin efectos colaterales. Solo contiene
+ * lo que no se puede expresar con clases de utilidad: fotogramas de animación y
+ * el aspecto de la barra de desplazamiento.
+ *
+ * Todo lo de aquí se desactiva bajo `prefers-reduced-motion`.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Brillo de carga                                                     */
+/* ------------------------------------------------------------------ */
+
+@keyframes doc-shimmer-barrido {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/**
+ * Barrido de luz sobre los bloques de carga.
+ *
+ * Se anima `transform` y no `background-position` porque el desplazamiento se
+ * resuelve en la GPU; con quince esqueletos en pantalla la diferencia se nota
+ * en equipos modestos, que es justo donde se ven los esqueletos más rato.
+ */
+.doc-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.16) 45%,
+    rgba(255, 255, 255, 0.26) 50%,
+    rgba(255, 255, 255, 0.16) 55%,
+    transparent 100%
+  );
+  animation: doc-shimmer-barrido 1.45s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* En tema claro el blanco puro no contrasta: se oscurece el barrido. */
+@media (prefers-color-scheme: light) {
+  .doc-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(0, 91, 170, 0.07) 45%,
+      rgba(0, 176, 216, 0.12) 50%,
+      rgba(0, 91, 170, 0.07) 55%,
+      transparent 100%
+    );
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Desplazamiento                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Contenedor con desplazamiento suave.
+ *
+ * `overscroll-behavior: contain` evita que al llegar al final de una lista el
+ * gesto arrastre la página de detrás, algo especialmente molesto en el panel de
+ * expediente, que se abre sobre el listado.
+ */
+.doc-scroll-suave {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 176, 216, 0.45) transparent;
+}
+
+.doc-scroll-suave::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.doc-scroll-suave::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.doc-scroll-suave::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: rgba(0, 176, 216, 0.35);
+  /* El borde transparente deja aire alrededor del pulgar sin ocupar ancho. */
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.doc-scroll-suave::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 176, 216, 0.6);
+}
+
+/* ------------------------------------------------------------------ */
+/* Respeto por la preferencia del sistema                              */
+/* ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-shimmer {
+    animation: none;
+    background-image: none;
+  }
+
+  .doc-scroll-suave {
+    scroll-behavior: auto;
+  }
+}
