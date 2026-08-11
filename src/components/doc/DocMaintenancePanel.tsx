@@ -13,7 +13,7 @@
  * personas pueden llamarse igual y no ser la misma.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -51,21 +51,25 @@ type Registro = {
   tono: "ok" | "error" | "info";
 };
 
-const SEVERIDAD_ESTILO: Record<string, { color: string; icono: JSX.Element; etiqueta: string }> = {
+/**
+ * Estilo por severidad.
+ *
+ * Se tipa el icono como `ReactNode` y no como `JSX.Element`: el namespace global
+ * `JSX` existe con @types/react 18 pero desapareció en React 19, y dejarlo
+ * convertiría una futura actualización en un fallo de compilación sin motivo.
+ */
+const SEVERIDAD_ESTILO: Record<string, { color: string; icono: ReactNode }> = {
   critico: {
     color: "text-rose-400",
     icono: <AlertTriangle size={13} />,
-    etiqueta: "Crítico",
   },
   aviso: {
     color: "text-amber-400",
     icono: <AlertTriangle size={13} />,
-    etiqueta: "Aviso",
   },
   info: {
     color: "text-sky-400",
     icono: <Info size={13} />,
-    etiqueta: "Информación".replace("Информación", "Información"),
   },
 };
 
@@ -124,7 +128,7 @@ export default function DocMaintenancePanel() {
         const fallo = e as DocApiFallo;
         anotar(
           etiqueta,
-          `${fallo?.message || "Falló."}${fallo?.pista ? ` ${fallo.pista}` : ""}`,
+          `${fallo?.message || "Fall\u00f3."}${fallo?.pista ? ` ${fallo.pista}` : ""}`,
           "error",
         );
         return null;
@@ -150,10 +154,10 @@ export default function DocMaintenancePanel() {
     void comprobarConexion();
   }, [ejecutar]);
 
-  // Diagnostico automatico la primera vez que se abre el panel.
+  // Diagnóstico automático la primera vez que se abre el panel.
   useEffect(() => {
     if (configurado && !diag) void diagnosticar();
-    // Solo al montar: repetirlo en cada cambio gastaria cuota sin motivo.
+    // Solo al montar: repetirlo en cada cambio gastaría cuota sin motivo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -278,7 +282,7 @@ export default function DocMaintenancePanel() {
         </div>
       )}
 
-      {/* Diagnostico --------------------------------------------------- */}
+      {/* Diagnóstico --------------------------------------------------- */}
       <section>
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
@@ -394,7 +398,7 @@ export default function DocMaintenancePanel() {
               id: "recolorear",
               icono: <Paintbrush size={14} className="text-amber-500" />,
               titulo: "Repintar filas",
-              detalle: "Reaplica los colores segun el estado.",
+              detalle: "Reaplica los colores según el estado.",
               fn: () => ejecutar("Repintar filas", () => docApi.recolorear()),
             },
             {
@@ -523,7 +527,7 @@ export default function DocMaintenancePanel() {
         </AnimatePresence>
       </section>
 
-      {/* Confirmacion -------------------------------------------------- */}
+      {/* Confirmación -------------------------------------------------- */}
       <AnimatePresence>
         {confirmar?.tipo === "restaurar" && (
           <motion.div
