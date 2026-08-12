@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  forwardRef,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Printer,
@@ -25,6 +34,8 @@ import {
   ArrowDownWideNarrow,
   ArrowUpWideNarrow,
   Move,
+  Rows3,
+  Scale,
 } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { LoadingState, ErrorState, EmptyState } from "../components/States";
@@ -35,6 +46,7 @@ import { LevelBadge } from "../components/LevelBadge";
 import { Avatar } from "../components/Avatar";
 import { RankChip } from "../components/RankBadge";
 import { MarqueeText } from "../components/MarqueeText";
+import { LongCell } from "../components/comparator/LongTextCell";
 import { openProfile } from "../lib/profileViewerStore";
 import { DiscInfoButton } from "../components/DiscInfoButton";
 import { CompetencyInfoButton } from "../components/CompetencyInfoButton";
@@ -44,7 +56,19 @@ import { ComparatorCharts } from "../components/comparator/ComparatorCharts";
 import { discAccent } from "../lib/discAccent";
 import { extractDiscCode } from "../lib/disc";
 import { parseDecimal, ajusteBand } from "../lib/competency";
-import { sortByCap, capScore, upperName } from "../lib/candidateDisplay";
+import { upperName } from "../lib/candidateDisplay";
+import {
+  orderForDisplay,
+  rankByMerit,
+  tiebreakExplanation,
+  type RankedCandidate,
+} from "../lib/comparatorRanking";
+import {
+  COMPARATOR_ROWS,
+  competencyRowId,
+  rowsOfSection,
+  type ComparatorRowDef,
+} from "../lib/comparatorRows";
 import {
   useConfig,
   setConfig,
@@ -61,50 +85,17 @@ import {
   setDense,
   toggleSectionVisible,
   setSectionCollapsed,
+  setRowHidden,
+  showAllRows,
   resetComparatorView,
   COMPARATOR_SECTION_IDS,
   COMPARATOR_SECTION_LABELS,
   type ComparatorSectionId,
 } from "../lib/comparatorStore";
-import {
-  proficiencyTone,
-  reliabilityTone,
-  riskTone,
-  type Tone,
-} from "../lib/levels";
+import { proficiencyTone } from "../lib/levels";
 import { printModule, type PaperSize, type PaperOrientation } from "../lib/print";
-import type { Candidate, CompetencyScore, TechnicalKnowledge } from "../types";
-
-type EvalKind = "pct" | "text";
-interface EvalRow {
-  key: keyof Candidate;
-  label: string;
-  sub: string;
-  kind: EvalKind;
-}
-
-const EVAL_ROWS: EvalRow[] = [
-  { key: "nota_cap", label: "Nota CAP", sub: "Coeficiente de Adecuación al Puesto", kind: "pct" },
-  { key: "perfil_disc", label: "Perfil DISC", sub: "Arquetipo de Comportamiento", kind: "text" },
-  { key: "nota_curriculum", label: "Nota Currículum", sub: "Calificación de Hoja de Vida", kind: "pct" },
-  { key: "nota_conocimiento", label: "Nota Conocimientos", sub: "Evaluación de Conocimientos Técnicos", kind: "pct" },
-  { key: "nota_competencias", label: "Nota Competencias", sub: "Calificación de las competencias a nivel general", kind: "pct" },
-];
-
-interface ConfRow {
-  key: keyof Candidate;
-  label: string;
-  sub: string;
-  tone: (v?: string) => Tone;
-}
-const CONF_ROWS: ConfRow[] = [
-  { key: "nivel_general_confiabilidad", label: "Confiabilidad e Integridad", sub: "Mide la honestidad y el compromiso con las normas", tone: reliabilityTone },
-  // "Nivel de Integridad" is a labelled risk scale ("Riesgo Bajo/Medio/Alto"),
-  // so a lower risk reads as better — same semantics as the other risk rows.
-  { key: "nivel_integridad", label: "Integridad", sub: "Riesgo asociado a la integridad del postulante", tone: riskTone },
-  { key: "riesgo_robo", label: "Riesgo de robo", sub: "Probabilidad de cometer o justificar sustracciones", tone: riskTone },
-  { key: "riesgo_mentira", label: "Riesgo de Mentira", sub: "Tendencia a exagerar o distorsionar la verdad", tone: riskTone },
-];
+import type { Candidate, CompetencyScore } from "../types";
+import "../components/comparator/comparator-motion.css";
 
 type Tab = "comparativa" | "graficos" | "config";
 
@@ -118,8 +109,14 @@ type Tab = "comparativa" | "graficos" | "config";
  * modules and coming back restores everything intact.
  *
  * Three tabs organise the module: the frozen-header comparison grid, an
- * interactive chart generator, and a session settings panel where sections and
- * chip details can be shown or hidden.
+ * interactive chart generator, and a session settings panel where sections,
+ * individual rows and chip details can be shown or hidden.
+ *
+ * Dos piezas sostienen la comparativa y viven fuera de este archivo:
+ *   · {@link ../lib/comparatorRanking} decide el puesto de cada postulante
+ *     (mayor Nota CAP y, sólo al empatar, el Índice de Desempate ponderado).
+ *   · {@link ../lib/comparatorRows} es el catálogo de filas: de él se dibuja la
+ *     cuadrícula y de él se alimentan los interruptores de Configuración.
  */
 export function NuevoComparador() {
   const { candidatos, loading, error, refetch } = useTalentData();
@@ -144,25 +141,30 @@ export function NuevoComparador() {
     [selectedIds, candidatos],
   );
 
-  // Columns are ordered by Nota CAP so the strongest candidate leads the audit.
-  // The direction (highest → left by default) is a quick filter in the toolbar
-  // and defaults from Configuración; turning the sort off restores the added
-  // order the operator chose.
-  const ordered = useMemo(
-    () => (config.sortByCapDesc ? sortByCap(selected, config.comparatorOrder) : selected),
-    [selected, config.sortByCapDesc, config.comparatorOrder],
-  );
+  // El puesto se calcula SIEMPRE por mérito (Nota CAP y, al empatar, el Índice
+  // de Desempate). El interruptor de orden sólo decide cómo se dibujan las
+  // columnas: invertir la vista no convierte al último en el primero.
+  const ranked = useMemo(() => rankByMerit(selected), [selected]);
+  const ordered = useMemo(() => {
+    if (config.sortByCapDesc) return orderForDisplay(ranked, config.comparatorOrder);
+    // Sin ordenamiento por CAP se respeta el orden en que se agregaron.
+    const byId = new Map(ranked.map((r) => [r.candidate.id, r]));
+    return selected.map((c) => byId.get(c.id)!).filter(Boolean);
+  }, [ranked, selected, config.sortByCapDesc, config.comparatorOrder]);
 
   // Ranking visibility & placement (profile card / dedicated row / both).
   const rankingOn = config.rankingEnabled;
   const showRankCard = rankingOn && (config.rankPlacement === "tarjeta" || config.rankPlacement === "ambos");
-  const showRankRow = rankingOn && (config.rankPlacement === "fila" || config.rankPlacement === "ambos");
+  const showRankRow =
+    rankingOn &&
+    (config.rankPlacement === "fila" || config.rankPlacement === "ambos") &&
+    !cmp.rowHidden.ranking;
 
   const competencyRows = useMemo(() => {
     const names: string[] = [];
     const seen = new Set<string>();
-    for (const c of ordered) {
-      for (const comp of c.competenciasList) {
+    for (const entry of ordered) {
+      for (const comp of entry.candidate.competenciasList) {
         const key = comp.name.toLowerCase();
         if (!seen.has(key)) {
           seen.add(key);
@@ -172,6 +174,12 @@ export function NuevoComparador() {
     }
     return names;
   }, [ordered]);
+
+  const visibleRows = useCallback(
+    (section: ComparatorSectionId) =>
+      rowsOfSection(section).filter((row) => !cmp.rowHidden[row.id]),
+    [cmp.rowHidden],
+  );
 
   // --- frozen-header logic: reveal the compact bar once the big header cards
   //     scroll past the top chrome (no trembling). ---
@@ -299,13 +307,15 @@ export function NuevoComparador() {
         <>
           {/* Toolbar */}
           <div className="flex flex-wrap items-center gap-2.5 no-print">
-            <button
+            <motion.button
               type="button"
               onClick={() => setDense(!dense)}
               aria-pressed={dense}
+              whileTap={{ scale: 0.94 }}
+              transition={{ type: "spring", stiffness: 420, damping: 24 }}
               title="Compactar la información para ajustar todos los candidatos"
               className={[
-                "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold ring-1 transition-all active:scale-95",
+                "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold ring-1 transition-all",
                 dense
                   ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/30 shadow-glow-cyan"
                   : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft",
@@ -313,15 +323,17 @@ export function NuevoComparador() {
             >
               <Minimize2 className="h-4 w-4" />
               Compacto
-            </button>
+            </motion.button>
 
             {/* Order filter — highest CAP left (desc) by default. */}
-            <button
+            <motion.button
               type="button"
               onClick={() =>
                 setConfig({ comparatorOrder: config.comparatorOrder === "desc" ? "asc" : "desc" })
               }
               disabled={!config.sortByCapDesc}
+              whileTap={config.sortByCapDesc ? { scale: 0.94 } : undefined}
+              transition={{ type: "spring", stiffness: 420, damping: 24 }}
               title={
                 config.sortByCapDesc
                   ? config.comparatorOrder === "desc"
@@ -330,86 +342,108 @@ export function NuevoComparador() {
                   : "Active «Ordenar por Nota CAP» en Configuración para ordenar"
               }
               className={[
-                "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold ring-1 transition-all active:scale-95",
+                "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-bold ring-1 transition-all",
                 config.sortByCapDesc
                   ? "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft"
                   : "fill-softer text-ink-faint ring-[color:var(--hairline)] opacity-60",
               ].join(" ")}
             >
-              {config.comparatorOrder === "desc" ? (
-                <ArrowDownWideNarrow className="h-4 w-4" />
-              ) : (
-                <ArrowUpWideNarrow className="h-4 w-4" />
-              )}
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.span
+                  key={config.comparatorOrder}
+                  initial={{ opacity: 0, y: 6, rotate: -20 }}
+                  animate={{ opacity: 1, y: 0, rotate: 0 }}
+                  exit={{ opacity: 0, y: -6, rotate: 20 }}
+                  transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  className="inline-flex"
+                >
+                  {config.comparatorOrder === "desc" ? (
+                    <ArrowDownWideNarrow className="h-4 w-4" />
+                  ) : (
+                    <ArrowUpWideNarrow className="h-4 w-4" />
+                  )}
+                </motion.span>
+              </AnimatePresence>
               <span className="hidden sm:inline">
                 {config.comparatorOrder === "desc" ? "Mayor → menor" : "Menor → mayor"}
               </span>
-            </button>
+            </motion.button>
 
             <div className="flex-1" />
 
             <div className="glass flex items-center gap-1 rounded-full p-1 text-xs font-semibold text-ink-soft">
-              <button
-                type="button"
-                onClick={() => setOrientation("portrait")}
-                title="Vertical"
-                className={[
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all",
-                  orientation === "portrait"
-                    ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glow-cyan"
-                    : "hover:fill-soft",
-                ].join(" ")}
-              >
-                <RectangleVertical className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Vertical</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrientation("landscape")}
-                title="Horizontal"
-                className={[
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-all",
-                  orientation === "landscape"
-                    ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glow-cyan"
-                    : "hover:fill-soft",
-                ].join(" ")}
-              >
-                <RectangleHorizontal className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Horizontal</span>
-              </button>
+              {(
+                [
+                  { id: "portrait", label: "Vertical", Icon: RectangleVertical },
+                  { id: "landscape", label: "Horizontal", Icon: RectangleHorizontal },
+                ] as const
+              ).map(({ id, label, Icon }) => {
+                const active = orientation === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setOrientation(id)}
+                    title={label}
+                    className="relative inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors"
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="cmp-orientation-pill"
+                        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                        className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan"
+                      />
+                    )}
+                    <Icon className={`relative h-3.5 w-3.5 ${active ? "text-white" : ""}`} />
+                    <span className={`relative hidden sm:inline ${active ? "text-white" : ""}`}>
+                      {label}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="glass flex items-center gap-1 rounded-full p-1 text-xs font-semibold text-ink-soft">
-              {(["Letter", "Legal"] as PaperSize[]).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPaper(p)}
-                  className={[
-                    "rounded-full px-3 py-1.5 transition-all",
-                    paper === p
-                      ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glow-cyan"
-                      : "hover:fill-soft",
-                  ].join(" ")}
-                >
-                  {p === "Letter" ? "Carta" : "Oficio"}
-                </button>
-              ))}
+              {(["Letter", "Legal"] as PaperSize[]).map((p) => {
+                const active = paper === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPaper(p)}
+                    className="relative rounded-full px-3 py-1.5 transition-colors"
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="cmp-paper-pill"
+                        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                        className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan"
+                      />
+                    )}
+                    <span className={`relative ${active ? "text-white" : ""}`}>
+                      {p === "Letter" ? "Carta" : "Oficio"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <button
+            <motion.button
               type="button"
               disabled={selected.length === 0}
+              whileHover={selected.length ? { y: -3, scale: 1.03 } : undefined}
+              whileTap={selected.length ? { scale: 0.95 } : undefined}
+              transition={{ type: "spring", stiffness: 360, damping: 24 }}
               onClick={() =>
                 printModule("Comparativa de Postulantes", paper, orientation, {
                   scope: "comparador",
                 })
               }
-              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-500 ease-spring hover:-translate-y-1 hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Printer className="h-4 w-4" />
               <span className="hidden sm:inline">Imprimir comparativa</span>
               <span className="sm:hidden">Imprimir</span>
-            </button>
+            </motion.button>
           </div>
 
           {selected.length === 0 ? (
@@ -444,11 +478,12 @@ export function NuevoComparador() {
                       </span>
                     </div>
                     <AnimatePresence initial={false} mode="popLayout">
-                      {ordered.map((c, idx) => (
+                      {ordered.map((entry) => (
                         <StripChip
-                          key={c.id}
-                          candidate={c}
-                          rank={idx + 1}
+                          key={entry.candidate.id}
+                          candidate={entry.candidate}
+                          rank={entry.rank}
+                          cap={entry.cap}
                           showRank={rankingOn}
                         />
                       ))}
@@ -459,40 +494,48 @@ export function NuevoComparador() {
 
               {/* On-screen horizontal navigator — a fluid slider + arrows to pan
                   across the columns when the comparison is wider than the view. */}
-              {scrollNav.max > 4 && (
-                <div className="no-print mb-1 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => panBy(-1)}
-                    disabled={scrollNav.left <= 1}
-                    aria-label="Desplazar a la izquierda"
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-90 disabled:opacity-40"
+              <AnimatePresence initial={false}>
+                {scrollNav.max > 4 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -6 }}
+                    transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                    className="no-print mb-1 flex items-center gap-2"
                   >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <input
-                    type="range"
-                    min={0}
-                    max={Math.round(scrollNav.max)}
-                    value={Math.round(scrollNav.left)}
-                    onChange={(e) => {
-                      const sc = scrollRef.current;
-                      if (sc) sc.scrollLeft = Number(e.target.value);
-                    }}
-                    aria-label="Desplazar la tabla comparativa horizontalmente"
-                    className="cfg-range flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => panBy(1)}
-                    disabled={scrollNav.left >= scrollNav.max - 1}
-                    aria-label="Desplazar a la derecha"
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-90 disabled:opacity-40"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
+                    <button
+                      type="button"
+                      onClick={() => panBy(-1)}
+                      disabled={scrollNav.left <= 1}
+                      aria-label="Desplazar a la izquierda"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-90 disabled:opacity-40"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.round(scrollNav.max)}
+                      value={Math.round(scrollNav.left)}
+                      onChange={(e) => {
+                        const sc = scrollRef.current;
+                        if (sc) sc.scrollLeft = Number(e.target.value);
+                      }}
+                      aria-label="Desplazar la tabla comparativa horizontalmente"
+                      className="cfg-range flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => panBy(1)}
+                      disabled={scrollNav.left >= scrollNav.max - 1}
+                      aria-label="Desplazar a la derecha"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-90 disabled:opacity-40"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Horizontal scroll wrapper — the comparison stays usable on
                   phones and tablets, and the label column freezes on the left. */}
@@ -517,17 +560,19 @@ export function NuevoComparador() {
                       Postulante
                     </span>
                   </div>
-                  {ordered.map((c, idx) => (
-                    <div key={c.id} role="columnheader">
+                  {ordered.map((entry) => (
+                    <div key={entry.candidate.id} role="columnheader">
                       <motion.div
+                        layout="position"
                         initial={{ opacity: 0, y: -8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ type: "spring", stiffness: 300, damping: 26 }}
+                        className="h-full"
                       >
                         <CandidateProfileCard
-                          candidate={c}
-                          onRemove={() => remove(c.id)}
-                          rank={idx + 1}
+                          candidate={entry.candidate}
+                          onRemove={() => remove(entry.candidate.id)}
+                          rank={entry.rank}
                           showRankBadge={showRankCard}
                         />
                       </motion.div>
@@ -538,12 +583,10 @@ export function NuevoComparador() {
 
                   {/* ===== Ranking row (dedicated placement) ===== */}
                   {showRankRow && (
-                    <RowFragment label="Ranking" sub="Posición por Nota CAP">
-                      {ordered.map((c, idx) => (
-                        <Cell key={c.id + "-rank"}>
-                          <div className="flex min-h-[64px] items-center justify-center rounded-2xl fill-softer ring-1 ring-[color:var(--hairline)]">
-                            <RankChip rank={idx + 1} cap={capScore(c)} />
-                          </div>
+                    <RowFragment row={RANKING_ROW} index={0}>
+                      {ordered.map((entry) => (
+                        <Cell key={entry.candidate.id + "-rank"}>
+                          <RankingValue entry={entry} />
                         </Cell>
                       ))}
                     </RowFragment>
@@ -551,15 +594,11 @@ export function NuevoComparador() {
 
                   {/* ===== Resultados de Evaluación ===== */}
                   <Section id="resultados" cmp={cmp} icon={<Award className="h-4 w-4" />}>
-                    {EVAL_ROWS.map((row) => (
-                      <RowFragment key={String(row.key)} label={row.label} sub={row.sub}>
-                        {ordered.map((c) => (
-                          <Cell key={c.id + String(row.key)}>
-                            {row.kind === "pct" ? (
-                              <PctValue value={parseDecimal(c[row.key] as never)} />
-                            ) : (
-                              <DiscValue value={(c[row.key] as string) || ""} />
-                            )}
+                    {visibleRows("resultados").map((row, i) => (
+                      <RowFragment key={row.id} row={row} index={i}>
+                        {ordered.map((entry) => (
+                          <Cell key={entry.candidate.id + row.id}>
+                            <RowValue row={row} candidate={entry.candidate} />
                           </Cell>
                         ))}
                       </RowFragment>
@@ -581,30 +620,41 @@ export function NuevoComparador() {
                         Los postulantes seleccionados no tienen competencias configuradas.
                       </div>
                     ) : (
-                      competencyRows.map((name) => (
-                        <RowFragment
-                          key={name}
-                          label={name}
-                          info={
-                            <span className="no-print">
-                              <CompetencyInfoButton name={name} size="sm" />
-                            </span>
-                          }
-                        >
-                          {ordered.map((c) => {
-                            const score = findScore(c.competenciasList, name);
-                            return (
-                              <Cell key={c.id + name}>
-                                {score ? (
-                                  <CompetencyChip score={score} showAjusteBrecha={cmp.showAjusteBrecha} />
-                                ) : (
-                                  <Dash />
-                                )}
-                              </Cell>
-                            );
-                          })}
-                        </RowFragment>
-                      ))
+                      competencyRows
+                        .filter((name) => !cmp.rowHidden[competencyRowId(name)])
+                        .map((name, i) => (
+                          <RowFragment
+                            key={name}
+                            row={{
+                              id: competencyRowId(name),
+                              section: "competencias",
+                              label: name,
+                              kind: "level",
+                            }}
+                            index={i}
+                            info={
+                              <span className="no-print">
+                                <CompetencyInfoButton name={name} size="sm" />
+                              </span>
+                            }
+                          >
+                            {ordered.map((entry) => {
+                              const score = findScore(entry.candidate.competenciasList, name);
+                              return (
+                                <Cell key={entry.candidate.id + name}>
+                                  {score ? (
+                                    <CompetencyChip
+                                      score={score}
+                                      showAjusteBrecha={cmp.showAjusteBrecha}
+                                    />
+                                  ) : (
+                                    <Dash />
+                                  )}
+                                </Cell>
+                              );
+                            })}
+                          </RowFragment>
+                        ))
                     )}
                   </Section>
 
@@ -615,13 +665,22 @@ export function NuevoComparador() {
                     icon={<BrainCircuit className="h-4 w-4" />}
                     sub="Nivel de conocimientos técnicos"
                   >
-                    <RowFragment label="Conocimientos" sub="Detalle técnico declarado">
-                      {ordered.map((c) => (
-                        <Cell key={c.id + "-con"}>
-                          <ItemList items={c.conocimientosList} withDetalle />
-                        </Cell>
-                      ))}
-                    </RowFragment>
+                    {visibleRows("conocimientos").map((row, i) => (
+                      <RowFragment key={row.id} row={row} index={i}>
+                        {ordered.map((entry) => (
+                          <Cell key={entry.candidate.id + row.id}>
+                            <LongCell
+                              kind="items"
+                              items={entry.candidate.conocimientosList}
+                              withDetalle
+                              rowLabel={row.label}
+                              rowSub={row.sub}
+                              candidateName={entry.candidate.fullName}
+                            />
+                          </Cell>
+                        ))}
+                      </RowFragment>
+                    ))}
                   </Section>
 
                   {/* ===== Manejo de Herramientas ===== */}
@@ -631,13 +690,21 @@ export function NuevoComparador() {
                     icon={<Wrench className="h-4 w-4" />}
                     sub="Nivel de manejo de herramientas"
                   >
-                    <RowFragment label="Herramientas" sub="Instrumentos y software">
-                      {ordered.map((c) => (
-                        <Cell key={c.id + "-herr"}>
-                          <ItemList items={c.herramientasList} />
-                        </Cell>
-                      ))}
-                    </RowFragment>
+                    {visibleRows("herramientas").map((row, i) => (
+                      <RowFragment key={row.id} row={row} index={i}>
+                        {ordered.map((entry) => (
+                          <Cell key={entry.candidate.id + row.id}>
+                            <LongCell
+                              kind="items"
+                              items={entry.candidate.herramientasList}
+                              rowLabel={row.label}
+                              rowSub={row.sub}
+                              candidateName={entry.candidate.fullName}
+                            />
+                          </Cell>
+                        ))}
+                      </RowFragment>
+                    ))}
                   </Section>
 
                   {/* ===== Integridad y Confiabilidad ===== */}
@@ -647,16 +714,13 @@ export function NuevoComparador() {
                     icon={<ShieldCheck className="h-4 w-4" />}
                     sub="Reporte de veracidad"
                   >
-                    {CONF_ROWS.map((row) => (
-                      <RowFragment key={String(row.key)} label={row.label} sub={row.sub}>
-                        {ordered.map((c) => {
-                          const value = (c[row.key] as string) || "";
-                          return (
-                            <Cell key={c.id + String(row.key)}>
-                              <LevelBadge value={value} tone={row.tone(value)} />
-                            </Cell>
-                          );
-                        })}
+                    {visibleRows("integridad").map((row, i) => (
+                      <RowFragment key={row.id} row={row} index={i}>
+                        {ordered.map((entry) => (
+                          <Cell key={entry.candidate.id + row.id}>
+                            <RowValue row={row} candidate={entry.candidate} />
+                          </Cell>
+                        ))}
                       </RowFragment>
                     ))}
                   </Section>
@@ -668,13 +732,21 @@ export function NuevoComparador() {
                     icon={<Flag className="h-4 w-4" />}
                     sub="Banderas y alertas a considerar en la selección"
                   >
-                    <RowFragment label="Observaciones" sub="Anotaciones de selección">
-                      {ordered.map((c) => (
-                        <Cell key={c.id + "-obs"}>
-                          <Observations text={(c.observaciones as string) || ""} />
-                        </Cell>
-                      ))}
-                    </RowFragment>
+                    {visibleRows("observaciones").map((row, i) => (
+                      <RowFragment key={row.id} row={row} index={i}>
+                        {ordered.map((entry) => (
+                          <Cell key={entry.candidate.id + row.id}>
+                            <LongCell
+                              kind="tags"
+                              tags={observationTags(entry.candidate.observaciones)}
+                              rowLabel={row.label}
+                              rowSub={row.sub}
+                              candidateName={entry.candidate.fullName}
+                            />
+                          </Cell>
+                        ))}
+                      </RowFragment>
+                    ))}
                   </Section>
                 </div>
               </div>
@@ -699,13 +771,16 @@ export function NuevoComparador() {
         (selected.length === 0 ? (
           <EmptyComparator charts />
         ) : (
-          <ComparatorCharts candidates={ordered} />
+          <ComparatorCharts candidates={ordered.map((entry) => entry.candidate)} />
         ))}
 
-      {tab === "config" && <ComparatorSettings cmp={cmp} />}
+      {tab === "config" && <ComparatorSettings cmp={cmp} competencyRows={competencyRows} />}
     </div>
   );
 }
+
+/** La fila de ranking se dibuja aparte de las secciones, en la cabecera. */
+const RANKING_ROW = COMPARATOR_ROWS.find((r) => r.id === "ranking")!;
 
 /* ------------------------------------------------------------------ */
 /* Compact frozen strip chip                                           */
@@ -716,22 +791,22 @@ export function NuevoComparador() {
  * matches its column, so it can fill the column width. The name font shrinks
  * with length and wraps to two lines, so long names are shown in full instead
  * of being clipped.
+ *
+ * Reenvía la `ref` porque `AnimatePresence mode="popLayout"` mide el hijo antes
+ * de sacarlo del flujo; sin `forwardRef`, React avisa por consola y la salida
+ * del chip se dibuja a saltos.
  */
-function StripChip({
-  candidate,
-  rank,
-  showRank,
-}: {
-  candidate: Candidate;
-  rank: number;
-  showRank: boolean;
-}) {
+const StripChip = forwardRef<
+  HTMLDivElement,
+  { candidate: Candidate; rank: number; cap: number | null; showRank: boolean }
+>(function StripChip({ candidate, rank, cap, showRank }, ref) {
   const upper = upperName(candidate.fullName);
   const len = upper.length;
   const nameSize =
     len > 30 ? "text-[0.6rem]" : len > 20 ? "text-[0.7rem]" : "text-sm";
   return (
     <motion.div
+      ref={ref}
       layout
       initial={{ opacity: 0, y: -12, scale: 0.9 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -753,10 +828,10 @@ function StripChip({
           {upper}
         </span>
       </button>
-      {showRank && <RankChip rank={rank} cap={capScore(candidate)} className="shrink-0" />}
+      {showRank && <RankChip rank={rank} cap={cap} className="shrink-0" />}
     </motion.div>
   );
-}
+});
 
 /* ------------------------------------------------------------------ */
 /* Fixed navigation helper (d-pad)                                     */
@@ -875,11 +950,19 @@ function TabBar({
           );
         })}
       </div>
-      {count > 0 && (
-        <span className="shrink-0 rounded-full fill-softer px-3 py-1.5 text-xs font-bold text-ink-soft ring-1 ring-[color:var(--hairline)]">
-          {count} en comparación
-        </span>
-      )}
+      <AnimatePresence initial={false}>
+        {count > 0 && (
+          <motion.span
+            initial={{ opacity: 0, scale: 0.85, x: -6 }}
+            animate={{ opacity: 1, scale: 1, x: 0 }}
+            exit={{ opacity: 0, scale: 0.85, x: -6 }}
+            transition={{ type: "spring", stiffness: 420, damping: 28 }}
+            className="shrink-0 rounded-full fill-softer px-3 py-1.5 text-xs font-bold text-ink-soft ring-1 ring-[color:var(--hairline)]"
+          >
+            {count} en comparación
+          </motion.span>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -952,7 +1035,14 @@ function EmptyComparator({ charts = false }: { charts?: boolean }) {
 /* Session settings panel                                              */
 /* ------------------------------------------------------------------ */
 
-function ComparatorSettings({ cmp }: { cmp: ReturnType<typeof useComparator> }) {
+function ComparatorSettings({
+  cmp,
+  competencyRows,
+}: {
+  cmp: ReturnType<typeof useComparator>;
+  /** Competencias presentes en la comparación en curso (filas dinámicas). */
+  competencyRows: string[];
+}) {
   const config = useConfig();
   const RANK_LABELS: Record<RankPlacement, string> = {
     tarjeta: "Tarjeta",
@@ -965,6 +1055,7 @@ function ComparatorSettings({ cmp }: { cmp: ReturnType<typeof useComparator> }) 
     Ambos: "ambos",
   };
   const orderLabel = (o: ComparatorOrder) => (o === "desc" ? "Mayor → menor" : "Menor → mayor");
+  const hiddenCount = Object.keys(cmp.rowHidden).length;
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -1024,6 +1115,16 @@ function ComparatorSettings({ cmp }: { cmp: ReturnType<typeof useComparator> }) 
             options={["Mayor → menor", "Menor → mayor"]}
           />
         </div>
+        <p className="mt-4 flex items-start gap-2 rounded-2xl fill-softer px-3.5 py-3 text-xs text-ink-soft ring-1 ring-[color:var(--hairline)]">
+          <Scale className="mt-0.5 h-4 w-4 shrink-0 text-cyan-400" />
+          <span>
+            El puesto lo decide la <strong className="text-ink">mayor Nota CAP</strong>. Ante un
+            empate exacto entra el <strong className="text-ink">Índice de Desempate</strong>: media
+            ponderada de Nota Conocimientos (40 %), Nota Competencias (35 %) y Nota Currículum
+            (25 %), renormalizada si falta alguna. Invertir el orden cambia sólo la vista, nunca los
+            puestos.
+          </span>
+        </p>
       </div>
 
       <div className="glass glow rounded-3xl p-5">
@@ -1077,6 +1178,12 @@ function ComparatorSettings({ cmp }: { cmp: ReturnType<typeof useComparator> }) 
         </div>
       </div>
 
+      <RowVisibilityPanel
+        cmp={cmp}
+        competencyRows={competencyRows}
+        hiddenCount={hiddenCount}
+      />
+
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -1100,9 +1207,142 @@ function ComparatorSettings({ cmp }: { cmp: ReturnType<typeof useComparator> }) 
   );
 }
 
+/**
+ * Visibilidad fila por fila.
+ *
+ * Las filas fijas salen del catálogo (`lib/comparatorRows`) agrupadas por su
+ * sección; las de competencias se listan a partir de la comparación en curso,
+ * porque dependen de lo que traigan los postulantes. Todo empieza encendido: en
+ * el estado sólo se guarda lo que el analista decidió ocultar.
+ */
+function RowVisibilityPanel({
+  cmp,
+  competencyRows,
+  hiddenCount,
+}: {
+  cmp: ReturnType<typeof useComparator>;
+  competencyRows: string[];
+  hiddenCount: number;
+}) {
+  const groups: { title: string; rows: ComparatorRowDef[] }[] = [
+    { title: "Cabecera", rows: rowsOfSection("ranking") },
+    ...COMPARATOR_SECTION_IDS.map((id) => ({
+      title: COMPARATOR_SECTION_LABELS[id],
+      rows:
+        id === "competencias"
+          ? competencyRows.map<ComparatorRowDef>((name) => ({
+              id: competencyRowId(name),
+              section: "competencias",
+              label: name,
+              kind: "level",
+            }))
+          : rowsOfSection(id),
+    })),
+  ].filter((g) => g.rows.length > 0);
+
+  return (
+    <div className="glass glow rounded-3xl p-5">
+      <header className="mb-4 flex flex-wrap items-center gap-2.5">
+        <span className="grid h-9 w-9 place-items-center rounded-xl fill-softer text-cyan-400 ring-1 ring-[color:var(--hairline)]">
+          <Rows3 className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-black tracking-tight text-ink">Filas visibles</h3>
+          <p className="text-xs text-ink-soft">
+            Apaga cualquier fila para dejar la comparativa con lo justo. Todas empiezan encendidas.
+          </p>
+        </div>
+        <AnimatePresence initial={false}>
+          {hiddenCount > 0 && (
+            <motion.button
+              type="button"
+              onClick={showAllRows}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 420, damping: 28 }}
+              className="inline-flex items-center gap-2 rounded-full fill-softer px-3.5 py-2 text-xs font-bold text-ink ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-95"
+            >
+              <Eye className="h-4 w-4" />
+              Mostrar las {hiddenCount} ocultas
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </header>
+
+      <div className="space-y-4">
+        {groups.map((group) => (
+          <div key={group.title}>
+            <h4 className="mb-2 text-[0.7rem] font-bold uppercase tracking-[0.15em] text-ink-faint">
+              {group.title}
+            </h4>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {group.rows.map((row) => (
+                <Toggle
+                  key={row.id}
+                  title={row.label}
+                  subtitle={row.sub}
+                  checked={!cmp.rowHidden[row.id]}
+                  onChange={(v) => setRowHidden(row.id, !v)}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+        {competencyRows.length === 0 && (
+          <p className="rounded-2xl border border-dashed border-[color:var(--hairline)] px-3.5 py-3 text-xs text-ink-faint">
+            Las filas de competencias aparecen aquí en cuanto la comparación tenga postulantes con
+            competencias evaluadas.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Building blocks                                                     */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Retardo de entrada de la fila en curso.
+ *
+ * Las celdas de una fila son hermanas dentro de la cuadrícula, así que no hay
+ * ningún elemento común donde colgar el escalonado. Un contexto sí las alcanza
+ * sin generar marcado: el `RowFragment` publica su retardo y cada `Cell` lo
+ * aplica a su propia animación.
+ */
+const RowDelayContext = createContext(0);
+
+/**
+ * Mantiene el contenido montado mientras se reproduce su animación de salida.
+ *
+ * Contraer una sección tenía que ser instantáneo porque las filas son celdas
+ * sueltas de la cuadrícula y no se pueden envolver para animar su alto. Con esto
+ * las filas se despiden (se van desvaneciendo hacia arriba) y sólo entonces
+ * desaparecen del flujo, que es exactamente cómo se pliega una lista en iOS.
+ */
+function useCollapseTransition(open: boolean, ms = 240) {
+  const [mounted, setMounted] = useState(open);
+  const [leaving, setLeaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setLeaving(false);
+      setMounted(true);
+      return;
+    }
+    if (!mounted) return;
+    setLeaving(true);
+    const timer = window.setTimeout(() => {
+      setMounted(false);
+      setLeaving(false);
+    }, ms);
+    return () => window.clearTimeout(timer);
+  }, [open, mounted, ms]);
+
+  return { mounted, leaving };
+}
 
 /**
  * A collapsible report section. Renders its full-width band (with a collapse
@@ -1122,8 +1362,9 @@ function Section({
   sub?: string;
   children: React.ReactNode;
 }) {
-  if (!cmp.sectionVisible[id]) return null;
   const collapsed = cmp.sectionCollapsed[id];
+  const { mounted, leaving } = useCollapseTransition(!collapsed);
+  if (!cmp.sectionVisible[id]) return null;
   return (
     <>
       <SectionBand
@@ -1133,7 +1374,17 @@ function Section({
         collapsed={collapsed}
         onToggle={() => setSectionCollapsed(id, !collapsed)}
       />
-      {!collapsed && children}
+      {mounted && (
+        // `display: contents` deja que las celdas sigan siendo hijas de la
+        // cuadrícula (nada de romper la alineación de columnas) y a la vez da un
+        // ancla al selector que anima su entrada y su salida.
+        <div
+          style={{ display: "contents" }}
+          className={leaving ? "cmp-rows-out" : "cmp-rows-in"}
+        >
+          {children}
+        </div>
+      )}
     </>
   );
 }
@@ -1168,58 +1419,81 @@ function SectionBand({
         {sub && <p className="truncate text-[0.7rem] text-white/75">{sub}</p>}
       </div>
       {onToggle && (
-        <button
+        <motion.button
           type="button"
           onClick={onToggle}
           aria-expanded={!collapsed}
           aria-label={collapsed ? `Desplegar ${title}` : `Contraer ${title}`}
           title={collapsed ? "Desplegar sección" : "Contraer sección"}
-          className="no-print ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-white/30 transition-all duration-300 hover:bg-white/25 active:scale-90"
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.9 }}
+          transition={{ type: "spring", stiffness: 420, damping: 24 }}
+          className="no-print ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/15 text-white ring-1 ring-white/30 hover:bg-white/25"
         >
-          <ChevronDown
-            className={`h-4 w-4 transition-transform duration-300 ${collapsed ? "-rotate-90" : ""}`}
-          />
-        </button>
+          <motion.span
+            animate={{ rotate: collapsed ? -90 : 0 }}
+            transition={{ type: "spring", stiffness: 340, damping: 24 }}
+            className="grid place-items-center"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </motion.span>
+        </motion.button>
       )}
     </motion.div>
   );
 }
 
-/** A row: a sticky-left label cell followed by caller-provided value cells. */
+/**
+ * A row: a sticky-left label cell followed by caller-provided value cells.
+ *
+ * La primera columna es **un solo bloque**. Antes había dos: el fondo opaco que
+ * se estira con el alto de la fila y, dentro, una pastilla de vidrio del tamaño
+ * del texto; con filas altas —las de competencias o conocimientos— se veía como
+ * un recuadro flotando dentro de otro. Ahora el vidrio ocupa todo el alto
+ * disponible (`h-full`), así que el bloque sigue adaptándose a la fila pero se
+ * lee como uno.
+ */
 function RowFragment({
-  label,
-  sub,
+  row,
+  index,
   info,
   children,
 }: {
-  label: string;
-  sub?: string;
+  row: ComparatorRowDef;
+  /** Posición dentro de la sección: alimenta el escalonado de la entrada. */
+  index: number;
   /** Optional trailing element (e.g. a competency "?" info button). */
   info?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const delay = Math.min(index * 30, 210);
   return (
-    <>
-      <div className="cmp-freeze sticky left-0 z-[40] flex items-center rounded-xl" role="rowheader">
+    <RowDelayContext.Provider value={delay}>
+      <div
+        className="cmp-freeze sticky left-0 z-[40] flex rounded-xl"
+        style={{ animationDelay: `${delay}ms` }}
+        role="rowheader"
+      >
         <span
-          className="glass flex w-full items-center gap-1.5 rounded-xl px-3 py-2 print-avoid-break"
-          title={label}
+          className="glass flex h-full w-full items-center gap-1.5 rounded-xl px-3 py-2 print-avoid-break"
+          title={row.sub ? `${row.label} · ${row.sub}` : row.label}
         >
           <span className="flex min-w-0 flex-1 flex-col">
-            <MarqueeText text={label} className="text-xs font-bold text-ink" />
-            {sub && <span className="truncate text-[0.65rem] text-ink-faint">{sub}</span>}
+            <MarqueeText text={row.label} className="text-xs font-bold text-ink" />
+            {row.sub && <span className="truncate text-[0.65rem] text-ink-faint">{row.sub}</span>}
           </span>
           {info}
         </span>
       </div>
       {children}
-    </>
+    </RowDelayContext.Provider>
   );
 }
 
 function Cell({ children }: { children: React.ReactNode }) {
+  const delay = useContext(RowDelayContext);
   return (
-    <div role="cell" className="print-avoid-break">
+    <div role="cell" className="print-avoid-break" style={{ animationDelay: `${delay}ms` }}>
       {children}
     </div>
   );
@@ -1229,6 +1503,47 @@ function Dash() {
   return (
     <div className="flex h-full min-h-[64px] items-center justify-center rounded-2xl border border-dashed border-[color:var(--hairline)] text-sm text-ink-faint">
       —
+    </div>
+  );
+}
+
+/** Dibuja el valor de una fila del catálogo para un postulante. */
+function RowValue({ row, candidate }: { row: ComparatorRowDef; candidate: Candidate }) {
+  if (!row.key) return <Dash />;
+  if (row.kind === "pct") {
+    return <PctValue value={parseDecimal(candidate[row.key] as never)} />;
+  }
+  if (row.kind === "disc") {
+    return <DiscValue value={(candidate[row.key] as string) || ""} />;
+  }
+  const value = (candidate[row.key] as string) || "";
+  return <LevelBadge value={value} tone={row.tone ? row.tone(value) : proficiencyTone(value)} />;
+}
+
+/**
+ * Celda de la fila de Ranking: la chapa en grande, y un aviso cuando el puesto
+ * salió de un desempate para que nadie tenga que adivinar por qué ese orden.
+ */
+function RankingValue({ entry }: { entry: RankedCandidate }) {
+  const explanation = tiebreakExplanation(entry);
+  return (
+    <div className="flex h-full min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl fill-softer p-2 ring-1 ring-[color:var(--hairline)]">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.82, y: 6 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      >
+        <RankChip rank={entry.rank} cap={entry.cap} size="lg" title={explanation || undefined} />
+      </motion.div>
+      {entry.tied && (
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide text-amber-500 ring-1 ring-amber-400/40"
+          title={explanation}
+        >
+          <Scale className="h-3 w-3" />
+          Desempate {entry.idd !== null ? entry.idd : "—"}
+        </span>
+      )}
     </div>
   );
 }
@@ -1277,51 +1592,12 @@ function DiscValue({ value }: { value: string }) {
   );
 }
 
-function ItemList({
-  items,
-  withDetalle = false,
-}: {
-  items: TechnicalKnowledge[];
-  withDetalle?: boolean;
-}) {
-  if (!items.length) return <Dash />;
-  return (
-    <div className="glass space-y-2 rounded-2xl p-3 print-avoid-break">
-      {items.map((it, i) => (
-        <div key={i} className="border-b border-[color:var(--hairline)] pb-2 last:border-0 last:pb-0">
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-xs font-bold text-ink">{it.nombre}</span>
-            {it.nivel && (
-              <LevelBadge value={it.nivel} tone={proficiencyTone(it.nivel)} />
-            )}
-          </div>
-          {withDetalle && it.detalle && (
-            <p className="mt-0.5 text-[0.65rem] italic text-ink-faint">{it.detalle}</p>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Observations({ text }: { text: string }) {
-  const tags = text
+/** Las observaciones llegan como un texto separado por comas. */
+function observationTags(raw: unknown): string[] {
+  return String(raw ?? "")
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
-  if (!tags.length) return <Dash />;
-  return (
-    <div className="glass flex min-h-[64px] flex-wrap content-start gap-1.5 rounded-2xl p-3 print-avoid-break">
-      {tags.map((t, i) => (
-        <span
-          key={i}
-          className="rounded-full fill-softer px-2.5 py-0.5 text-[0.7rem] font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]"
-        >
-          {t}
-        </span>
-      ))}
-    </div>
-  );
 }
 
 function findScore(

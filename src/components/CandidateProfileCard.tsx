@@ -127,7 +127,7 @@ export function CandidateProfileCard({
       )}
 
       {/* Info column (left) + CAP ranking badge (bottom-right) */}
-      <div className="relative mt-3 flex items-end gap-2">
+      <div className="relative mt-3 flex flex-1 items-end gap-2">
         <div className="grid min-w-0 flex-1 grid-cols-1 gap-1.5 text-xs text-white/90">
           <span className="flex items-start gap-1.5">
             <HeartHandshake className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-80" />
@@ -156,10 +156,6 @@ export function CandidateProfileCard({
             <RankBadge rank={rank} cap={cap} />
           </motion.div>
         )}
-      </div>
-
-      <div className="relative mt-auto pt-3 text-[0.65rem] font-semibold text-white/70">
-        <span className="wrap-words">Ref: {candidate.identificador || "Sin identificador"}</span>
       </div>
     </div>
   );

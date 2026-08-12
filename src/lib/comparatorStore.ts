@@ -54,6 +54,14 @@ export interface ComparatorState {
   sectionVisible: Record<ComparatorSectionId, boolean>;
   /** Which visible sections are folded (collapsed) to save vertical space. */
   sectionCollapsed: Record<ComparatorSectionId, boolean>;
+  /**
+   * Filas ocultas, por identificador (ver `lib/comparatorRows`).
+   *
+   * Se guardan **sólo las ocultas** y no un mapa completo de visibilidad: así
+   * cualquier fila nueva —y las de competencias, que son dinámicas— aparece
+   * visible por defecto sin necesidad de migrar lo que ya está en la sesión.
+   */
+  rowHidden: Record<string, boolean>;
 }
 
 const KEY = "bdp-comparador-session";
@@ -75,6 +83,7 @@ export function defaultComparatorState(): ComparatorState {
     dense: false,
     sectionVisible: allSections(true),
     sectionCollapsed: allSections(false),
+    rowHidden: {},
   };
 }
 
@@ -92,6 +101,8 @@ function load(): ComparatorState {
       // Merge section maps so newly added section ids get sane defaults.
       sectionVisible: { ...base.sectionVisible, ...(parsed.sectionVisible ?? {}) },
       sectionCollapsed: { ...base.sectionCollapsed, ...(parsed.sectionCollapsed ?? {}) },
+      rowHidden:
+        parsed.rowHidden && typeof parsed.rowHidden === "object" ? parsed.rowHidden : {},
     };
   } catch {
     return base;
@@ -158,6 +169,28 @@ export function setSectionCollapsed(id: ComparatorSectionId, value: boolean): vo
     ...state,
     sectionCollapsed: { ...state.sectionCollapsed, [id]: value },
   };
+  emit();
+}
+
+/**
+ * Oculta o vuelve a mostrar una fila concreta de la comparativa.
+ *
+ * Las filas visibles no dejan rastro en el estado: mostrar una fila equivale a
+ * borrar su marca. Así el mapa sólo crece con lo que el analista decidió
+ * esconder y `rowHidden` se lee de un vistazo al depurar la sesión.
+ */
+export function setRowHidden(id: string, hidden: boolean): void {
+  const next = { ...state.rowHidden };
+  if (hidden) next[id] = true;
+  else delete next[id];
+  state = { ...state, rowHidden: next };
+  emit();
+}
+
+/** Vuelve a mostrar todas las filas ocultas de la comparativa. */
+export function showAllRows(): void {
+  if (Object.keys(state.rowHidden).length === 0) return;
+  state = { ...state, rowHidden: {} };
   emit();
 }
 

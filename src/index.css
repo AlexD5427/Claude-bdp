@@ -184,6 +184,29 @@
     height: 100%;
   }
 
+  /**
+   * Desplazamiento suave de toda la aplicación.
+   *
+   * Los módulos son informes largos: el comparador, los expedientes y el
+   * cuestionario se recorren de arriba abajo durante horas. Con el
+   * desplazamiento nativo «duro», cada salto (una tecla, un `scrollIntoView`,
+   * el d-pad del comparador) teletransportaba la vista y costaba reencontrar la
+   * fila que se estaba leyendo. Se aplica en el elemento raíz —no en cada
+   * contenedor— y se apaga en cuanto el sistema o Configuración piden menos
+   * movimiento, porque el desplazamiento animado es uno de los disparadores
+   * clásicos del mareo.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    html:not(.reduce-motion) {
+      scroll-behavior: smooth;
+    }
+  }
+
+  /* Que ningún gesto de una lista interior arrastre la página de detrás. */
+  body {
+    overscroll-behavior-y: none;
+  }
+
   body {
     @apply font-sans antialiased;
     color: var(--ink);
@@ -270,6 +293,29 @@
       rgba(255, 255, 255, 0.04) 55%,
       transparent 100%
     );
+  }
+
+  /* ---------------------------------------------------------------
+     .glass-flat — vidrio sin segundo desenfoque.
+     Dentro de un panel que YA difumina la página (el modal del
+     cuestionario, por ejemplo), cada campo con `.glass` añade su
+     propio `backdrop-filter`. Cuarenta capas de desenfoque apiladas
+     cuestan GPU en cada dibujado y no aportan nada visible, porque lo
+     que tienen detrás es un fondo ya difuminado. Esta clase apaga el
+     desenfoque de las superficies internas conservando color, borde,
+     sombra y reflejo: mismo aspecto, una fracción del coste.
+     --------------------------------------------------------------- */
+  .glass-flat .glass,
+  .glass-flat .glass-heavy {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  /* Halo ámbar del campo modificado en el cuestionario (ver EditHL). */
+  .edit-hl {
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 0.75),
+      0 0 18px rgba(251, 191, 36, 0.35);
   }
 
   /* Magnetic interaction — hardware-accelerated spring hover. */
@@ -948,9 +994,13 @@
     white-space: normal !important;
     -webkit-line-clamp: unset !important;
   }
-  /* Kill the name marquee's inline transform so it prints at rest, in full. */
+  /* Kill the name marquee's inline transform so it prints at rest, in full.
+     También se apaga la animación: en papel no hay nada que revelar y una capa
+     compuesta a medio recorrer imprime los rótulos con bordes sucios. */
   .cmp-grid .whitespace-nowrap {
     transform: none !important;
+    animation: none !important;
+    will-change: auto !important;
   }
   /* Baseline print compaction (applies from ~4 columns onward). */
   .cmp-grid .glass,

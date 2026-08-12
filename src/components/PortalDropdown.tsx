@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
 
 interface PortalDropdownProps {
   open: boolean;
@@ -136,19 +137,25 @@ export function PortalDropdown({
   }
 
   return createPortal(
-    <div
+    <motion.div
       ref={panelRef}
+      // Entrada corta y con física: el panel «brota» del campo en lugar de
+      // aparecer de golpe, que era lo que hacía sentir escueto al buscador.
+      initial={{ opacity: 0, y: pos.placement === "bottom" ? -8 : 8, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: "spring", stiffness: 460, damping: 34, mass: 0.7 }}
       style={{
         position: "fixed",
         maxHeight,
         zIndex: 200,
+        transformOrigin: pos.placement === "bottom" ? "top center" : "bottom center",
         ...horizontal,
         ...vertical,
       }}
       className={`overflow-auto ${className}`}
     >
       {children}
-    </div>,
+    </motion.div>,
     document.body,
   );
 }

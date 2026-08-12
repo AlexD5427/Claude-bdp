@@ -88,9 +88,24 @@ export function DrawIcon({
       return;
     }
 
+    // Un elemento que no se está dibujando no se puede medir: `getTotalLength()`
+    // lanza «non-rendered element» en Chrome. Pasa al imprimir, porque el dock se
+    // oculta con `display: none` y sus iconos siguen montados; sin esta salida el
+    // fallo escalaba y se llevaba por delante toda la aplicación, que no tiene
+    // frontera de error por encima del dock.
+    if (svg.getClientRects().length === 0) {
+      clear();
+      return;
+    }
+
     // 1 · Hide every stroke by offsetting a dash the length of its contour.
     const lengths = shapes.map((s) => {
-      const len = typeof s.getTotalLength === "function" ? s.getTotalLength() : 0;
+      let len = 0;
+      try {
+        len = typeof s.getTotalLength === "function" ? s.getTotalLength() : 0;
+      } catch {
+        len = 0; // formas sin geometría medible: se usa la longitud de reserva
+      }
       return Number.isFinite(len) && len > 0 ? len : FALLBACK_LEN;
     });
     shapes.forEach((s, i) => {

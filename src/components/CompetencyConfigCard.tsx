@@ -1,10 +1,9 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import type { FormCompetency } from "../types";
 import { computeAjuste, computeBrecha, parseDecimal } from "../lib/competency";
 import { buildCompetencyCatalog, lookupCompetency } from "../lib/competencyMeta";
-import { useTalentData } from "../context/TalentDataContext";
 import { AjusteBadge } from "./AjusteBadge";
 import { CompetencyInfoButton } from "./CompetencyInfoButton";
 import { CompetencyLevelBoxes } from "./CompetencyLevelBoxes";
@@ -12,6 +11,12 @@ import { CompetencyLevelBoxes } from "./CompetencyLevelBoxes";
 interface CompetencyConfigCardProps {
   competency: FormCompetency;
   index: number;
+  /**
+   * Catálogo de competencias de la hoja. Llega por props y no del contexto: con
+   * el contexto, cada refresco de la base en segundo plano volvía a dibujar las
+   * siete tarjetas aunque nada de ellas hubiera cambiado.
+   */
+  catalogo: string[];
   onChange: (uid: string, patch: Partial<FormCompetency>) => void;
   onRemove: (uid: string) => void;
 }
@@ -21,16 +26,16 @@ interface CompetencyConfigCardProps {
  * numeric inputs (Valor Esperado with a static ≥ prefix, Valor Obtenido) and
  * renders the live Brecha and Ajuste calculations beside them.
  */
-export function CompetencyConfigCard({
+export const CompetencyConfigCard = memo(function CompetencyConfigCard({
   competency,
   index,
+  catalogo,
   onChange,
   onRemove,
 }: CompetencyConfigCardProps) {
-  const { competencias } = useTalentData();
   const meta = useMemo(
-    () => lookupCompetency(buildCompetencyCatalog(competencias), competency.name) ?? null,
-    [competencias, competency.name],
+    () => lookupCompetency(buildCompetencyCatalog(catalogo), competency.name) ?? null,
+    [catalogo, competency.name],
   );
 
   const esperado = parseDecimal(competency.esperadoText);
@@ -51,7 +56,6 @@ export function CompetencyConfigCard({
 
   return (
     <motion.div
-      layout
       initial={{ opacity: 0, y: 14, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.94 }}
@@ -151,4 +155,4 @@ export function CompetencyConfigCard({
       </div>
     </motion.div>
   );
-}
+});
