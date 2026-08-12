@@ -21,6 +21,7 @@ import { EmptyState } from "../components/States";
 import { Avatar } from "../components/Avatar";
 import { CandidateActions } from "../components/CandidateActions";
 import { DocIntakeForm } from "../components/doc/DocIntakeForm";
+import { DocExpedienteNuevo } from "../components/doc/DocExpedienteNuevo";
 import { DocSettingsModal } from "../components/doc/DocSettingsModal";
 import { DocDossierDetail } from "../components/doc/DocDossierDetail";
 import { DocEmailComposer } from "../components/doc/DocEmailComposer";
@@ -54,6 +55,12 @@ const ESTADOS: { id: EstadoFiltro; etiqueta: string }[] = [
  * porque muestran el avance de un vistazo, pero ahora conviven con una tabla
  * —que reproduce las columnas del libro, para quien viene de Excel— y un
  * tablero por estado, útil para repartir el trabajo del día.
+ *
+ * -- Por qué hay dos formas de registrar -------------------------------------
+ * El asistente por secciones recorre las seis etapas del expediente y es el
+ * camino completo. El formulario anterior se conserva como registro rápido
+ * porque para dar de alta a alguien y completar después sigue siendo más corto.
+ * Quitar uno de los dos habría empeorado a la mitad de quienes usan el módulo.
  */
 export function Documentacion() {
   const { dossiers, settings } = useDocStore();
@@ -70,6 +77,7 @@ export function Documentacion() {
 
   const [query, setQuery] = useState("");
   const [intakeOpen, setIntakeOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [compose, setCompose] = useState<{ id: string; kind: "manual" | "auto" } | null>(null);
@@ -298,16 +306,25 @@ export function Documentacion() {
           <span className="hidden sm:inline">Configuración</span>
         </button>
 
-        <motion.button
+        <button
           type="button"
           onClick={() => setIntakeOpen(true)}
+          className="inline-flex items-center gap-2 rounded-full fill-softer px-4 py-2.5 text-sm font-bold text-ink ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-95"
+        >
+          <FolderPlus className="h-4 w-4" />
+          <span className="hidden sm:inline">Registro rápido</span>
+        </button>
+
+        <motion.button
+          type="button"
+          onClick={() => setWizardOpen(true)}
           whileHover={m.activo ? { y: -3, scale: 1.03 } : undefined}
           whileTap={m.activo ? { scale: 0.96 } : undefined}
           transition={m.spring}
           className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30"
         >
-          <FolderPlus className="h-4 w-4" />
-          Registrar documentación
+          <FileStack className="h-4 w-4" />
+          Registrar expediente
         </motion.button>
       </div>
 
@@ -500,6 +517,11 @@ export function Documentacion() {
 
       <DocSyncAviso />
 
+      <DocExpedienteNuevo
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        onCreated={(id) => setDetailId(id)}
+      />
       <DocIntakeForm
         open={intakeOpen}
         onClose={() => setIntakeOpen(false)}
