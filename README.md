@@ -27,7 +27,10 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   ingreso manual 0–100 %), arquetipo **DISC**, constructores A1/A2/A3
   (conocimientos, herramientas y competencias), escalas de confiabilidad y
   observaciones por etiquetas. Incluye **autoguardado local**, **recuperación de
-  borrador** ante caídas y **confirmación de salida**.
+  borrador** ante caídas y **confirmación de salida**. El guardado es **siempre
+  explícito** (botón o `Ctrl/⌘+Intro`): pulsar Intro en un campo ya no envía la
+  ficha a medio llenar, que era la causa de que el avance «se reiniciara solo»
+  (ver [docs/comparador-postulantes/EXPLICACION.md](docs/comparador-postulantes/EXPLICACION.md)).
 - **Perfil de Postulante (Vista Completa):** panel a pantalla completa que
   **centraliza toda la información de una persona** en un solo lugar, accesible
   desde **cualquier módulo** (comparador, procesos, postulantes, documentación,
@@ -59,13 +62,23 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
     un **chip de perfil** rediseñado — nombres **en mayúsculas**, nivel académico
     y su conector en una línea y la **carrera debajo**. La **columna congelada**
     es opaca (sin solapamiento al desplazar) y sus etiquetas largas se **revelan
-    con una marquesina** suave. Un **ayudante de navegación fijo** (d-pad)
-    aparece al comparar muchos candidatos. Cada sección se **contrae/despliega**.
+    con una marquesina** suave, en **un solo bloque** que se adapta al alto de la
+    fila. El **puesto se decide por mérito**: mayor Nota CAP y, sólo ante un
+    empate exacto, un **Índice de Desempate** ponderado (Conocimientos 40 %,
+    Competencias 35 %, Currículum 25 %, renormalizado si falta alguna nota) que
+    se muestra en la propia celda; invertir el orden cambia la vista, no los
+    puestos. Las filas de **Conocimientos, Herramientas y Observaciones**
+    **revelan su texto** al pasar el puntero o el dedo y se abren en un **visor
+    ampliado** que nace de la celda y vuelve a ella. Un **ayudante de navegación
+    fijo** (d-pad) aparece al comparar muchos candidatos. Cada sección se
+    **contrae/despliega** con un plegado escalonado.
   - **Gráficos:** generador **interactivo** — se eligen candidatos y métricas y
     se dibujan **barras agrupadas, barras horizontales, líneas multiserie, radar
     o dona** animados, con leyendas y una tabla de datos de alto contraste.
   - **Configuración (por sesión):** «Ajuste y Brecha», modo compacto, visibilidad
-    de secciones y los controles de **ranking, orden y ayudante de navegación**.
+    de **secciones** y **de cada fila por separado** (incluidas las de
+    competencias, que son dinámicas; todas empiezan encendidas) y los controles de
+    **ranking, orden y ayudante de navegación**.
 - **Módulo — Documentación:** expediente editable por persona contratada (ligado
   al identificador), con **checklist de documentos** por estado (presentado /
   pendiente / con observación / no aplica), páginas, observaciones y prórrogas;
