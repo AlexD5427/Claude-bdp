@@ -1,0 +1,983 @@
+/*
+ * Estilos del asistente de expedientes.
+ *
+ * Se declaran con variables propias que heredan de las del sistema cuando
+ * existen (`--hairline`, `--fill-2`, `--glass-bg-heavy`) y caen en un valor
+ * equivalente cuando no, para que el modulo se vea correcto por si mismo.
+ * Todo el movimiento usa `transform` y `opacity`, y se anula por completo bajo
+ * `prefers-reduced-motion`.
+ */
+
+.doc-asistente {
+  --doc-borde: var(--hairline, rgba(148, 163, 184, 0.28));
+  --doc-relleno: var(--fill-2, rgba(148, 163, 184, 0.1));
+  --doc-vidrio: var(--glass-bg-heavy, rgba(255, 255, 255, 0.72));
+  --doc-radio: 16px;
+  --doc-ok: #10b981;
+  --doc-warn: #f59e0b;
+  --doc-danger: #f43f5e;
+  --doc-muted: #64748b;
+  --doc-acento: #00b0d8;
+  --doc-acento-hondo: #005baa;
+  --doc-suave: 220ms cubic-bezier(0.22, 1, 0.36, 1);
+
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Campos                                                           */
+/* ---------------------------------------------------------------- */
+
+.doc-grupo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.doc-etiqueta {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  opacity: 0.85;
+}
+
+.doc-obligatorio {
+  color: var(--doc-danger);
+}
+
+.doc-campo {
+  width: 100%;
+  min-height: 44px; /* area tactil comoda en movil */
+  padding: 10px 12px;
+  border: 1px solid var(--doc-borde);
+  border-radius: 12px;
+  background: var(--doc-relleno);
+  color: inherit;
+  font: inherit;
+  transition: border-color var(--doc-suave), box-shadow var(--doc-suave);
+}
+
+.doc-campo:focus-visible {
+  outline: none;
+  border-color: var(--doc-acento);
+  box-shadow: 0 0 0 3px rgba(0, 176, 216, 0.24);
+}
+
+.doc-campo[aria-invalid="true"] {
+  border-color: var(--doc-danger);
+  animation: doc-sacudir 240ms ease-out;
+}
+
+.doc-campo--texto {
+  resize: vertical;
+  min-height: 68px;
+  line-height: 1.5;
+}
+
+.doc-campo--fecha {
+  max-width: 200px;
+}
+
+.doc-campo--cargando {
+  height: 44px;
+}
+
+.doc-ayuda,
+.doc-contador {
+  margin: 0;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.doc-error {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--doc-danger);
+}
+
+.doc-aviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.doc-aviso--warn {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.32);
+}
+
+.doc-aviso__icono {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--doc-warn);
+}
+
+/* ---------------------------------------------------------------- */
+/* Botones                                                          */
+/* ---------------------------------------------------------------- */
+
+.doc-boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform var(--doc-suave), box-shadow var(--doc-suave),
+    background-color var(--doc-suave);
+}
+
+.doc-boton:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.doc-boton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.doc-boton:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 176, 216, 0.34);
+}
+
+.doc-boton--principal {
+  background-image: linear-gradient(135deg, var(--doc-acento), var(--doc-acento-hondo));
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(0, 91, 170, 0.24);
+}
+
+.doc-boton--suave {
+  background: var(--doc-relleno);
+  border-color: var(--doc-borde);
+  color: inherit;
+}
+
+.doc-boton--peligro {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.4);
+  color: #be123c;
+}
+
+.doc-boton__icono {
+  width: 18px;
+  height: 18px;
+}
+
+.doc-boton-icono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--doc-borde);
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background-color var(--doc-suave), transform var(--doc-suave);
+}
+
+.doc-boton-icono:hover {
+  background: var(--doc-relleno);
+}
+
+.doc-boton-icono:active {
+  transform: scale(0.94);
+}
+
+/* ---------------------------------------------------------------- */
+/* Chips de estado                                                  */
+/* ---------------------------------------------------------------- */
+
+.doc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--doc-borde);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--doc-suave), border-color var(--doc-suave),
+    transform var(--doc-suave), color var(--doc-suave);
+}
+
+.doc-chip:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.doc-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 176, 216, 0.32);
+}
+
+.doc-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.doc-chip__icono {
+  width: 17px;
+  height: 17px;
+  opacity: 0.75;
+}
+
+/* Sin seleccionar el chip permanece neutro: el color solo aparece al elegirlo,
+   para que la tarjeta no se vuelva un semaforo agresivo. */
+.doc-chip--ok.is-activa {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #047857;
+}
+
+.doc-chip--warn.is-activa {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #b45309;
+}
+
+.doc-chip--danger.is-activa {
+  background: rgba(244, 63, 94, 0.13);
+  border-color: rgba(244, 63, 94, 0.45);
+  color: #be123c;
+}
+
+.doc-chip--muted.is-activa {
+  background: rgba(100, 116, 139, 0.16);
+  border-color: rgba(100, 116, 139, 0.45);
+  color: #475569;
+}
+
+.doc-chip.is-activa .doc-chip__icono {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------- */
+/* Tarjetas de tipo de funcionario                                  */
+/* ---------------------------------------------------------------- */
+
+.doc-seccion-plena {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 55vh;
+  justify-content: center;
+}
+
+.doc-tarjetas {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+}
+
+.doc-tarjeta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid var(--doc-borde);
+  border-radius: var(--doc-radio);
+  background: var(--doc-vidrio);
+  backdrop-filter: blur(10px);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--doc-suave), box-shadow var(--doc-suave),
+    border-color var(--doc-suave);
+}
+
+.doc-tarjeta:hover:not(.is-bloqueada) {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+}
+
+.doc-tarjeta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 176, 216, 0.34);
+}
+
+.doc-tarjeta.is-activa {
+  border-color: var(--doc-acento);
+  box-shadow: 0 0 0 1px var(--doc-acento), 0 14px 32px rgba(0, 91, 170, 0.16);
+}
+
+.doc-tarjeta.is-bloqueada {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.doc-tarjeta__marco {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(0, 176, 216, 0.16), rgba(0, 91, 170, 0.16));
+  color: var(--doc-acento-hondo);
+}
+
+.doc-tarjeta__icono {
+  width: 26px;
+  height: 26px;
+}
+
+.doc-tarjeta__titulo {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.doc-tarjeta__descripcion {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  opacity: 0.7;
+}
+
+.doc-tarjeta__estado {
+  margin-top: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.6;
+}
+
+.doc-tarjeta__aviso {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding: 5px 10px;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #b45309;
+}
+
+.doc-tarjeta__aviso-icono {
+  width: 15px;
+  height: 15px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Tipos de garantia                                                */
+/* ---------------------------------------------------------------- */
+
+.doc-garantias {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-garantias__titulo {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.doc-garantias__lista {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(228px, 1fr));
+}
+
+.doc-garantia {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--doc-borde);
+  border-radius: var(--doc-radio);
+  background: var(--doc-relleno);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--doc-suave), border-color var(--doc-suave),
+    box-shadow var(--doc-suave);
+}
+
+.doc-garantia:hover {
+  transform: translateY(-2px);
+}
+
+.doc-garantia:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 176, 216, 0.32);
+}
+
+.doc-garantia.is-activa {
+  border-color: var(--doc-acento);
+  box-shadow: 0 0 0 1px var(--doc-acento);
+}
+
+.doc-garantia__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.doc-garantia__etiqueta {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  opacity: 0.6;
+}
+
+.doc-garantia__check {
+  width: 18px;
+  height: 18px;
+  color: var(--doc-acento-hondo);
+}
+
+.doc-garantia__titulo {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.doc-garantia__lista {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+/* ---------------------------------------------------------------- */
+/* Confirmaciones                                                   */
+/* ---------------------------------------------------------------- */
+
+.doc-confirmar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(245, 158, 11, 0.38);
+  border-radius: 14px;
+  background: rgba(245, 158, 11, 0.1);
+  animation: doc-entrar 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.doc-confirmar__titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.doc-confirmar__icono {
+  width: 18px;
+  height: 18px;
+  color: var(--doc-warn);
+}
+
+.doc-confirmar__texto {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.doc-confirmar__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Prorrogas                                                        */
+/* ---------------------------------------------------------------- */
+
+.doc-prorroga {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 12px;
+  border: 1px solid var(--doc-borde);
+  border-left-width: 3px;
+  border-radius: 12px;
+  background: var(--doc-relleno);
+  animation: doc-entrar 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.doc-prorroga--vacia {
+  border-left-color: var(--doc-borde);
+  background: transparent;
+  animation: none;
+}
+
+.doc-prorroga--ok {
+  border-left-color: var(--doc-ok);
+}
+
+.doc-prorroga--warn {
+  border-left-color: var(--doc-warn);
+}
+
+.doc-prorroga--danger {
+  border-left-color: var(--doc-danger);
+}
+
+.doc-prorroga--neutro {
+  border-left-color: var(--doc-muted);
+}
+
+.doc-prorroga__fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.doc-prorroga__etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 220px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.doc-prorroga__icono {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  opacity: 0.8;
+}
+
+.doc-prorroga__estado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.doc-prorroga__fecha {
+  opacity: 0.65;
+}
+
+.doc-prorroga__alerta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #be123c;
+}
+
+.doc-prorroga__meta,
+.doc-prorroga__ayuda {
+  margin: 0;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.doc-insignia {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.doc-insignia--ok {
+  background: rgba(16, 185, 129, 0.16);
+  color: #047857;
+}
+
+.doc-insignia--warn {
+  background: rgba(245, 158, 11, 0.18);
+  color: #b45309;
+}
+
+.doc-insignia--danger {
+  background: rgba(244, 63, 94, 0.15);
+  color: #be123c;
+}
+
+.doc-insignia--neutro {
+  background: rgba(100, 116, 139, 0.16);
+  color: #475569;
+}
+
+/* ---------------------------------------------------------------- */
+/* Tarjeta de requisito                                             */
+/* ---------------------------------------------------------------- */
+
+.doc-requisito {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--doc-borde);
+  border-radius: var(--doc-radio);
+  background: var(--doc-vidrio);
+  transition: border-color var(--doc-suave), box-shadow var(--doc-suave);
+}
+
+.doc-requisito:focus-within {
+  border-color: rgba(0, 176, 216, 0.55);
+}
+
+/* Solo un filo lateral se tinie con el estado; nunca la tarjeta entera. */
+.doc-requisito--ok {
+  box-shadow: inset 3px 0 0 var(--doc-ok);
+}
+
+.doc-requisito--warn {
+  box-shadow: inset 3px 0 0 var(--doc-warn);
+}
+
+.doc-requisito--danger {
+  box-shadow: inset 3px 0 0 var(--doc-danger);
+}
+
+.doc-requisito--muted {
+  box-shadow: inset 3px 0 0 var(--doc-muted);
+}
+
+.doc-requisito__cabecera {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.doc-requisito__numero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--doc-relleno);
+  font-size: 0.75rem;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.doc-requisito__textos {
+  min-width: 0;
+}
+
+.doc-requisito__titulo {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: break-word;
+}
+
+.doc-requisito__descripcion {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  opacity: 0.65;
+}
+
+.doc-requisito__observacion {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Asistente: pasos, avance y panel                                 */
+/* ---------------------------------------------------------------- */
+
+.doc-pasos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.doc-paso {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--doc-borde);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--doc-suave), border-color var(--doc-suave),
+    transform var(--doc-suave);
+}
+
+.doc-paso:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 176, 216, 0.32);
+}
+
+.doc-paso:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.doc-paso.is-actual {
+  border-color: var(--doc-acento);
+  background: rgba(0, 176, 216, 0.12);
+}
+
+.doc-paso.is-completo {
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+.doc-paso__indice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--doc-relleno);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.doc-paso.is-completo .doc-paso__indice {
+  background: rgba(16, 185, 129, 0.2);
+  color: #047857;
+}
+
+.doc-progreso {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.doc-progreso__barra {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--doc-relleno);
+  overflow: hidden;
+}
+
+.doc-progreso__relleno {
+  height: 100%;
+  border-radius: 999px;
+  background-image: linear-gradient(90deg, var(--doc-acento), var(--doc-acento-hondo));
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.doc-progreso__texto {
+  margin: 0;
+  font-size: 0.75rem;
+  opacity: 0.7;
+}
+
+.doc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: doc-entrar 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.doc-panel__titulo {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.doc-panel__descripcion {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  opacity: 0.65;
+}
+
+.doc-rejilla {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.doc-bloque {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.doc-bloque__titulo {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.doc-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--doc-borde);
+}
+
+.doc-acciones__separador {
+  flex: 1 1 auto;
+}
+
+.doc-resumen {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+}
+
+.doc-resumen__dato {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--doc-borde);
+  border-radius: 12px;
+  background: var(--doc-relleno);
+}
+
+.doc-resumen__valor {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.doc-resumen__rotulo {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.doc-lista-errores {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.doc-vacio {
+  padding: 28px 18px;
+  border: 1px dashed var(--doc-borde);
+  border-radius: var(--doc-radio);
+  font-size: 0.8125rem;
+  text-align: center;
+  opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------- */
+/* Movimiento                                                       */
+/* ---------------------------------------------------------------- */
+
+@keyframes doc-entrar {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes doc-sacudir {
+  0%,
+  100% {
+    transform: none;
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+@media (max-width: 640px) {
+  .doc-tarjetas,
+  .doc-garantias__lista,
+  .doc-rejilla {
+    grid-template-columns: 1fr;
+  }
+
+  .doc-seccion-plena {
+    min-height: 0;
+  }
+
+  .doc-acciones {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding: 10px 0;
+    background: var(--doc-vidrio);
+    backdrop-filter: blur(10px);
+  }
+
+  .doc-acciones .doc-boton {
+    flex: 1 1 44%;
+  }
+
+  .doc-campo--fecha {
+    max-width: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-asistente *,
+  .doc-panel,
+  .doc-confirmar,
+  .doc-prorroga {
+    animation: none !important;
+    transition-duration: 1ms !important;
+  }
+
+  .doc-chip:hover:not(:disabled),
+  .doc-tarjeta:hover:not(.is-bloqueada),
+  .doc-garantia:hover {
+    transform: none;
+  }
+}
