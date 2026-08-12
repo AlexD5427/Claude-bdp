@@ -96,7 +96,10 @@ export function ItemListBuilder({
             {items.map((item) => (
               <motion.div
                 key={item.uid}
-                layout
+                // Sin `layout`: framer-motion medía cada fila en cada
+                // re-dibujado y, con siete filas, escribir el detalle de un
+                // conocimiento se notaba lento en equipos modestos. La entrada y
+                // la salida siguen animadas.
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.96 }}

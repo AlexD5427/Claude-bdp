@@ -295,6 +295,29 @@
     );
   }
 
+  /* ---------------------------------------------------------------
+     .glass-flat — vidrio sin segundo desenfoque.
+     Dentro de un panel que YA difumina la página (el modal del
+     cuestionario, por ejemplo), cada campo con `.glass` añade su
+     propio `backdrop-filter`. Cuarenta capas de desenfoque apiladas
+     cuestan GPU en cada dibujado y no aportan nada visible, porque lo
+     que tienen detrás es un fondo ya difuminado. Esta clase apaga el
+     desenfoque de las superficies internas conservando color, borde,
+     sombra y reflejo: mismo aspecto, una fracción del coste.
+     --------------------------------------------------------------- */
+  .glass-flat .glass,
+  .glass-flat .glass-heavy {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  /* Halo ámbar del campo modificado en el cuestionario (ver EditHL). */
+  .edit-hl {
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 0.75),
+      0 0 18px rgba(251, 191, 36, 0.35);
+  }
+
   /* Magnetic interaction — hardware-accelerated spring hover. */
   .magnetic {
     @apply transform-gpu transition-all duration-500 ease-spring;

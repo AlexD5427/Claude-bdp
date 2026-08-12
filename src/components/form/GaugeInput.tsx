@@ -54,6 +54,13 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
   const [draft, setDraft] = useState("");
   const dragging = useRef(false);
   const v = value ?? 0;
+  // El seguimiento del puntero se registra una sola vez en `window`, así que el
+  // manejador vive con el cierre del primer dibujado. Estas dos referencias le
+  // dan el valor y el callback vigentes sin volver a suscribir el evento.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const { stroke, text } = bandColor(value);
   const gradientId = useRef(
     `gauge-grad-${Math.random().toString(36).slice(2, 9)}`,
@@ -75,8 +82,11 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
     // Below the dial's baseline: snap to the nearest end instead of wrapping.
     if (angle < 0) angle = px < CX ? Math.PI : 0;
     angle = Math.max(0, Math.min(Math.PI, angle));
-    const next = Math.round(((Math.PI - angle) / Math.PI) * 100);
-    onChange(Math.max(0, Math.min(100, next)));
+    const next = Math.max(0, Math.min(100, Math.round(((Math.PI - angle) / Math.PI) * 100)));
+    // Un arrastre dispara decenas de `pointermove` por segundo y casi todos caen
+    // en el mismo grado del dial: avisar sólo cuando el valor cambia de verdad
+    // evita otros tantos re-dibujados del cuestionario completo.
+    if (next !== valueRef.current) onChangeRef.current(next);
   }
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   UserPlus,
@@ -41,6 +41,7 @@ import {
 import { buildSavedCompetency, parseDecimal } from "../lib/competency";
 import { worksAtBdp } from "../lib/candidateDisplay";
 import { asText } from "../lib/candidates";
+import type { DiscArchetype } from "../lib/disc";
 import type { Candidate, FormCompetency, FormItem, RawCandidate } from "../types";
 
 /** Semantic colour for the labelled "Riesgo Bajo/Medio/Alto" options. */
@@ -89,6 +90,9 @@ interface FormState {
   observaciones: string[];
 }
 
+type FormKey = keyof FormState;
+type ChangedSet = ReadonlySet<FormKey>;
+
 const EMPTY: FormState = {
   identificador: "",
   nombres: "",
@@ -118,6 +122,7 @@ const EMPTY: FormState = {
 };
 
 const DRAFT_KEY = "bdp-registro-borrador";
+const NO_CHANGES: ChangedSet = new Set<FormKey>();
 
 /** Detect whether the user has entered anything worth recovering. */
 function hasContent(s: FormState): boolean {
@@ -219,35 +224,47 @@ function candidateToForm(c: Candidate): FormState {
   };
 }
 
-/** Compare two form states field by field, returning the set of changed keys. */
-function changedKeys(a: FormState, b: FormState): Set<keyof FormState> {
-  const set = new Set<keyof FormState>();
-  (Object.keys(a) as (keyof FormState)[]).forEach((k) => {
-    const av = a[k];
-    const bv = b[k];
-    const same =
-      typeof av === "object" || typeof bv === "object"
-        ? JSON.stringify(stripUids(av)) === JSON.stringify(stripUids(bv))
-        : av === bv;
-    if (!same) set.add(k);
-  });
+/**
+ * Compare two form states field by field, returning the set of changed keys.
+ *
+ * Se compara elemento a elemento en lugar de serializar a JSON: esta función se
+ * evalúa en cada pulsación de tecla mientras se edita una ficha, y serializar
+ * tres listas completas por tecla era una de las razones por las que escribir
+ * en el cuestionario se sentía pesado en equipos modestos.
+ */
+function changedKeys(a: FormState, b: FormState): Set<FormKey> {
+  const set = new Set<FormKey>();
+  for (const key of Object.keys(a) as FormKey[]) {
+    if (!sameValue(a[key], b[key])) set.add(key);
+  }
   return set;
 }
 
-/** Drop the volatile `uid` field so list comparisons only look at real data. */
-function stripUids(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((v) =>
-      v && typeof v === "object"
-        ? Object.fromEntries(Object.entries(v).filter(([k]) => k !== "uid"))
-        : v,
-    );
+/** Igualdad superficial que ignora el `uid` volátil de las listas. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, i) => sameRecord(item, b[i]));
   }
-  return value;
+  return false;
+}
+
+function sameRecord(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const ra = a as Record<string, unknown>;
+  const rb = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(ra), ...Object.keys(rb)]);
+  keys.delete("uid");
+  for (const k of keys) {
+    if ((ra[k] ?? "") !== (rb[k] ?? "")) return false;
+  }
+  return true;
 }
 
 /** Human labels for the activity log's change summary. */
-const FIELD_LABELS: Partial<Record<keyof FormState, string>> = {
+const FIELD_LABELS: Partial<Record<FormKey, string>> = {
   nombres: "Nombres",
   apellido_paterno: "Apellido paterno",
   apellido_materno: "Apellido materno",
@@ -278,20 +295,24 @@ const FIELD_LABELS: Partial<Record<keyof FormState, string>> = {
  * Wraps a field in a breathing amber halo while editing, the moment its value
  * differs from the pristine baseline — so the operator always sees exactly what
  * they changed before saving.
+ *
+ * ## Un envoltorio que se quedaba, sí o sí
+ *
+ * Antes esto devolvía `<>{children}</>` cuando no había cambios y un
+ * `motion.div` cuando sí los había. Al escribir la primera letra en un campo, el
+ * envoltorio cambiaba de tipo y React **desmontaba y volvía a montar el input**:
+ * el foco se perdía y el resto de lo que se teclaba no llegaba a ninguna parte.
+ * En modo edición sólo se podía escribir una letra por campo.
+ *
+ * Ahora el envoltorio es siempre el mismo `<div>` y el halo es una clase con
+ * transición CSS. Se arregla la pérdida de foco y, de paso, desaparecen los
+ * veinticuatro componentes animados que el cuestionario creaba por dibujado.
  */
 function EditHL({ on, children }: { on: boolean; children: React.ReactNode }) {
-  if (!on) return <>{children}</>;
   return (
-    <motion.div
-      initial={{ boxShadow: "0 0 0 0 rgba(251,191,36,0)" }}
-      animate={{
-        boxShadow: "0 0 0 2px rgba(251,191,36,0.75), 0 0 18px rgba(251,191,36,0.35)",
-      }}
-      transition={{ duration: 0.3 }}
-      className="rounded-2xl"
-    >
+    <div className={`rounded-2xl transition-shadow duration-300 ${on ? "edit-hl" : ""}`}>
       {children}
-    </motion.div>
+    </div>
   );
 }
 
@@ -303,6 +324,32 @@ function EditHL({ on, children }: { on: boolean; children: React.ReactNode }) {
  *   · A1 technical knowledge (0/7), A2 tools (0/5), A3 competencies (0/7).
  *   · Reliability scales and comma-separated observation tags.
  *   · Live local autosave + crash recovery, and an exit-confirmation guard.
+ *
+ * ## Por qué el avance se perdía «solo»
+ *
+ * El cuestionario era un `<form>` con un botón `type="submit"`. En HTML eso
+ * habilita el **envío implícito**: pulsar Intro en cualquier campo de texto —o
+ * en un `<select>`, como el de «Nivel…» de A1— envía el formulario como si se
+ * hubiera pulsado «Registrar Postulante». Y como el único campo obligatorio es
+ * el identificador (que se llena primero), el envío tenía éxito: la ficha se
+ * guardaba a medio llenar en la hoja, `resetForm()` vaciaba el formulario y el
+ * modal se cerraba. Desde la silla del analista eso es exactamente lo descrito:
+ * «llenando conocimientos, de la nada el progreso se borra y se reinicia».
+ *
+ * Se cierra por tres sitios a la vez:
+ *   1. La acción principal es un `<button type="button">`: el formulario ya no
+ *      tiene botón de envío, así que no hay envío implícito que provocar.
+ *   2. `onKeyDown` en el `<form>` anula la acción por omisión de Intro salvo en
+ *      áreas de texto, y `Ctrl/⌘+Intro` queda como atajo explícito de guardado.
+ *   3. `onSubmit` siempre llama a `preventDefault()`: si algún navegador
+ *      inventara un envío, no llega a la red.
+ *
+ * En modo edición había un segundo camino de pérdida: el refresco en segundo
+ * plano de la base (cada 60 s, y al volver a la pestaña) recreaba el objeto
+ * `Candidate`, y el efecto de precarga volvía a escribir el formulario con los
+ * datos de la hoja, borrando lo que se estaba escribiendo. Ahora la precarga
+ * sólo ocurre cuando cambia **el registro** que se edita, no su identidad de
+ * objeto.
  */
 export function RegistrationForm({ open, onClose, onSaved, editing }: RegistrationFormProps) {
   const { competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
@@ -317,34 +364,71 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
 
   // Pre-fill the form when the modal opens in edit mode, capturing the pristine
   // baseline so we can highlight exactly what the operator changes.
+  //
+  // La precarga se ancla al identificador del registro y NO al objeto: la base
+  // se refresca en segundo plano y cada refresco produce un `Candidate` nuevo
+  // con los mismos datos. Con la dependencia en el objeto, ese refresco pisaba
+  // lo que el analista llevaba escrito.
+  const editingId = editing?.id ?? null;
+  const preloadedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!open || !editing) return;
+    if (!open || !editing) {
+      preloadedFor.current = null;
+      return;
+    }
+    if (preloadedFor.current === editing.id) return;
+    preloadedFor.current = editing.id;
     const filled = candidateToForm(editing);
     setForm(filled);
     setBaseline(filled);
     setFeedback(null);
-  }, [open, editing]);
+    // `editingId` entra como dependencia porque es la identidad real del
+    // registro; `editing` se lee dentro pero no dispara la precarga.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingId]);
 
   // The set of fields whose value differs from the pristine baseline (edit only).
-  const changed = useMemo(
-    () => (isEdit && baseline ? changedKeys(baseline, form) : new Set<keyof FormState>()),
+  //
+  // La firma (claves ordenadas) permite memorizar el conjunto: mientras el
+  // *listado* de campos modificados no cambie, `changed` conserva su identidad y
+  // las secciones memorizadas no se vuelven a dibujar en cada tecla.
+  const changedSignature = useMemo(
+    () =>
+      isEdit && baseline ? [...changedKeys(baseline, form)].sort().join("|") : "",
     [isEdit, baseline, form],
+  );
+  const changed = useMemo<ChangedSet>(
+    () =>
+      changedSignature === ""
+        ? NO_CHANGES
+        : new Set(changedSignature.split("|") as FormKey[]),
+    [changedSignature],
   );
 
   // Refs for keyboard-only navigation: the form scope (for the assisted glow)
   // and the identificador field (auto-focused + selected on open).
   const formRef = useRef<HTMLFormElement>(null);
   const identificadorRef = useRef<HTMLInputElement>(null);
+  const saveRef = useRef<HTMLButtonElement>(null);
 
   useAssistedKeyboardGlow(formRef, open && assistedNav);
 
   // On open, the identificador is immediately ready to receive text.
+  //
+  // El foco llega 260 ms después, cuando el resorte de entrada del modal se
+  // asienta. Antes, además, se seleccionaba todo el contenido: si el analista
+  // empezaba a escribir antes de ese instante, la siguiente tecla reemplazaba la
+  // selección y se perdían las primeras letras del identificador. Ahora el foco
+  // sólo se mueve si nadie se ha adelantado.
   useEffect(() => {
     if (!open || isEdit) return; // the identificador is locked while editing
     const t = window.setTimeout(() => {
-      identificadorRef.current?.focus();
-      identificadorRef.current?.select();
-    }, 260); // after the modal's entrance spring settles
+      const el = identificadorRef.current;
+      if (!el || el.value !== "") return;
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== el) return;
+      el.focus();
+    }, 260);
     return () => window.clearTimeout(t);
   }, [open, isEdit]);
 
@@ -374,63 +458,59 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
     window.addEventListener("beforeunload", beforeUnload);
     return () => window.removeEventListener("beforeunload", beforeUnload);
   }, [open, dirty]);
-  const compsCount = form.competencias.length;
-  const atCompLimit = compsCount >= MAX_COMPETENCIAS;
-  const selectedComps = useMemo(
-    () => form.competencias.map((c) => c.name),
-    [form.competencias],
-  );
 
-  const setField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
+  const compsCount = form.competencias.length;
+
+  const setField = useCallback(<K extends FormKey>(key: K, value: FormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
   }, []);
 
   // ---- competency builder -------------------------------------------------
-  function addCompetency(name: string) {
-    if (atCompLimit) return;
+  const addCompetency = useCallback((name: string) => {
+    setForm((f) =>
+      f.competencias.length >= MAX_COMPETENCIAS
+        ? f
+        : {
+            ...f,
+            competencias: [
+              ...f.competencias,
+              { uid: newUid(), name, esperadoText: "", obtenidoText: "" },
+            ],
+          },
+    );
+  }, []);
+  const updateCompetency = useCallback((uid: string, patch: Partial<FormCompetency>) => {
     setForm((f) => ({
       ...f,
-      competencias: [
-        ...f.competencias,
-        { uid: newUid(), name, esperadoText: "", obtenidoText: "" },
-      ],
+      competencias: f.competencias.map((c) => (c.uid === uid ? { ...c, ...patch } : c)),
     }));
-  }
-  function updateCompetency(uid: string, patch: Partial<FormCompetency>) {
-    setForm((f) => ({
-      ...f,
-      competencias: f.competencias.map((c) =>
-        c.uid === uid ? { ...c, ...patch } : c,
-      ),
-    }));
-  }
-  function removeCompetency(uid: string) {
+  }, []);
+  const removeCompetency = useCallback((uid: string) => {
     setForm((f) => ({
       ...f,
       competencias: f.competencias.filter((c) => c.uid !== uid),
     }));
-  }
+  }, []);
 
   // ---- generic list builders (conocimientos / herramientas) --------------
-  function addItem(key: "conocimientos" | "herramientas") {
+  const addItem = useCallback((key: "conocimientos" | "herramientas") => {
     setForm((f) => ({
       ...f,
       [key]: [...f[key], { uid: newUid(), nombre: "", nivel: "", detalle: "" }],
     }));
-  }
-  function updateItem(
-    key: "conocimientos" | "herramientas",
-    uid: string,
-    patch: Partial<FormItem>,
-  ) {
-    setForm((f) => ({
-      ...f,
-      [key]: f[key].map((it) => (it.uid === uid ? { ...it, ...patch } : it)),
-    }));
-  }
-  function removeItem(key: "conocimientos" | "herramientas", uid: string) {
+  }, []);
+  const updateItem = useCallback(
+    (key: "conocimientos" | "herramientas", uid: string, patch: Partial<FormItem>) => {
+      setForm((f) => ({
+        ...f,
+        [key]: f[key].map((it) => (it.uid === uid ? { ...it, ...patch } : it)),
+      }));
+    },
+    [],
+  );
+  const removeItem = useCallback((key: "conocimientos" | "herramientas", uid: string) => {
     setForm((f) => ({ ...f, [key]: f[key].filter((it) => it.uid !== uid) }));
-  }
+  }, []);
 
   // ---- lifecycle ----------------------------------------------------------
   function resetForm() {
@@ -453,8 +533,13 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
     setShowRecovery(false);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  /**
+   * Guarda la ficha. Se invoca **sólo** desde el botón principal (o desde
+   * `Ctrl/⌘+Intro`, que lo pulsa por nosotros): no hay ningún envío de
+   * formulario detrás, así que ninguna tecla puede disparar un guardado.
+   */
+  async function save() {
+    if (submitting) return;
     // Only the identificador is mandatory — every other field is optional.
     if (!form.identificador.trim()) {
       setFeedback({
@@ -552,6 +637,28 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
     }
   }
 
+  /**
+   * Corta la acción por omisión de Intro dentro del cuestionario.
+   *
+   * Es la segunda barrera contra el envío accidental: aunque el formulario ya no
+   * tiene botón de envío, algunos navegadores envían por su cuenta cuando el
+   * formulario tiene un único campo. Las áreas de texto conservan el salto de
+   * línea y los botones su pulsación; `Ctrl/⌘+Intro` guarda a propósito.
+   */
+  const onFormKeyDown = useCallback((e: React.KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== "Enter") return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      saveRef.current?.click();
+      return;
+    }
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    const tag = target.tagName.toLowerCase();
+    if (tag === "textarea" || tag === "button" || tag === "a") return;
+    e.preventDefault();
+  }, []);
+
   return (
     <>
       <Modal
@@ -559,7 +666,20 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
         onRequestClose={requestClose}
         ariaLabel={isEdit ? "Editar Postulante" : "Cuestionario de Registro de Postulante"}
       >
-        <form ref={formRef} onSubmit={handleSubmit}>
+        {/*
+          `glass-flat` apaga el desenfoque de las superficies internas: el panel
+          del modal ya difumina la página que hay detrás, así que volver a
+          desenfocar en cada uno de los ~40 campos costaba GPU sin aportar nada
+          visible. Es el cambio que más se nota al escribir en equipos modestos.
+        */}
+        <form
+          ref={formRef}
+          className="glass-flat"
+          // Nunca se envía: el guardado va por el botón. Si un navegador
+          // inventara un envío, aquí se queda.
+          onSubmit={(e) => e.preventDefault()}
+          onKeyDown={onFormKeyDown}
+        >
           {/* ---- Sticky header ---- */}
           <div className="sticky top-0 z-20 flex items-center gap-3 rounded-t-3xl border-b border-[color:var(--hairline)] bg-[color:var(--glass-bg-heavy)] px-5 py-4 backdrop-blur-xl sm:px-7">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glass ring-1 ring-white/30">
@@ -612,339 +732,50 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
           </div>
 
           <div className="max-h-[calc(100vh-13rem)] space-y-6 overflow-y-auto px-5 py-6 sm:px-7">
-            {/* ===== DATOS PERSONALES ===== */}
-            <Section
-              icon={<ClipboardList className="h-5 w-5 text-white drop-shadow-md" />}
-              title="Datos Personales"
-              subtitle="Identidad y residencia del postulante."
-            >
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="sm:col-span-2 lg:col-span-2">
-                  <TextField
-                    ref={identificadorRef}
-                    label="Identificador Único"
-                    required
-                    hint={
-                      isEdit
-                        ? "Clave del registro · no editable"
-                        : "CI - Nro Proceso - Año · único obligatorio"
-                    }
-                    value={form.identificador}
-                    onChange={(v) => setField("identificador", v)}
-                    placeholder="CI - Nro Proceso - Año"
-                    readOnly={isEdit}
-                  />
-                </div>
-                <EditHL on={changed.has("edad")}>
-                  <TextField
-                    label="Edad"
-                    type="number"
-                    value={form.edad}
-                    onChange={(v) => setField("edad", v)}
-                    placeholder="Edad"
-                  />
-                </EditHL>
-                <EditHL on={changed.has("estado_civil")}>
-                  <SelectField
-                    label="Estado Civil"
-                    value={form.estado_civil}
-                    onChange={(v) => setField("estado_civil", v)}
-                    options={ESTADO_CIVIL_OPTIONS}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("nombres")}>
-                  <TextField
-                    label="Nombres"
-                    value={form.nombres}
-                    onChange={(v) => setField("nombres", v)}
-                    placeholder="Nombres"
-                  />
-                </EditHL>
-                <EditHL on={changed.has("apellido_paterno")}>
-                  <TextField
-                    label="Apellido Paterno"
-                    value={form.apellido_paterno}
-                    onChange={(v) => setField("apellido_paterno", v)}
-                    placeholder="Apellido Paterno"
-                  />
-                </EditHL>
-                <EditHL on={changed.has("apellido_materno")}>
-                  <TextField
-                    label="Apellido Materno"
-                    value={form.apellido_materno}
-                    onChange={(v) => setField("apellido_materno", v)}
-                    placeholder="Apellido Materno"
-                  />
-                </EditHL>
-                {/* Nivel Académico + Carrera share a paired cell so Carrera
-                    always sits immediately to the right of Nivel Académico. */}
-                <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
-                  <EditHL on={changed.has("nivel_academico")}>
-                    <SelectField
-                      label="Nivel Académico"
-                      value={form.nivel_academico}
-                      onChange={(v) => setField("nivel_academico", v)}
-                      options={NIVEL_ACADEMICO_OPTIONS}
-                    />
-                  </EditHL>
-                  <EditHL on={changed.has("carrera")}>
-                    <TextField
-                      label="Carrera"
-                      hint="Formación / profesión"
-                      value={form.carrera}
-                      onChange={(v) => setField("carrera", v)}
-                      placeholder="Ej. Ingeniería Comercial"
-                    />
-                  </EditHL>
-                </div>
-                <EditHL on={changed.has("departamento_residencia")}>
-                  <SelectField
-                    label="Departamento de Residencia"
-                    value={form.departamento_residencia}
-                    onChange={(v) => setField("departamento_residencia", v)}
-                    options={DEPARTAMENTO_OPTIONS}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("localidad_residencia")}>
-                  <TextField
-                    label="Localidad de Residencia"
-                    value={form.localidad_residencia}
-                    onChange={(v) => setField("localidad_residencia", v)}
-                    placeholder="Localidad"
-                  />
-                </EditHL>
-                <div className="sm:col-span-2">
-                  <EditHL on={changed.has("trabaja_bdp")}>
-                    <SegmentedField
-                      label="¿El postulante trabaja actualmente en BDP?"
-                      value={form.trabaja_bdp}
-                      onChange={(v) => setField("trabaja_bdp", v)}
-                      options={["No", "Sí"]}
-                    />
-                  </EditHL>
-                </div>
-                <AnimatePresence initial={false}>
-                  {form.trabaja_bdp === "Sí" && (
-                    <motion.div
-                      className="sm:col-span-2"
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ type: "spring", stiffness: 260, damping: 26 }}
-                    >
-                      <EditHL on={changed.has("cargo_bdp")}>
-                        <TextAutocomplete
-                          label="Cargo actual del Postulante"
-                          hint="Sugerencias en vivo de cargos_bdp · admite texto libre"
-                          value={form.cargo_bdp}
-                          onChange={(v) => setField("cargo_bdp", v)}
-                          options={auxiliares.cargos_bdp}
-                          placeholder="Escriba para buscar el cargo…"
-                        />
-                      </EditHL>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </Section>
+            <PersonalSection
+              form={form}
+              changed={changed}
+              isEdit={isEdit}
+              setField={setField}
+              cargos={auxiliares.cargos_bdp}
+              identificadorRef={identificadorRef}
+            />
 
-            {/* ===== RESULTADOS DE EVALUACIÓN ===== */}
-            <Section
-              icon={<Gauge className="h-5 w-5 text-white drop-shadow-md" />}
-              title="Resultados de Evaluación"
-              subtitle="Use los deslizadores de velocímetro o haga clic en el número del centro para ingreso manual (0 % a 100 %)."
-            >
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <EditHL on={changed.has("nota_cap")}>
-                  <GaugeInput
-                    label="Nota CAP"
-                    hint="Adecuación al puesto"
-                    value={form.nota_cap}
-                    onChange={(v) => setField("nota_cap", v)}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("nota_curriculum")}>
-                  <GaugeInput
-                    label="Nota Currículum"
-                    hint="Hoja de vida"
-                    value={form.nota_curriculum}
-                    onChange={(v) => setField("nota_curriculum", v)}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("nota_conocimiento")}>
-                  <GaugeInput
-                    label="Nota Conocimientos"
-                    hint="Evaluación técnica"
-                    value={form.nota_conocimiento}
-                    onChange={(v) => setField("nota_conocimiento", v)}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("nota_competencias")}>
-                  <GaugeInput
-                    label="Nota Competencias"
-                    hint="Nivel general"
-                    value={form.nota_competencias}
-                    onChange={(v) => setField("nota_competencias", v)}
-                  />
-                </EditHL>
-              </div>
-              <div className="mt-4 max-w-md">
-                <EditHL on={changed.has("perfil_disc")}>
-                  <DiscSelect
-                    label="Arquetipo DISC"
-                    hint="Arquetipo de comportamiento"
-                    value={form.perfil_disc}
-                    onChange={(v) => setField("perfil_disc", v)}
-                    archetypes={arquetipos}
-                  />
-                </EditHL>
-              </div>
-            </Section>
+            <ScoresSection
+              notaCap={form.nota_cap}
+              notaCurriculum={form.nota_curriculum}
+              notaConocimiento={form.nota_conocimiento}
+              notaCompetencias={form.nota_competencias}
+              perfilDisc={form.perfil_disc}
+              arquetipos={arquetipos}
+              changed={changed}
+              setField={setField}
+            />
 
-            {/* ===== A. CONOCIMIENTOS, HERRAMIENTAS Y COMPETENCIAS ===== */}
-            <Section
-              icon={<Sparkles className="h-5 w-5 text-white drop-shadow-md" />}
-              title="A · Conocimientos, Herramientas y Competencias"
-            >
-              <div className="space-y-4">
-                <EditHL on={changed.has("conocimientos")}>
-                  <ItemListBuilder
-                    title="A1. Conocimientos Técnicos"
-                    items={form.conocimientos}
-                    max={MAX_CONOCIMIENTOS}
-                    addLabel="Agregar"
-                    namePlaceholder="Nombre del Conocimiento Técnico"
-                    withDetalle
-                    emptyHint="No se agregaron conocimientos técnicos aún."
-                    onAdd={() => addItem("conocimientos")}
-                    onChange={(uid, patch) => updateItem("conocimientos", uid, patch)}
-                    onRemove={(uid) => removeItem("conocimientos", uid)}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("herramientas")}>
-                  <ItemListBuilder
-                    title="A2. Manejo de Herramientas u otros"
-                    items={form.herramientas}
-                    max={MAX_HERRAMIENTAS}
-                    addLabel="Agregar"
-                    emptyHint="No se agregaron herramientas aún."
-                    onAdd={() => addItem("herramientas")}
-                    onChange={(uid, patch) => updateItem("herramientas", uid, patch)}
-                    onRemove={(uid) => removeItem("herramientas", uid)}
-                  />
-                </EditHL>
+            <SkillsSection
+              conocimientos={form.conocimientos}
+              herramientas={form.herramientas}
+              competencias={form.competencias}
+              catalogo={competencias}
+              changed={changed}
+              compsCount={compsCount}
+              onAddItem={addItem}
+              onUpdateItem={updateItem}
+              onRemoveItem={removeItem}
+              onAddCompetency={addCompetency}
+              onUpdateCompetency={updateCompetency}
+              onRemoveCompetency={removeCompetency}
+            />
 
-                {/* A3 — Competencias o Habilidades */}
-                <div
-                  className={[
-                    "rounded-2xl fill-soft p-4 ring-1 ring-[color:var(--hairline)]",
-                    changed.has("competencias")
-                      ? "ring-2 ring-amber-400/70 shadow-[0_0_18px_rgba(251,191,36,0.35)]"
-                      : "",
-                  ].join(" ")}
-                >
-                  <header className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <h4 className="text-sm font-bold text-ink">
-                        A3. Competencias o Habilidades{" "}
-                        <span className="text-ink-faint">
-                          ({compsCount}/{MAX_COMPETENCIAS})
-                        </span>
-                      </h4>
-                      <p className="text-xs text-ink-faint">
-                        Inserte competencias evaluadas mediante el buscador inferior.
-                      </p>
-                    </div>
-                    <span
-                      className={[
-                        "rounded-full px-3 py-1 text-xs font-black ring-1 ring-white/30 shadow-glass",
-                        atCompLimit
-                          ? "bg-gradient-to-br from-amber-400 to-yellow-500 text-white"
-                          : "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white",
-                      ].join(" ")}
-                    >
-                      {compsCount}/{MAX_COMPETENCIAS}
-                    </span>
-                  </header>
-
-                  <CompetencyAutocomplete
-                    options={competencias}
-                    selected={selectedComps}
-                    onAdd={addCompetency}
-                    disabled={atCompLimit}
-                  />
-
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <AnimatePresence mode="popLayout">
-                      {form.competencias.map((c, i) => (
-                        <CompetencyConfigCard
-                          key={c.uid}
-                          competency={c}
-                          index={i}
-                          onChange={updateCompetency}
-                          onRemove={removeCompetency}
-                        />
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              </div>
-            </Section>
-
-            {/* ===== B. CONFIABILIDAD DEL POSTULANTE ===== */}
-            <Section
-              icon={<ShieldCheck className="h-5 w-5 text-white drop-shadow-md" />}
-              title="B · Confiabilidad del Postulante"
-            >
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <EditHL on={changed.has("nivel_general_confiabilidad")}>
-                  <SegmentedField
-                    label="Confiabilidad e Integridad"
-                    value={form.nivel_general_confiabilidad}
-                    onChange={(v) => setField("nivel_general_confiabilidad", v)}
-                    options={CONFIABILIDAD_OPTIONS}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("nivel_integridad")}>
-                  <SegmentedField
-                    label="Nivel de Integridad"
-                    value={form.nivel_integridad}
-                    onChange={(v) => setField("nivel_integridad", v)}
-                    options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
-                    toneFor={riesgoTone}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("riesgo_robo")}>
-                  <SegmentedField
-                    label="Nivel de Robo (Riesgo)"
-                    value={form.riesgo_robo}
-                    onChange={(v) => setField("riesgo_robo", v)}
-                    options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
-                    toneFor={riesgoTone}
-                  />
-                </EditHL>
-                <EditHL on={changed.has("riesgo_mentira")}>
-                  <SegmentedField
-                    label="Nivel de Mentira (Riesgo)"
-                    value={form.riesgo_mentira}
-                    onChange={(v) => setField("riesgo_mentira", v)}
-                    options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
-                    toneFor={riesgoTone}
-                  />
-                </EditHL>
-              </div>
-              <div className="mt-4">
-                <EditHL on={changed.has("observaciones")}>
-                  <TagInput
-                    label="Observaciones"
-                    hint="Separe por comas para generar etiquetas"
-                    tags={form.observaciones}
-                    onChange={(t) => setField("observaciones", t)}
-                    placeholder="Escriba una observación y pulse Enter o coma…"
-                  />
-                </EditHL>
-              </div>
-            </Section>
+            <ReliabilitySection
+              confiabilidad={form.nivel_general_confiabilidad}
+              integridad={form.nivel_integridad}
+              riesgoRobo={form.riesgo_robo}
+              riesgoMentira={form.riesgo_mentira}
+              observaciones={form.observaciones}
+              changed={changed}
+              setField={setField}
+            />
           </div>
 
           {/* ---- Sticky footer ---- */}
@@ -981,8 +812,17 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
                 Cancelar
               </button>
               <button
-                type="submit"
+                ref={saveRef}
+                // A propósito NO es `type="submit"`: sin botón de envío el
+                // formulario no puede enviarse al pulsar Intro en un campo.
+                type="button"
+                onClick={save}
                 disabled={submitting || (isEdit && changed.size === 0)}
+                title={
+                  isEdit
+                    ? "Guardar los cambios (Ctrl+Intro)"
+                    : "Registrar al postulante (Ctrl+Intro)"
+                }
                 className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-6 py-3 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-500 ease-spring hover:-translate-y-1 hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitting ? (
@@ -1036,6 +876,480 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
     </>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Secciones                                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * El cuestionario se divide en cuatro secciones memorizadas.
+ *
+ * Antes, cada tecla en «Nombres» redibujaba también los cuatro velocímetros
+ * (SVG con marcas y aguja), los constructores de listas y hasta siete tarjetas
+ * de competencia con su cálculo de ajuste: unas seiscientas comparaciones y
+ * varios cientos de nodos por pulsación. Ahora cada sección recibe **sólo sus
+ * datos**; con `memo`, escribir en una no toca a las otras tres.
+ */
+
+interface SectionProps {
+  changed: ChangedSet;
+  setField: <K extends FormKey>(key: K, value: FormState[K]) => void;
+}
+
+/**
+ * Campos que dibuja la sección de datos personales.
+ *
+ * La comparación de `memo` mira sólo estas claves: así, arrastrar un velocímetro
+ * (que produce muchas actualizaciones por segundo) no vuelve a dibujar los
+ * catorce campos de texto de esta sección.
+ */
+const PERSONAL_KEYS = [
+  "identificador",
+  "nombres",
+  "apellido_paterno",
+  "apellido_materno",
+  "edad",
+  "departamento_residencia",
+  "localidad_residencia",
+  "estado_civil",
+  "nivel_academico",
+  "carrera",
+  "trabaja_bdp",
+  "cargo_bdp",
+] as const;
+
+const PersonalSection = memo(function PersonalSection({
+  form,
+  changed,
+  isEdit,
+  setField,
+  cargos,
+  identificadorRef,
+}: SectionProps & {
+  form: FormState;
+  isEdit: boolean;
+  cargos: string[];
+  identificadorRef: React.RefObject<HTMLInputElement>;
+}) {
+  return (
+    <Section
+      icon={<ClipboardList className="h-5 w-5 text-white drop-shadow-md" />}
+      title="Datos Personales"
+      subtitle="Identidad y residencia del postulante."
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="sm:col-span-2 lg:col-span-2">
+          <TextField
+            ref={identificadorRef}
+            label="Identificador Único"
+            required
+            hint={
+              isEdit
+                ? "Clave del registro · no editable"
+                : "CI - Nro Proceso - Año · único obligatorio"
+            }
+            value={form.identificador}
+            onChange={(v) => setField("identificador", v)}
+            placeholder="CI - Nro Proceso - Año"
+            readOnly={isEdit}
+          />
+        </div>
+        <EditHL on={changed.has("edad")}>
+          <TextField
+            label="Edad"
+            type="number"
+            value={form.edad}
+            onChange={(v) => setField("edad", v)}
+            placeholder="Edad"
+          />
+        </EditHL>
+        <EditHL on={changed.has("estado_civil")}>
+          <SelectField
+            label="Estado Civil"
+            value={form.estado_civil}
+            onChange={(v) => setField("estado_civil", v)}
+            options={ESTADO_CIVIL_OPTIONS}
+          />
+        </EditHL>
+        <EditHL on={changed.has("nombres")}>
+          <TextField
+            label="Nombres"
+            value={form.nombres}
+            onChange={(v) => setField("nombres", v)}
+            placeholder="Nombres"
+          />
+        </EditHL>
+        <EditHL on={changed.has("apellido_paterno")}>
+          <TextField
+            label="Apellido Paterno"
+            value={form.apellido_paterno}
+            onChange={(v) => setField("apellido_paterno", v)}
+            placeholder="Apellido Paterno"
+          />
+        </EditHL>
+        <EditHL on={changed.has("apellido_materno")}>
+          <TextField
+            label="Apellido Materno"
+            value={form.apellido_materno}
+            onChange={(v) => setField("apellido_materno", v)}
+            placeholder="Apellido Materno"
+          />
+        </EditHL>
+        {/* Nivel Académico + Carrera share a paired cell so Carrera
+            always sits immediately to the right of Nivel Académico. */}
+        <div className="grid grid-cols-1 gap-3 sm:col-span-2 sm:grid-cols-2">
+          <EditHL on={changed.has("nivel_academico")}>
+            <SelectField
+              label="Nivel Académico"
+              value={form.nivel_academico}
+              onChange={(v) => setField("nivel_academico", v)}
+              options={NIVEL_ACADEMICO_OPTIONS}
+            />
+          </EditHL>
+          <EditHL on={changed.has("carrera")}>
+            <TextField
+              label="Carrera"
+              hint="Formación / profesión"
+              value={form.carrera}
+              onChange={(v) => setField("carrera", v)}
+              placeholder="Ej. Ingeniería Comercial"
+            />
+          </EditHL>
+        </div>
+        <EditHL on={changed.has("departamento_residencia")}>
+          <SelectField
+            label="Departamento de Residencia"
+            value={form.departamento_residencia}
+            onChange={(v) => setField("departamento_residencia", v)}
+            options={DEPARTAMENTO_OPTIONS}
+          />
+        </EditHL>
+        <EditHL on={changed.has("localidad_residencia")}>
+          <TextField
+            label="Localidad de Residencia"
+            value={form.localidad_residencia}
+            onChange={(v) => setField("localidad_residencia", v)}
+            placeholder="Localidad"
+          />
+        </EditHL>
+        <div className="sm:col-span-2">
+          <EditHL on={changed.has("trabaja_bdp")}>
+            <SegmentedField
+              label="¿El postulante trabaja actualmente en BDP?"
+              value={form.trabaja_bdp}
+              onChange={(v) => setField("trabaja_bdp", v)}
+              options={["No", "Sí"]}
+            />
+          </EditHL>
+        </div>
+        <AnimatePresence initial={false}>
+          {form.trabaja_bdp === "Sí" && (
+            <motion.div
+              className="sm:col-span-2"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ type: "spring", stiffness: 260, damping: 26 }}
+            >
+              <EditHL on={changed.has("cargo_bdp")}>
+                <TextAutocomplete
+                  label="Cargo actual del Postulante"
+                  hint="Sugerencias en vivo de cargos_bdp · admite texto libre"
+                  value={form.cargo_bdp}
+                  onChange={(v) => setField("cargo_bdp", v)}
+                  options={cargos}
+                  placeholder="Escriba para buscar el cargo…"
+                />
+              </EditHL>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </Section>
+  );
+},
+(prev, next) =>
+  prev.changed === next.changed &&
+  prev.isEdit === next.isEdit &&
+  prev.cargos === next.cargos &&
+  prev.setField === next.setField &&
+  PERSONAL_KEYS.every((k) => prev.form[k] === next.form[k]));
+
+const ScoresSection = memo(function ScoresSection({
+  notaCap,
+  notaCurriculum,
+  notaConocimiento,
+  notaCompetencias,
+  perfilDisc,
+  arquetipos,
+  changed,
+  setField,
+}: SectionProps & {
+  notaCap: number | null;
+  notaCurriculum: number | null;
+  notaConocimiento: number | null;
+  notaCompetencias: number | null;
+  perfilDisc: string;
+  arquetipos: DiscArchetype[];
+}) {
+  return (
+    <Section
+      icon={<Gauge className="h-5 w-5 text-white drop-shadow-md" />}
+      title="Resultados de Evaluación"
+      subtitle="Use los deslizadores de velocímetro o haga clic en el número del centro para ingreso manual (0 % a 100 %)."
+    >
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <EditHL on={changed.has("nota_cap")}>
+          <GaugeInput
+            label="Nota CAP"
+            hint="Adecuación al puesto"
+            value={notaCap}
+            onChange={(v) => setField("nota_cap", v)}
+          />
+        </EditHL>
+        <EditHL on={changed.has("nota_curriculum")}>
+          <GaugeInput
+            label="Nota Currículum"
+            hint="Hoja de vida"
+            value={notaCurriculum}
+            onChange={(v) => setField("nota_curriculum", v)}
+          />
+        </EditHL>
+        <EditHL on={changed.has("nota_conocimiento")}>
+          <GaugeInput
+            label="Nota Conocimientos"
+            hint="Evaluación técnica"
+            value={notaConocimiento}
+            onChange={(v) => setField("nota_conocimiento", v)}
+          />
+        </EditHL>
+        <EditHL on={changed.has("nota_competencias")}>
+          <GaugeInput
+            label="Nota Competencias"
+            hint="Nivel general"
+            value={notaCompetencias}
+            onChange={(v) => setField("nota_competencias", v)}
+          />
+        </EditHL>
+      </div>
+      <div className="mt-4 max-w-md">
+        <EditHL on={changed.has("perfil_disc")}>
+          <DiscSelect
+            label="Arquetipo DISC"
+            hint="Arquetipo de comportamiento"
+            value={perfilDisc}
+            onChange={(v) => setField("perfil_disc", v)}
+            archetypes={arquetipos}
+          />
+        </EditHL>
+      </div>
+    </Section>
+  );
+});
+
+const SkillsSection = memo(function SkillsSection({
+  conocimientos,
+  herramientas,
+  competencias,
+  catalogo,
+  changed,
+  compsCount,
+  onAddItem,
+  onUpdateItem,
+  onRemoveItem,
+  onAddCompetency,
+  onUpdateCompetency,
+  onRemoveCompetency,
+}: {
+  conocimientos: FormItem[];
+  herramientas: FormItem[];
+  competencias: FormCompetency[];
+  /** Catálogo de competencias de la hoja (filas "Nombre,Bajo,Medio,Alto,…"). */
+  catalogo: string[];
+  changed: ChangedSet;
+  compsCount: number;
+  onAddItem: (key: "conocimientos" | "herramientas") => void;
+  onUpdateItem: (
+    key: "conocimientos" | "herramientas",
+    uid: string,
+    patch: Partial<FormItem>,
+  ) => void;
+  onRemoveItem: (key: "conocimientos" | "herramientas", uid: string) => void;
+  onAddCompetency: (name: string) => void;
+  onUpdateCompetency: (uid: string, patch: Partial<FormCompetency>) => void;
+  onRemoveCompetency: (uid: string) => void;
+}) {
+  const atCompLimit = compsCount >= MAX_COMPETENCIAS;
+  const selectedComps = useMemo(() => competencias.map((c) => c.name), [competencias]);
+
+  return (
+    <Section
+      icon={<Sparkles className="h-5 w-5 text-white drop-shadow-md" />}
+      title="A · Conocimientos, Herramientas y Competencias"
+    >
+      <div className="space-y-4">
+        <EditHL on={changed.has("conocimientos")}>
+          <ItemListBuilder
+            title="A1. Conocimientos Técnicos"
+            items={conocimientos}
+            max={MAX_CONOCIMIENTOS}
+            addLabel="Agregar"
+            namePlaceholder="Nombre del Conocimiento Técnico"
+            withDetalle
+            emptyHint="No se agregaron conocimientos técnicos aún."
+            onAdd={() => onAddItem("conocimientos")}
+            onChange={(uid, patch) => onUpdateItem("conocimientos", uid, patch)}
+            onRemove={(uid) => onRemoveItem("conocimientos", uid)}
+          />
+        </EditHL>
+        <EditHL on={changed.has("herramientas")}>
+          <ItemListBuilder
+            title="A2. Manejo de Herramientas u otros"
+            items={herramientas}
+            max={MAX_HERRAMIENTAS}
+            addLabel="Agregar"
+            emptyHint="No se agregaron herramientas aún."
+            onAdd={() => onAddItem("herramientas")}
+            onChange={(uid, patch) => onUpdateItem("herramientas", uid, patch)}
+            onRemove={(uid) => onRemoveItem("herramientas", uid)}
+          />
+        </EditHL>
+
+        {/* A3 — Competencias o Habilidades */}
+        <div
+          className={[
+            "rounded-2xl fill-soft p-4 ring-1 ring-[color:var(--hairline)]",
+            changed.has("competencias")
+              ? "ring-2 ring-amber-400/70 shadow-[0_0_18px_rgba(251,191,36,0.35)]"
+              : "",
+          ].join(" ")}
+        >
+          <header className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-bold text-ink">
+                A3. Competencias o Habilidades{" "}
+                <span className="text-ink-faint">
+                  ({compsCount}/{MAX_COMPETENCIAS})
+                </span>
+              </h4>
+              <p className="text-xs text-ink-faint">
+                Inserte competencias evaluadas mediante el buscador inferior.
+              </p>
+            </div>
+            <motion.span
+              key={compsCount}
+              initial={{ scale: 0.82, opacity: 0.5 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: "spring", stiffness: 500, damping: 24 }}
+              className={[
+                "rounded-full px-3 py-1 text-xs font-black ring-1 ring-white/30 shadow-glass",
+                atCompLimit
+                  ? "bg-gradient-to-br from-amber-400 to-yellow-500 text-white"
+                  : "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white",
+              ].join(" ")}
+            >
+              {compsCount}/{MAX_COMPETENCIAS}
+            </motion.span>
+          </header>
+
+          <CompetencyAutocomplete
+            options={catalogo}
+            selected={selectedComps}
+            onAdd={onAddCompetency}
+            disabled={atCompLimit}
+          />
+
+          <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <AnimatePresence initial={false}>
+              {competencias.map((c, i) => (
+                <CompetencyConfigCard
+                  key={c.uid}
+                  competency={c}
+                  index={i}
+                  catalogo={catalogo}
+                  onChange={onUpdateCompetency}
+                  onRemove={onRemoveCompetency}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        </div>
+      </div>
+    </Section>
+  );
+});
+
+const ReliabilitySection = memo(function ReliabilitySection({
+  confiabilidad,
+  integridad,
+  riesgoRobo,
+  riesgoMentira,
+  observaciones,
+  changed,
+  setField,
+}: SectionProps & {
+  confiabilidad: string;
+  integridad: string;
+  riesgoRobo: string;
+  riesgoMentira: string;
+  observaciones: string[];
+}) {
+  return (
+    <Section
+      icon={<ShieldCheck className="h-5 w-5 text-white drop-shadow-md" />}
+      title="B · Confiabilidad del Postulante"
+    >
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <EditHL on={changed.has("nivel_general_confiabilidad")}>
+          <SegmentedField
+            label="Confiabilidad e Integridad"
+            value={confiabilidad}
+            onChange={(v) => setField("nivel_general_confiabilidad", v)}
+            options={CONFIABILIDAD_OPTIONS}
+          />
+        </EditHL>
+        <EditHL on={changed.has("nivel_integridad")}>
+          <SegmentedField
+            label="Nivel de Integridad"
+            value={integridad}
+            onChange={(v) => setField("nivel_integridad", v)}
+            options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+            toneFor={riesgoTone}
+          />
+        </EditHL>
+        <EditHL on={changed.has("riesgo_robo")}>
+          <SegmentedField
+            label="Nivel de Robo (Riesgo)"
+            value={riesgoRobo}
+            onChange={(v) => setField("riesgo_robo", v)}
+            options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+            toneFor={riesgoTone}
+          />
+        </EditHL>
+        <EditHL on={changed.has("riesgo_mentira")}>
+          <SegmentedField
+            label="Nivel de Mentira (Riesgo)"
+            value={riesgoMentira}
+            onChange={(v) => setField("riesgo_mentira", v)}
+            options={NIVEL_RIESGO_ETIQUETADO_OPTIONS}
+            toneFor={riesgoTone}
+          />
+        </EditHL>
+      </div>
+      <div className="mt-4">
+        <EditHL on={changed.has("observaciones")}>
+          <TagInput
+            label="Observaciones"
+            hint="Separe por comas para generar etiquetas"
+            tags={observaciones}
+            onChange={(t) => setField("observaciones", t)}
+            placeholder="Escriba una observación y pulse Enter o coma…"
+          />
+        </EditHL>
+      </div>
+    </Section>
+  );
+});
 
 /** A titled section block used to structure the long intake form. */
 function Section({
