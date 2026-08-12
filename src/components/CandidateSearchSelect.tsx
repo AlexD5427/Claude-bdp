@@ -41,6 +41,9 @@ export function CandidateSearchSelect({
   const [active, setActive] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Al agregar devolvemos el foco al campo para poder escribir el nombre
+  // siguiente, pero ese foco no debe reabrir la lista que acabamos de cerrar.
+  const skipOpenOnFocus = useRef(false);
   const reduceMotion = usePrefersReducedMotion();
 
   const full = selectedIds.length >= max;
@@ -79,6 +82,7 @@ export function CandidateSearchSelect({
     // instante. El foco se queda en el campo, así que escribir otro nombre
     // vuelve a abrir la lista sin tocar el ratón.
     setOpen(false);
+    skipOpenOnFocus.current = true;
     inputRef.current?.focus();
   }
 
@@ -134,7 +138,13 @@ export function CandidateSearchSelect({
               setQuery(e.target.value);
               setOpen(true);
             }}
-            onFocus={() => setOpen(true)}
+            onFocus={() => {
+              if (skipOpenOnFocus.current) {
+                skipOpenOnFocus.current = false;
+                return;
+              }
+              setOpen(true);
+            }}
             onKeyDown={onKeyDown}
             placeholder={
               full

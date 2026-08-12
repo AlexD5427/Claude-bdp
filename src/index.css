@@ -994,9 +994,13 @@
     white-space: normal !important;
     -webkit-line-clamp: unset !important;
   }
-  /* Kill the name marquee's inline transform so it prints at rest, in full. */
+  /* Kill the name marquee's inline transform so it prints at rest, in full.
+     También se apaga la animación: en papel no hay nada que revelar y una capa
+     compuesta a medio recorrer imprime los rótulos con bordes sucios. */
   .cmp-grid .whitespace-nowrap {
     transform: none !important;
+    animation: none !important;
+    will-change: auto !important;
   }
   /* Baseline print compaction (applies from ~4 columns onward). */
   .cmp-grid .glass,
