@@ -184,6 +184,29 @@
     height: 100%;
   }
 
+  /**
+   * Desplazamiento suave de toda la aplicación.
+   *
+   * Los módulos son informes largos: el comparador, los expedientes y el
+   * cuestionario se recorren de arriba abajo durante horas. Con el
+   * desplazamiento nativo «duro», cada salto (una tecla, un `scrollIntoView`,
+   * el d-pad del comparador) teletransportaba la vista y costaba reencontrar la
+   * fila que se estaba leyendo. Se aplica en el elemento raíz —no en cada
+   * contenedor— y se apaga en cuanto el sistema o Configuración piden menos
+   * movimiento, porque el desplazamiento animado es uno de los disparadores
+   * clásicos del mareo.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    html:not(.reduce-motion) {
+      scroll-behavior: smooth;
+    }
+  }
+
+  /* Que ningún gesto de una lista interior arrastre la página de detrás. */
+  body {
+    overscroll-behavior-y: none;
+  }
+
   body {
     @apply font-sans antialiased;
     color: var(--ink);

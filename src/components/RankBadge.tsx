@@ -80,26 +80,55 @@ export function RankChip({
   rank,
   cap,
   className = "",
+  size = "sm",
+  title,
 }: {
   rank: number;
   cap: number | null;
   className?: string;
+  /**
+   * `"sm"` es la píldora de la tira congelada; `"lg"` es la de la fila de
+   * Ranking, donde la celda tiene sitio de sobra y el puesto debe leerse de un
+   * golpe de vista desde lejos.
+   */
+  size?: "sm" | "lg";
+  /** Tooltip alternativo (p. ej. la explicación de un desempate). */
+  title?: string;
 }) {
   const first = rank === 1;
   const Icon = first ? Crown : Medal;
+  const big = size === "lg";
   return (
     <span
       className={[
-        "relative inline-flex items-center gap-1 overflow-hidden rounded-full bg-gradient-to-br px-2 py-0.5 text-[0.65rem] font-black ring-1",
-        first ? `${GOLD} shadow-[0_0_14px_rgba(251,191,36,0.7)]` : `${SILVER} shadow-[0_2px_8px_rgba(148,163,184,0.5)]`,
+        "relative inline-flex items-center overflow-hidden rounded-full bg-gradient-to-br font-black ring-1",
+        big ? "gap-2 px-4 py-2 text-base" : "gap-1 px-2 py-0.5 text-[0.65rem]",
+        first
+          ? `${GOLD} ${big ? "shadow-[0_0_22px_rgba(251,191,36,0.75)]" : "shadow-[0_0_14px_rgba(251,191,36,0.7)]"}`
+          : `${SILVER} ${big ? "shadow-[0_3px_14px_rgba(148,163,184,0.6)]" : "shadow-[0_2px_8px_rgba(148,163,184,0.5)]"}`,
         className,
       ].join(" ")}
-      title={`${rankLabel(rank)}${cap !== null ? ` · CAP ${cap}%` : ""}`}
+      title={title || `${rankLabel(rank)}${cap !== null ? ` · CAP ${cap}%` : ""}`}
     >
       {first && <GoldSheen />}
-      <Icon className="relative h-3 w-3" />
+      <Icon className={`relative ${big ? "h-5 w-5" : "h-3 w-3"}`} />
       <span className="relative">{rank}.º</span>
-      {cap !== null && <span className="relative opacity-75">· {cap}%</span>}
+      {big && (
+        <span className="relative text-[0.6rem] font-bold uppercase tracking-wide opacity-70">
+          lugar
+        </span>
+      )}
+      {cap !== null && (
+        <span
+          className={
+            big
+              ? "relative rounded-full bg-black/15 px-2 py-0.5 text-xs font-black leading-none"
+              : "relative opacity-75"
+          }
+        >
+          {big ? `CAP ${cap}%` : `· ${cap}%`}
+        </span>
+      )}
     </span>
   );
 }

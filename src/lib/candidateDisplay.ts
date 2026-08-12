@@ -111,26 +111,11 @@ export function capScore(c: Candidate): number | null {
 }
 
 /**
- * Sort candidates by Nota CAP, keeping the ones without a CAP score at the end
- * in their original order. `order` picks the direction: `"desc"` (default) puts
- * the highest CAP on the left; `"asc"` reverses it. Returns a new array.
+ * Ordinal Spanish rank label: 1 → "1er lugar", 2 → "2do lugar", …
+ *
+ * El orden y el puesto de los postulantes viven en
+ * {@link ./comparatorRanking}, que además resuelve los empates de Nota CAP.
  */
-export function sortByCap(
-  list: Candidate[],
-  order: "desc" | "asc" = "desc",
-): Candidate[] {
-  const dir = order === "asc" ? -1 : 1;
-  return [...list].sort((a, b) => {
-    const ca = capScore(a);
-    const cb = capScore(b);
-    if (ca === null && cb === null) return 0;
-    if (ca === null) return 1;
-    if (cb === null) return -1;
-    return (cb - ca) * dir;
-  });
-}
-
-/** Ordinal Spanish rank label: 1 → "1er lugar", 2 → "2do lugar", … */
 export function rankLabel(rank: number): string {
   switch (rank) {
     case 1:

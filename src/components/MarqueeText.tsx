@@ -13,12 +13,19 @@ import { useEffect, useRef, useState } from "react";
 export function MarqueeText({
   text,
   className = "",
-  /** Approx. pixels per second the text travels while revealing the overflow. */
   speed = 24,
+  active,
 }: {
   text: string;
   className?: string;
   speed?: number;
+  /**
+   * Cuándo puede moverse. Sin especificar, la marquesina corre siempre que el
+   * texto no quepa (el comportamiento de la primera columna). Con `false` el
+   * texto se queda quieto y sólo se recorta: así las celdas de texto largo del
+   * comparador se mueven **únicamente** mientras hay un puntero encima.
+   */
+  active?: boolean;
 }) {
   const wrapRef = useRef<HTMLSpanElement>(null);
   const innerRef = useRef<HTMLSpanElement>(null);
@@ -43,6 +50,7 @@ export function MarqueeText({
   // The keyframe spends ~70% of the time moving; the rest is a pause at each
   // end. Solve for a total duration that keeps the travel speed roughly steady.
   const total = Math.max(6, ((travel / speed) * 2) / 0.7);
+  const moving = overflow > 0 && active !== false;
 
   return (
     <span
@@ -54,7 +62,7 @@ export function MarqueeText({
         ref={innerRef}
         className="inline-block will-change-transform"
         style={
-          overflow > 0
+          moving
             ? {
                 animation: `cmp-marquee ${total}s ease-in-out infinite`,
                 ["--cmp-shift" as string]: `-${travel}px`,

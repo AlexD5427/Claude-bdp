@@ -1,0 +1,263 @@
+/**
+ * comparator-motion.css — movimiento y recortes propios del Comparador.
+ *
+ * Vive junto al módulo, como `doc-motion.css`, para que nada de esto altere el
+ * resto de la aplicación y pueda retirarse sin efectos colaterales. Sólo
+ * contiene lo que no se puede expresar con utilidades: fotogramas, recortes con
+ * degradado y el escalonado de la aparición de filas.
+ *
+ * Regla de oro: todo se anima con `transform` y `opacity`. Son las dos
+ * propiedades que el compositor resuelve sin recalcular la disposición, y en una
+ * cuadrícula con diez columnas y cuarenta celdas de vidrio esa diferencia es la
+ * que separa los 60 fps de un arrastre visible.
+ *
+ * Todo se desactiva con `prefers-reduced-motion` y con el interruptor
+ * «Reducir movimiento» de Configuración (clase `.reduce-motion` en el <html>).
+ */
+
+/* ------------------------------------------------------------------ */
+/* Celdas de texto largo                                              */
+/* ------------------------------------------------------------------ */
+
+/* Recorte de la celda: el alto máximo deja ver ~5 líneas y el resto se revela
+   al pasar el puntero o en el visor ampliado. En impresión no se recorta nada. */
+.cmp-clip {
+  max-height: 11rem;
+  overflow: hidden;
+}
+.cmp-dense .cmp-clip {
+  max-height: 7.5rem;
+}
+
+/* Recorrido vertical del contenido mientras hay puntero encima: baja hasta el
+   final, descansa, vuelve al principio y descansa otra vez. La distancia llega
+   por `--cmp-reveal-y` y la duración se calcula en JS para mantener una
+   velocidad de lectura constante sin importar cuánto texto haya. */
+@keyframes cmp-reveal-y {
+  0%,
+  14% {
+    transform: translateY(0);
+  }
+  50%,
+  64% {
+    transform: translateY(var(--cmp-reveal-y, 0));
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+.cmp-reveal {
+  animation-name: cmp-reveal-y;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+/* Degradado al pie de la celda recortada: dice «hay más» sin ocupar sitio. */
+.cmp-long .cmp-fade {
+  pointer-events: none;
+  position: absolute;
+  inset-inline: 1px;
+  bottom: 1px;
+  height: 2.25rem;
+  border-radius: 0 0 1rem 1rem;
+  background: linear-gradient(to top, var(--glass-bg-heavy), transparent);
+  opacity: 0.9;
+  transition: opacity 0.3s ease;
+}
+.cmp-long:hover .cmp-fade {
+  opacity: 0.45;
+}
+
+.cmp-long .cmp-fade-top {
+  pointer-events: none;
+  position: absolute;
+  inset-inline: 1px;
+  top: 1px;
+  height: 1.5rem;
+  border-radius: 1rem 1rem 0 0;
+  background: linear-gradient(to bottom, var(--glass-bg-heavy), transparent);
+  opacity: 0.75;
+}
+
+/* Botón de ampliación: discreto en reposo, evidente al acercarse. En pantallas
+   táctiles no hay hover, así que nunca desaparece del todo. */
+.cmp-long .cmp-expand {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: grid;
+  place-items: center;
+  height: 1.75rem;
+  width: 1.75rem;
+  border-radius: 9999px;
+  color: var(--ink-soft);
+  background-color: var(--glass-bg-heavy);
+  box-shadow: 0 0 0 1px var(--hairline);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0.55;
+  transform: scale(0.92);
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.28s ease;
+}
+.cmp-long:hover .cmp-expand,
+.cmp-long .cmp-expand:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+  color: #00b0d8;
+}
+.cmp-long .cmp-expand:active {
+  transform: scale(0.86);
+}
+
+/* ------------------------------------------------------------------ */
+/* Visor ampliado                                                      */
+/* ------------------------------------------------------------------ */
+
+/* Un único barrido especular al abrir: es lo que da la sensación de vidrio
+   líquido recibiendo luz. No se repite, para no distraer mientras se lee. */
+@keyframes cmp-viewer-sheen {
+  from {
+    transform: translateX(-120%) skewX(-14deg);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.85;
+  }
+  to {
+    transform: translateX(320%) skewX(-14deg);
+    opacity: 0;
+  }
+}
+.cmp-viewer-sheen {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: cmp-viewer-sheen 1.15s cubic-bezier(0.22, 1, 0.36, 1) 0.1s 1 both;
+}
+
+.cmp-viewer-body {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+
+/* ------------------------------------------------------------------ */
+/* Aparición y salida de las filas                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Las filas son celdas sueltas de la cuadrícula: no se pueden envolver en un
+ * contenedor sin romper la alineación de las columnas. El contenedor usa
+ * `display: contents` —no genera caja— y sirve sólo como ancla del selector,
+ * mientras cada celda lleva su propio retardo por fila en `animation-delay`.
+ * Así se consigue el escalonado de iOS sin tocar la maquetación.
+ */
+@keyframes cmp-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cmp-row-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+.cmp-rows-in > * {
+  animation: cmp-row-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.cmp-rows-out > * {
+  animation: cmp-row-out 0.24s ease-in both;
+}
+
+/* ------------------------------------------------------------------ */
+/* Desplazamiento del comparador                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * El desplazamiento lateral se queda en `auto` a propósito: el deslizador de la
+ * barra inferior escribe `scrollLeft` en directo y con `smooth` cada arrastre
+ * quedaría persiguiendo al puntero. Los botones de paso ya piden `smooth` ellos
+ * mismos. Lo que sí se añade es el gesto contenido (que llegar al extremo no
+ * arrastre la página) y una barra fina acorde al vidrio.
+ */
+.cmp-scroll {
+  scroll-behavior: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 176, 216, 0.45) transparent;
+}
+.cmp-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+.cmp-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cmp-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: rgba(0, 176, 216, 0.35);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.cmp-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 176, 216, 0.6);
+}
+
+/* ------------------------------------------------------------------ */
+/* Respeto por la preferencia de movimiento                            */
+/* ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .cmp-reveal,
+  .cmp-viewer-sheen,
+  .cmp-rows-in > *,
+  .cmp-rows-out > * {
+    animation: none;
+  }
+  .cmp-viewer-body {
+    scroll-behavior: auto;
+  }
+}
+.reduce-motion .cmp-reveal,
+.reduce-motion .cmp-viewer-sheen,
+.reduce-motion .cmp-rows-in > *,
+.reduce-motion .cmp-rows-out > * {
+  animation: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* Impresión                                                           */
+/* ------------------------------------------------------------------ */
+
+/* En papel no hay puntero ni visor: el texto completo tiene que estar ahí. */
+@media print {
+  .cmp-clip {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .cmp-reveal {
+    animation: none !important;
+    transform: none !important;
+  }
+  .cmp-long .cmp-fade,
+  .cmp-long .cmp-expand {
+    display: none !important;
+  }
+}
