@@ -11,9 +11,6 @@ import {
   Pencil,
   Trash2,
   RefreshCcw,
-  CheckCircle2,
-  XCircle,
-  Loader2,
   RotateCcw,
   Trophy,
   Gauge,
@@ -25,6 +22,7 @@ import { usePointerGlow } from "../hooks/usePointerGlow";
 import { TextField, SegmentedField, SelectField } from "../components/form/Fields";
 import { Toggle, RangeField, StepperField } from "../components/form/Controls";
 import { EmailTemplateEditor } from "../components/config/EmailTemplateEditor";
+import { ConnectionDiagnostics } from "../components/config/ConnectionDiagnostics";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useTheme } from "../context/ThemeContext";
 import { SCRIPT_URL } from "../constants";
@@ -69,7 +67,6 @@ export function Configuracion() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [filter, setFilter] = useState<EmailCategory | "all">("all");
-  const [conn, setConn] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   const templates = config.emailTemplates;
   const visibleTemplates = useMemo(
@@ -85,17 +82,6 @@ export function Configuracion() {
   function addTemplate() {
     const cat: EmailCategory = filter === "all" ? "convocatoria" : filter;
     openEditor(createTemplate(cat));
-  }
-
-  async function testConnection() {
-    setConn("testing");
-    try {
-      const res = await fetch(SCRIPT_URL, { method: "GET", redirect: "follow", headers: { Accept: "application/json" } });
-      const data = await res.json();
-      setConn(res.ok && data && Array.isArray(data.candidatos) ? "ok" : "fail");
-    } catch {
-      setConn("fail");
-    }
   }
 
   return (
@@ -346,34 +332,22 @@ export function Configuracion() {
               <span className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
                 Base de datos · Google Apps Script
               </span>
-              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[0.65rem] font-bold text-emerald-500 ring-1 ring-emerald-400/30">
-                Solo lectura
+              {/* La aplicación sí escribe en la hoja (altas, ediciones, perfiles
+                  de cargo): lo que no se puede editar es esta dirección, que es
+                  única para todo el sistema. El rótulo anterior («Solo lectura»)
+                  hacía creer lo contrario justo cuando se diagnostica un fallo
+                  de guardado. */}
+              <span className="rounded-full fill-softer px-2 py-0.5 text-[0.65rem] font-bold text-ink-soft ring-1 ring-[color:var(--hairline)]">
+                Dirección fija · no editable
               </span>
             </div>
             <code className="block truncate rounded-lg bg-[color:var(--fill-2)] px-3 py-2 text-xs text-ink" title={SCRIPT_URL}>
               {SCRIPT_URL}
             </code>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={testConnection}
-                disabled={conn === "testing"}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-4 py-2 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all hover:-translate-y-0.5 active:scale-95 disabled:opacity-60"
-              >
-                {conn === "testing" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                Probar conexión
-              </button>
-              {conn === "ok" && (
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-500">
-                  <CheckCircle2 className="h-4 w-4" /> Conexión exitosa
-                </span>
-              )}
-              {conn === "fail" && (
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-500">
-                  <XCircle className="h-4 w-4" /> No se pudo conectar
-                </span>
-              )}
-            </div>
+            {/* Diagnóstico separado de lectura, escritura y almacenamiento: es
+                lo que permite distinguir un fallo del sistema de un bloqueo en
+                el equipo de quien reporta el problema. */}
+            <ConnectionDiagnostics />
           </div>
         </div>
       </Section>
