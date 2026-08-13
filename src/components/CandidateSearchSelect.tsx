@@ -28,6 +28,22 @@ interface CandidateSearchSelectProps {
  *     abierta tapando el comparador, y había que hacer clic fuera para verlo.
  *   · Cada sugerencia y cada ficha entra y sale con su propia animación, con un
  *     escalonado corto, en lugar de aparecer de golpe.
+ *
+ * ## El fallo que dejaba el comparador «sin funcionar»
+ *
+ * Cerrar la lista al agregar tenía un efecto colateral que hacía inutilizable el
+ * módulo. Al elegir a alguien, el campo **conserva el foco** (para poder teclear
+ * el nombre siguiente) y se marcaba una bandera para que ese foco programado no
+ * reabriera la lista. Pero entonces el gesto natural —volver a hacer clic en el
+ * buscador para agregar al segundo postulante— no producía ningún evento de
+ * foco, porque el foco ya estaba dentro: la lista no se abría y no pasaba
+ * absolutamente nada. Quien agregaba escribiendo no lo notaba jamás; quien
+ * agregaba con el ratón concluía, con toda la razón, que el comparador estaba
+ * roto.
+ *
+ * Ahora el clic sobre el campo abre la lista explícitamente, que es lo que un
+ * buscador de este tipo debe hacer, y la bandera sólo protege del foco que la
+ * propia aplicación provoca.
  */
 export function CandidateSearchSelect({
   candidates,
@@ -145,6 +161,12 @@ export function CandidateSearchSelect({
               }
               setOpen(true);
             }}
+            // Un clic en el campo siempre abre la lista, incluso si el foco ya
+            // estaba dentro (el caso de justo después de agregar a alguien).
+            onPointerDown={() => {
+              skipOpenOnFocus.current = false;
+              setOpen(true);
+            }}
             onKeyDown={onKeyDown}
             placeholder={
               full
@@ -214,6 +236,14 @@ export function CandidateSearchSelect({
                     <div className="truncate text-xs text-ink-faint">
                       {c.identificador || "Sin ID"} · Proceso{" "}
                       {extractProceso(c.identificador)}
+                      {/* La hoja la llenan personas: avisar de una clave
+                          repetida evita que alguien edite a la persona
+                          equivocada creyendo que edita a esta. */}
+                      {c.identificadorDuplicado && (
+                        <span className="ml-1 font-bold text-amber-500">
+                          · identificador repetido en la hoja
+                        </span>
+                      )}
                     </div>
                   </div>
                   <motion.span

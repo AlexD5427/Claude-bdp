@@ -732,6 +732,31 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
           </div>
 
           <div className="max-h-[calc(100vh-13rem)] space-y-6 overflow-y-auto px-5 py-6 sm:px-7">
+            {/*
+              Aviso de clave repetida.
+
+              El backend localiza la fila a editar por su identificador, así que
+              si la hoja tiene dos filas con el mismo, la edición se aplica a la
+              primera — que puede no ser la persona que se está viendo. La
+              interfaz ya distingue a las dos (ver `lib/candidates`), pero la hoja
+              no, y callarlo sería aceptar una corrupción silenciosa: se avisa y
+              se pide corregir el duplicado en el libro.
+            */}
+            {isEdit && editing?.identificadorDuplicado && (
+              <div className="flex items-start gap-3 rounded-2xl bg-amber-500/15 px-4 py-3 text-sm text-amber-600 ring-1 ring-amber-400/40">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                <span>
+                  <strong className="block text-amber-700">
+                    Hay más de una fila con el identificador {editing.identificador}
+                  </strong>
+                  Al guardar, la base de datos actualizará la <strong>primera</strong> de
+                  esas filas, que puede no ser esta persona. Corrija el identificador
+                  duplicado en la hoja antes de editar para no sobrescribir el registro
+                  equivocado.
+                </span>
+              </div>
+            )}
+
             <PersonalSection
               form={form}
               changed={changed}

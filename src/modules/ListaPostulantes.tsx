@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
+import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer, AlertTriangle } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { Avatar } from "../components/Avatar";
 import { CandidateActions } from "../components/CandidateActions";
@@ -140,6 +140,18 @@ function CandidateCard({
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           Proceso {extractProceso(candidate.identificador)}
         </span>
+        {/* La hoja la llenan personas y a veces repiten la clave. Marcarlo aquí
+            —donde se corrigen los datos— evita que alguien edite sin saberlo la
+            fila equivocada, porque el backend localiza por identificador. */}
+        {candidate.identificadorDuplicado && (
+          <span
+            title={`El identificador ${candidate.identificador} aparece en más de una fila de la hoja. Corríjalo para poder editar sin riesgo.`}
+            className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 font-bold text-amber-600 ring-1 ring-amber-400/40"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            ID repetido
+          </span>
+        )}
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           {candidate.competenciasList.length} comp.
         </span>
@@ -166,7 +178,7 @@ function CandidateCard({
         <Stat label="Compet." value={candidate.nota_competencias} />
       </div>
 
-      <HiringControl id={candidate.id} />
+      <HiringControl id={candidate.id} identificador={candidate.identificador ?? candidate.id} />
     </motion.div>
   );
 }
@@ -178,7 +190,7 @@ const STATUS_TONE: Record<HiringStatus, string> = {
 };
 
 /** Manual hiring-status switch — drives Tiempo de Contratación & Tasa de Rotación. */
-function HiringControl({ id }: { id: string }) {
+function HiringControl({ id, identificador }: { id: string; identificador: string }) {
   const hiring = useHiring();
   const current = hiring[id]?.status ?? "en_proceso";
   return (
@@ -193,7 +205,7 @@ function HiringControl({ id }: { id: string }) {
             <button
               key={s}
               type="button"
-              onClick={() => setStatus(id, s)}
+              onClick={() => setStatus(id, s, identificador)}
               className={[
                 "flex-1 rounded-full px-2 py-1 text-[0.7rem] font-bold ring-1 transition-all duration-300 active:scale-95",
                 active

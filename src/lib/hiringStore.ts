@@ -89,7 +89,15 @@ export function ensureSeen(ids: string[]) {
   }
 }
 
-export function setStatus(id: string, status: HiringStatus) {
+/**
+ * Cambia el estado de contratación de una fila.
+ *
+ * `id` es la clave única de la fila en la interfaz (`Candidate.id`, que puede
+ * llevar sufijo cuando la hoja repite un identificador) y por eso es la clave
+ * correcta del registro local. Al backend, en cambio, hay que mandarle el
+ * **identificador de negocio**, que es lo que la hoja entiende.
+ */
+export function setStatus(id: string, status: HiringStatus, identificador = id) {
   const now = new Date().toISOString();
   const prev = state[id] ?? { status: "en_proceso", firstSeenAt: now };
   const record: HiringRecord = { ...prev, status };
@@ -97,7 +105,7 @@ export function setStatus(id: string, status: HiringStatus) {
   if (status === "baja") record.bajaAt = now;
   state = { ...state, [id]: record };
   emit();
-  syncBackend(id, record);
+  syncBackend(identificador, record);
 }
 
 export function getRecord(id: string): HiringRecord | undefined {

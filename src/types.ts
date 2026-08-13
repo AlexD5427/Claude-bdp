@@ -60,8 +60,15 @@ export interface RawCandidate {
 
 /** A candidate after normalisation — safe for the UI to consume. */
 export interface Candidate extends RawCandidate {
-  /** Stable key for React lists. */
+  /**
+   * Stable, **unique** key for React lists and for every "open this person"
+   * signal (perfil, edición, comparador). Es el identificador de la hoja y,
+   * cuando esa clave está repetida, lleva un sufijo `#2`, `#3`… para que dos
+   * filas distintas nunca se confundan. Ver `lib/candidates`.
+   */
   id: string;
+  /** True cuando la hoja trae más de una fila con el mismo identificador. */
+  identificadorDuplicado: boolean;
   /** Pre-computed display name with graceful fallback. */
   fullName: string;
   /** Parsed competency scores. */

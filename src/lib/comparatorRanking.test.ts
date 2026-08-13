@@ -9,8 +9,8 @@ import {
 } from "./comparatorRanking";
 import type { Candidate, RawCandidate } from "../types";
 
-function candidate(partial: RawCandidate, index = 0): Candidate {
-  return normaliseCandidate(partial, index);
+function candidate(partial: RawCandidate): Candidate {
+  return normaliseCandidate(partial);
 }
 
 /** Los tres empatados en CAP 88 del caso real que motivó el cambio. */

@@ -77,6 +77,28 @@ function parseItemList(raw: unknown): TechnicalKnowledge[] {
   }
 }
 
+/**
+ * Huella estable de una fila sin identificador.
+ *
+ * La clave de un postulante es su identificador; cuando la hoja lo trae vacío
+ * hay que inventar una, y esa clave **no puede depender de la posición de la
+ * fila**: la base se relee cada minuto y basta con que alguien inserte un
+ * registro más arriba para que todas las posiciones se corran. Con una clave
+ * posicional, la comparación en curso terminaba apuntando a otra persona.
+ * El contenido de la fila sí es estable, así que se resume con un djb2 corto.
+ */
+function rowFingerprint(c: RawCandidate): string {
+  const parts = Object.keys(c)
+    .sort()
+    .map((k) => `${k}=${String(c[k] ?? "")}`)
+    .join("|");
+  let hash = 5381;
+  for (let i = 0; i < parts.length; i++) {
+    hash = ((hash << 5) + hash + parts.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
 /** Text fields the UI reads with string methods — coerced during normalisation. */
 const TEXT_FIELDS = [
   "identificador",
@@ -99,8 +121,25 @@ const TEXT_FIELDS = [
   "observaciones",
 ] as const;
 
-/** Normalise a raw candidate into the UI-friendly `Candidate` shape. */
-export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
+/** Identidad calculada para una fila (ver {@link normaliseCandidates}). */
+interface RowIdentity {
+  /** Clave única dentro de la base, incluso si el identificador se repite. */
+  id: string;
+  /** True cuando otra fila comparte el mismo identificador. */
+  identificadorDuplicado: boolean;
+}
+
+/**
+ * Normalise a raw candidate into the UI-friendly `Candidate` shape.
+ *
+ * `identity` la calcula {@link normaliseCandidates}, que es quien ve la base
+ * completa y por tanto lo único capaz de saber si una clave está repetida.
+ * Cuando se omite (pruebas, usos sueltos) se deriva de la propia fila.
+ */
+export function normaliseCandidate(
+  c: RawCandidate,
+  identity?: RowIdentity,
+): Candidate {
   const text: Record<string, string> = {};
   for (const field of TEXT_FIELDS) text[field] = asText(c[field]);
 
@@ -108,12 +147,60 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
   return {
     ...c,
     ...text,
-    id: ident || `cand-${index}`,
+    id: identity?.id ?? (ident || `sin-id-${rowFingerprint(c)}`),
+    identificadorDuplicado: identity?.identificadorDuplicado ?? false,
     fullName: buildFullName(c),
     competenciasList: parseCompetencias(c.competencias),
     conocimientosList: parseItemList(c.conocimientos_tecnicos),
     herramientasList: parseItemList(c.herramientas),
   };
+}
+
+/**
+ * Normalise the whole database, guaranteeing a **unique and stable** `id`.
+ *
+ * ## Por qué esto importa tanto
+ *
+ * Todo el sistema direcciona a una persona por `Candidate.id`: el comparador
+ * guarda esos ids en la sesión, «Ver perfil» y «Editar» buscan por id, y React
+ * los usa como clave de lista. Antes el id era, sin más, el identificador de la
+ * hoja, y la hoja es un documento que llenan personas: se repiten claves (la
+ * misma cédula cargada dos veces en un proceso) y a veces la columna queda
+ * vacía. Las consecuencias eran silenciosas y graves:
+ *
+ *   · **No se podía comparar a las dos personas** con la clave repetida: al
+ *     agregar la primera, la segunda desaparecía del buscador porque el filtro
+ *     de «ya seleccionados» la daba por elegida. El analista veía «Sin
+ *     coincidencias» y concluía, con razón, que el comparador no funcionaba.
+ *   · **«Editar» abría la ficha equivocada**: `find` devuelve la primera
+ *     coincidencia, así que editar al segundo homónimo sobrescribía al primero.
+ *   · React recibía dos hijos con la misma clave y omitía o duplicaba tarjetas.
+ *
+ * Ahora el identificador sigue siendo la clave de negocio (es lo que viaja al
+ * backend), pero el id de la interfaz se desambigua con un sufijo `#2`, `#3`…
+ * y las filas implicadas quedan marcadas con `identificadorDuplicado` para que
+ * la interfaz pueda advertirlo en lugar de esconderlo.
+ */
+export function normaliseCandidates(rows: RawCandidate[]): Candidate[] {
+  if (!Array.isArray(rows)) return [];
+  // Primera pasada: cuántas filas comparten cada identificador.
+  const count = new Map<string, number>();
+  for (const row of rows) {
+    const ident = asText(row.identificador);
+    if (ident) count.set(ident, (count.get(ident) ?? 0) + 1);
+  }
+  // Segunda pasada: id único y estable por fila.
+  const used = new Map<string, number>();
+  return rows.map((row) => {
+    const ident = asText(row.identificador);
+    const base = ident || `sin-id-${rowFingerprint(row)}`;
+    const seen = used.get(base) ?? 0;
+    used.set(base, seen + 1);
+    return normaliseCandidate(row, {
+      id: seen === 0 ? base : `${base}#${seen + 1}`,
+      identificadorDuplicado: Boolean(ident) && (count.get(ident) ?? 0) > 1,
+    });
+  });
 }
 
 /**

@@ -66,7 +66,7 @@ afterEach(() => {
 });
 
 function candidate(partial: RawCandidate): Candidate {
-  return normaliseCandidate(partial, 0);
+  return normaliseCandidate(partial);
 }
 
 async function fillIdentificador(user: ReturnType<typeof userEvent.setup>, value: string) {
