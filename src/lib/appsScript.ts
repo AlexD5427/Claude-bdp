@@ -163,7 +163,10 @@ export async function escribirEnHoja(cuerpo: unknown): Promise<ResultadoEscritur
   }
 
   const estado = (sobre?.status ?? "").toLowerCase();
-  if (estado && estado !== "success" && estado !== "ok") {
+  // Algunos manejadores del backend contestan `{ error: "…" }` sin `status`. Sin
+  // esta rama, ese «no» explícito volvería a colarse como un guardado correcto.
+  const errorSuelto = !estado && typeof sobre?.error === "string" && sobre.error.trim() !== "";
+  if (errorSuelto || (estado && estado !== "success" && estado !== "ok")) {
     return {
       ok: false,
       tipo: "rechazada",

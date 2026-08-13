@@ -53,6 +53,13 @@ describe("escribirEnHoja", () => {
     expect(res.message).toBe("Identificador duplicado en la hoja.");
   });
 
+  it("también rechaza un `{ error: … }` sin campo `status`", async () => {
+    vi.stubGlobal("fetch", responderCon(JSON.stringify({ error: "Falta la hoja «Base»." })));
+    const res = await escribirEnHoja({ identificador: "1-1-2026" });
+    expect(res.ok).toBe(false);
+    expect(res.message).toBe("Falta la hoja «Base».");
+  });
+
   it("no confunde la página de inicio de sesión de Google con un guardado", async () => {
     vi.stubGlobal(
       "fetch",
