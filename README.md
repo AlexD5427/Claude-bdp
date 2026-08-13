@@ -107,6 +107,10 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   estado contraído), **integraciones** (Evaluar.com + prueba de conexión)
   y la biblioteca de **Formatos de Correo Activos**, con un formato por etapa del
   proceso; el formato activo de *Documentación* alimenta sus correos automáticos.
+  Incluye **Diagnóstico del sistema**: comprueba en *ese* equipo el almacenamiento
+  del navegador, las cookies, la llegada real a la hoja de cálculo (con latencia),
+  los identificadores repetidos y los ajustes que puedan explicar un «a mí no me
+  funciona», y copia el informe para pegarlo en un ticket.
 - **Diseño responsive integral:** toda la interfaz —dock, KPIs, comparador,
   gráficos, formularios y modales— está optimizada para **móviles y tablets**,
   con cuadrículas que se apilan, controles táctiles y desplazamiento contenido.
@@ -144,13 +148,16 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   `correctas ÷ calificables × 100`; las preguntas abiertas dejan el intento
   *pendiente de revisión* en lugar de otorgar cero. La **API pública nunca expone
   respuestas correctas** (verificado con 14 pruebas dedicadas).
-  Backend listo para copiar en [`apps-script/evaluations/`](apps-script/evaluations/)
-  y documentación completa en [`docs/evaluations/`](docs/evaluations/) (estado,
-  arquitectura, contrato de API, modelo de datos, configuración de Sheets y Apps
-  Script, seguridad, revisión de código, pruebas, despliegue, rollback, tipos de
-  pregunta, auditoría visual y entrega al portal de candidatos).
+  Backend listo para copiar en [`apps-script/evaluaciones/`](apps-script/evaluaciones/)
+  y documentación del contrato en [`docs/evaluaciones/`](docs/evaluaciones/)
+  (contrato de API para el frontend, entrega al portal de postulantes e
+  importación de bancos de preguntas).
 - Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1).
 
+> **Auditoría de estabilidad de Comparador y Postulantes** (qué estaba roto, por
+> qué sólo se veía en algunos equipos y cómo se verificó):
+> [`docs/auditoria/EXPLICACION.md`](docs/auditoria/EXPLICACION.md).
+>
 > Documentación técnica de los módulos ProcessOS + AssessmentOS en
 > [`docs/modules/`](docs/modules/) (arquitectura, constructor, plugins,
 > versionado, puntuación y lógica, importación, integración Apps Script, esquema
@@ -174,9 +181,35 @@ npm run build      # typecheck + build de producción
 npm run preview    # previsualizar el build
 npm test           # suite de pruebas (Vitest)
 npm run typecheck  # solo comprobación de tipos
-npm run check      # verificaciones estáticas del módulo Evaluaciones
-npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
+npm run backend:check  # coherencia backend↔frontend del módulo Evaluaciones
+npm run doc:check      # coherencia backend↔frontend del módulo Documentación
+npm run qa             # arnés de QA de extremo a extremo (ver más abajo)
 ```
+
+### Arnés de QA (`npm run qa`)
+
+`scripts/qa-e2e.mjs` levanta el build real, **suplanta el backend de Apps
+Script** con datos de hoja controlados —incluida una variante «sucia» con
+identificadores repetidos, celdas vacías y JSON roto— y recorre el Comparador y
+Postulantes como lo haría una analista: agrega columnas, registra una ficha,
+edita otra, imprime, cambia de tema y repite todo en móvil. Anota cada error de
+consola y cada excepción no capturada, y sale con código 1 si algo falla, así
+que sirve como puerta de calidad antes de fusionar.
+
+Además de la ruta feliz, fuerza los cuatro «no» que Apps Script puede contestar
+(rechazo con `status:"error"`, página HTML de Google, HTTP 500 y red cortada) para
+comprobar que **ninguno se vende como un guardado correcto**.
+
+```bash
+npm run build
+npm i -D playwright && npx playwright install chromium   # una sola vez
+npm run qa                        # todos los escenarios
+npm run qa -- --only=comparador   # uno solo
+npm run qa -- --headed            # con navegador visible
+```
+
+Las capturas quedan en `docs/qa/` y el resumen en `docs/qa/informe.json`.
+Playwright se instala aparte a propósito: no es una dependencia del despliegue.
 
 > El módulo **Evaluaciones** usa su propio libro de Google Sheets y su propio
 > proyecto de Apps Script, independientes del resto del sistema. En desarrollo
@@ -186,15 +219,9 @@ npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
 > Para ponerlo en marcha, corregir su configuración o diagnosticar un fallo, la
 > guía paso a paso —escrita para alguien que no domina Git, Vercel ni Apps
 > Script— es
-> **[`docs/evaluations/GUIA_OPERATIVA_FINAL.md`](docs/evaluations/GUIA_OPERATIVA_FINAL.md)**.
-> Incluye tabla de síntomas, rollback, rotación de secretos y una checklist
-> imprimible. Si el portal dice «Esta evaluación no está disponible», empieza por
-> su §13.
->
-> Contexto del incidente de julio de 2026 en
-> [`REPARACION_2026-07.md`](docs/evaluations/REPARACION_2026-07.md); referencia
-> completa en [`APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md) y
-> [`DEPLOYMENT.md`](docs/evaluations/DEPLOYMENT.md).
+> **[`apps-script/evaluaciones/README.md`](apps-script/evaluaciones/README.md)**,
+> junto al propio backend, y el contrato que consume el frontend está en
+> [`docs/evaluaciones/CONTRATO_FRONTEND.md`](docs/evaluaciones/CONTRATO_FRONTEND.md).
 
 ## 🔌 Backend
 
@@ -213,12 +240,44 @@ GET  →  { candidatos: [...], competencias: [...], arquetipos_disc: [...] }
 El hook global `useTalentData` (Context API) obtiene, normaliza y distribuye los
 datos, gestionando estados de carga y error con reintentos de *backoff*.
 
+### Escrituras honestas
+
+Todas las escrituras pasan por `src/lib/appsScript.ts`, que **mira la respuesta**
+y la clasifica en cuatro casos —aceptada, rechazada por el backend, sin red y
+respuesta inválida (HTML)—. Es la corrección más importante del módulo de
+Postulantes: antes se daba por bueno cualquier final del `fetch`, así que el
+cuestionario mostraba «Postulante registrado correctamente», se cerraba y borraba
+el borrador aunque la hoja no hubiera escrito nada.
+
+> [!IMPORTANT]
+> Una respuesta **HTML nunca es un guardado correcto**. Apps Script sólo devuelve
+> HTML cuando el despliegue exige iniciar sesión, cuando su autorización caducó o
+> cuando Google muestra su página de error. Ese es justo el caso que se parece a
+> «a mí no me funciona y a ti sí», porque la lectura sigue sirviéndose de la caché
+> local y la aplicación aparenta estar viva.
+
+### Identidad de la ficha
+
+`normaliseCandidates` garantiza que **dos filas nunca compartan
+`Candidate.id`**: la primera conserva su identificador como clave y las repetidas
+reciben `#2`, `#3`… Con la clave repetida, el buscador del Comparador excluía a la
+segunda persona (para él ya estaba comparada) y «Editar» abría siempre a la
+primera. La hoja sigue necesitando corrección humana, así que el módulo de
+Postulantes muestra qué identificadores hay que arreglar.
+
+### Frescura visible
+
+Si el refresco en segundo plano falla pero hay datos en pantalla, la copia local
+se sigue mostrando **con un aviso** («Está viendo datos guardados en este
+equipo») y el punto de estado se pone en rojo. Antes ese fallo se descartaba en
+silencio y se podía trabajar horas sobre una foto vieja.
+
 > El módulo **Documentación** persiste sus expedientes en `localStorage` y los
 > sincroniza *best-effort* con el backend (`type: "documentacion"`). Para el
 > guardado real en Google Sheets, la lectura de `arquetipos_disc`/`carrera` y el
 > **envío automático de correos cada 3 días**, despliegue
-> [`docs/backend/Documentacion.gs`](docs/backend/Documentacion.gs) (ver
-> `docs/backend/README.md`).
+> [`apps-script/documentacion/`](apps-script/documentacion/) (ver su
+> [`README.md`](apps-script/documentacion/README.md) y `npm run doc:check`).
 
 ## 🎨 Sistema de diseño
 
@@ -238,7 +297,7 @@ src/
 ├── content/locale/  # Catálogo de textos es-MX + formateadores
 ├── context/         # useTalentData + useTheme (Context API)
 ├── design-system/   # Tokens semánticos, motion y primitivas Liquid Glass
-├── features/        # ProcessOS (processes/) y AssessmentOS (assessments/)
+├── features/        # ProcessOS (processes/) y AssessmentOS (evaluaciones/)
 ├── infrastructure/  # Proveedores (mock/Apps Script/Supabase), mappers, sync
 ├── hooks/           # usePointerGlow, useFormDraft (autosave/recuperación)
 ├── lib/             # cálculos, normalización, niveles, impresión, DISC y docStore
@@ -248,9 +307,12 @@ src/
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 
 apps-script/
-└── evaluations/     # backend de Evaluaciones listo para copiar a Apps Script
+├── evaluaciones/    # backend de Evaluaciones listo para copiar a Apps Script
+└── documentacion/   # backend de Documentación (expedientes + correos)
 scripts/
-├── check-evaluations.mjs   # verificaciones estáticas (npm run check)
-├── run-apps-script.mjs     # arnés que ejecuta los .gs en Node (pruebas)
-└── visual-qa.mjs           # capturas reproducibles de la matriz visual
+├── qa-e2e.mjs                     # arnés de QA end-to-end (npm run qa)
+├── qa/fixture.mjs                 # datos de hoja controlados, incl. casos sucios
+├── evaluaciones-backend-check.mjs # coherencia backend↔frontend (npm run backend:check)
+├── evaluaciones-backend.mjs       # arnés que ejecuta los .gs en Node (pruebas)
+└── documentacion-backend-check.mjs# coherencia del módulo Documentación (npm run doc:check)
 ```
