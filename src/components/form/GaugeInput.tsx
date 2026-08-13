@@ -6,7 +6,15 @@ interface GaugeInputProps {
   hint?: string;
   /** 0..100, or null when unset. */
   value: number | null;
-  onChange: (value: number) => void;
+  /**
+   * Recibe `null` cuando el analista vacía el campo.
+   *
+   * Antes la firma era `(value: number) => void` y `commitDraft` descartaba el
+   * texto vacío, así que una nota **no se podía borrar**: al limpiar el campo y
+   * salir, el velocímetro volvía a mostrar el número anterior. En el modo de
+   * edición eso hacía imposible deshacer un puntaje introducido por error.
+   */
+  onChange: (value: number | null) => void;
 }
 
 const R = 78;
@@ -107,7 +115,12 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
   }, []);
 
   function commitDraft(text: string) {
-    const n = Number.parseInt(text.replace(/[^0-9]/g, ""), 10);
+    const digits = text.replace(/[^0-9]/g, "");
+    if (digits === "") {
+      onChange(null);
+      return;
+    }
+    const n = Number.parseInt(digits, 10);
     if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100, n)));
   }
 
