@@ -279,11 +279,14 @@ export function NuevoComparador() {
   }
 
   const dense = cmp.dense;
-  // Candidate columns are a touch wider by default so the personal-data chip has
-  // more breathing room (names wrap by word, ranking badge fits comfortably).
+  // La columna de rótulos tiene un **techo fijo**, no `0.8fr`. Con una fracción
+  // se repartía el sobrante y, al comparar a una o dos personas, el rótulo
+  // «Postulante» crecía hasta ~600 px y empujaba las tarjetas al borde derecho
+  // de la pantalla, con medio informe en blanco. Con un máximo en píxeles la
+  // columna se ve igual con dos candidatos que con diez.
   const columns = dense
-    ? `minmax(130px, 0.6fr) repeat(${ordered.length}, minmax(150px, 1fr))`
-    : `minmax(184px, 0.8fr) repeat(${ordered.length}, minmax(238px, 1fr))`;
+    ? `minmax(130px, 168px) repeat(${ordered.length}, minmax(150px, 1fr))`
+    : `minmax(184px, 224px) repeat(${ordered.length}, minmax(238px, 1fr))`;
   const printColumns = `minmax(88px, 0.5fr) repeat(${ordered.length}, minmax(0, 1fr))`;
 
   return (
@@ -753,15 +756,14 @@ export function NuevoComparador() {
             </div>
           )}
 
-          {/* Fixed navigation helper — appears once the comparison grows past a
-              handful of candidates, so panning across (and down) the audit stays
-              effortless. Toggleable from the comparator's Configuración tab. */}
-          {config.comparatorNavHelper && selected.length > 4 && (
+          {/* Fixed navigation helper — appears only when the comparison really
+              overflows sideways, so it never floats over a grid that has nothing
+              to pan. Toggleable from the comparator's Configuración tab. */}
+          {config.comparatorNavHelper && selected.length > 4 && scrollNav.max > 4 && (
             <ComparatorNavHelper
               onPan={panBy}
               canLeft={scrollNav.left > 1}
               canRight={scrollNav.left < scrollNav.max - 1}
-              horizontal={scrollNav.max > 4}
             />
           )}
         </>
@@ -840,25 +842,28 @@ const StripChip = forwardRef<
 /**
  * A discreet, fixed d-pad that pans the audit grid horizontally and scrolls the
  * page vertically. It floats at the right edge, out of the way, and only mounts
- * when the comparison has enough candidates to warrant it. Buttons for the axis
- * that can't move any further dim out.
+ * when the comparison actually overflows sideways. Buttons for the axis that
+ * can't move any further dim out.
+ *
+ * Dos correcciones de convivencia: el envoltorio no intercepta el puntero
+ * (`pointer-events-none`, sólo los botones lo reciben), así que ya no roba los
+ * clics del buscador de candidatos que quedaba justo debajo; y en reposo es
+ * translúcido, de modo que no tapa la última columna de la comparativa.
  */
 function ComparatorNavHelper({
   onPan,
   canLeft,
   canRight,
-  horizontal,
 }: {
   onPan: (dir: 1 | -1) => void;
   canLeft: boolean;
   canRight: boolean;
-  horizontal: boolean;
 }) {
   const scrollV = (dir: 1 | -1) =>
     window.scrollBy({ top: dir * window.innerHeight * 0.8, behavior: "smooth" });
 
   const cell =
-    "grid h-9 w-9 place-items-center rounded-xl fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft hover:text-cyan-400 active:scale-90 disabled:opacity-30 disabled:hover:text-ink-soft";
+    "pointer-events-auto grid h-9 w-9 place-items-center rounded-xl fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft hover:text-cyan-400 active:scale-90 disabled:opacity-30 disabled:hover:text-ink-soft";
 
   return (
     <motion.div
@@ -866,9 +871,9 @@ function ComparatorNavHelper({
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: 24 }}
       transition={{ type: "spring", stiffness: 260, damping: 22 }}
-      className="no-print fixed right-3 top-1/2 z-[85] hidden -translate-y-1/2 sm:block"
+      className="no-print pointer-events-none fixed right-3 top-1/2 z-[85] hidden -translate-y-1/2 opacity-35 transition-opacity duration-300 hover:opacity-100 focus-within:opacity-100 sm:block"
     >
-      <div className="glass-heavy grid grid-cols-3 gap-1 rounded-2xl p-1.5 shadow-glass ring-1 ring-white/20">
+      <div className="glass-heavy pointer-events-auto grid grid-cols-3 gap-1 rounded-2xl p-1.5 shadow-glass ring-1 ring-white/20">
         <span className="col-start-2 grid place-items-center">
           <button type="button" aria-label="Subir" onClick={() => scrollV(-1)} className={cell}>
             <ChevronUp className="h-4 w-4" />
@@ -878,7 +883,7 @@ function ComparatorNavHelper({
           type="button"
           aria-label="Desplazar a la izquierda"
           onClick={() => onPan(-1)}
-          disabled={!horizontal || !canLeft}
+          disabled={!canLeft}
           className={`col-start-1 row-start-2 ${cell}`}
         >
           <ChevronLeft className="h-4 w-4" />
@@ -890,7 +895,7 @@ function ComparatorNavHelper({
           type="button"
           aria-label="Desplazar a la derecha"
           onClick={() => onPan(1)}
-          disabled={!horizontal || !canRight}
+          disabled={!canRight}
           className={`col-start-3 row-start-2 ${cell}`}
         >
           <ChevronRight className="h-4 w-4" />

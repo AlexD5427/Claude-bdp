@@ -187,6 +187,27 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Tira congelada de la cabecera                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * La tira que aparece al desplazarse hacia abajo tenía **la clase pero no el
+ * estilo**: `.cmp-strip-scroll` no estaba definida en ninguna hoja. Sin fondo
+ * propio, las filas de la comparativa pasaban por debajo y se leían *a través*
+ * de los chips: el nombre del postulante se mezclaba con el texto de la fila que
+ * estaba cruzando en ese momento. Un fondo opaco (el mismo tono base de la
+ * aplicación, como en la columna congelada) y una sombra que marca el borde
+ * inferior resuelven las dos cosas: legibilidad y sensación de capa.
+ */
+.cmp-strip-scroll {
+  background-color: var(--app-base);
+  border-radius: 1.15rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+  box-shadow: 0 14px 22px -16px rgba(0, 0, 0, 0.6);
+}
+
+/* ------------------------------------------------------------------ */
 /* Desplazamiento del comparador                                       */
 /* ------------------------------------------------------------------ */
 
