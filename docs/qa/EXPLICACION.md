@@ -1,17 +1,17 @@
 # Auditoría de estabilidad — Comparador y Postulantes (agosto de 2026)
 
 > **Resumen para quien tiene prisa.** El usuario que se queja no está mintiendo.
-> Hay **siete defectos reales** —cuatro de ellos capaces de dejar el Comparador
-> inservible o de perder el registro de un postulante— y todos comparten una
-> misma raíz: **la aplicación confiaba en datos que no controla** (lo que guardó
-> el navegador, lo que el perfil dejó en la hoja, lo que responde el backend).
-> Los siete están corregidos, reproducidos primero en un navegador real y
+> Hay **diez defectos reales** —cuatro de ellos capaces de dejar el Comparador
+> inservible o de perder el registro de un postulante— y los principales comparten
+> una misma raíz: **la aplicación confiaba en datos que no controla** (lo que
+> guardó el navegador, lo que el perfil dejó en la hoja, lo que responde el
+> backend). Los diez están corregidos, reproducidos primero en un navegador real y
 > cubiertos con pruebas que fallan si alguien los reintroduce.
 >
-> Lo más importante: tres de los siete **sólo se manifiestan en el equipo o el
-> perfil de una persona**, así que eran invisibles para quien probaba desde otra
-> cuenta u otra computadora. Eso explica por completo el reporte que parecía
-> imposible de reproducir.
+> Lo más importante: tres de ellos **sólo se manifiestan en el equipo o el perfil
+> de una persona**, así que eran invisibles para quien probaba desde otra cuenta u
+> otra computadora. Eso explica por completo el reporte que parecía imposible de
+> reproducir.
 
 - [1. Contexto](#1-contexto)
 - [2. Intuición: por qué a una sola persona](#2-intuición-por-qué-a-una-sola-persona)
@@ -162,11 +162,16 @@ a alguien y no se guardó».
 | 6 | La hoja tarda en devolver la fila recién escrita | El postulante recién registrado **desaparece de la lista** | Todos | Corregido |
 | 7 | Identificador repetido en la hoja | La segunda ficha es **inalcanzable**; editar sobrescribe a la primera | Todos, con datos duplicados | Corregido |
 
+| 8 | Ámbito de impresión pegado al documento | La **siguiente** impresión sale con el ámbito equivocado: la Lista de Postulantes, sin encabezado y con las reglas de la cuadrícula | Todos, tras cancelar un diálogo de impresión | Corregido |
+| 9 | Efectos rearmados en cada dibujado (`Modal`, visor de celda) | Dos escrituras de `document.body.style` **por pulsación** y escuchadores de teclado montados y desmontados sin parar | Todos, al escribir en el cuestionario | Corregido |
+| 10 | Observadores de tamaño recreados en cada dibujado (celdas de texto largo) | Con treinta celdas, sesenta `ResizeObserver` destruidos y recreados por cambio de vista | Todos, en la comparativa | Corregido |
+
 Y tres defectos menores encontrados en el camino: el velocímetro no permitía
 **borrar** una nota (una nota puesta por error se quedaba en el expediente), el
 buscador del comparador se quedaba **sin nombre accesible** al alcanzar el tope, y
 la recuperación del borrador del constructor de evaluaciones podía **tumbar el
-módulo** si la copia local estaba dañada.
+módulo** si la copia local estaba dañada. En Procesos, además, la barra de vistas
+provocaba unos 60 px de desborde horizontal en un teléfono.
 
 ### 3.1 El defecto 1, en imágenes
 
@@ -448,7 +453,53 @@ Y para cortar el problema en su origen, el cuestionario **avisa** (sin bloquear:
 a veces el duplicado es intencional) cuando el identificador que se está
 escribiendo ya existe en la base.
 
-### 4.7 Detalles de oficio
+### 4.7 Tres fugas de rendimiento del mismo tipo
+
+Las tres nacen de la misma costumbre: dejar en las dependencias de un efecto algo
+cuya identidad cambia en cada dibujado.
+
+```ts
+// src/components/Modal.tsx — antes
+}, [open, onRequestClose]);   // ← una lambda nueva por dibujado
+```
+
+`onRequestClose` se declara en el cuerpo de quien llama, así que **cada pulsación
+en el cuestionario** desmontaba el escuchador de Escape y reescribía
+`document.body.style.overflow` —dos escrituras de estilo por tecla sobre un árbol
+de cuarenta campos—. Se separan en dos efectos: el bloqueo del desplazamiento
+depende sólo de `open`, y el atajo lee el callback vigente desde una referencia.
+El visor de celda ampliada del comparador tenía el mismo patrón, con el añadido de
+reprogramar el foco sin parar.
+
+En las celdas de texto largo el problema eran los arreglos:
+
+```ts
+// src/components/comparator/LongTextCell.tsx
+const contentKey = useMemo(/* firma del contenido */);
+useEffect(() => { /* … */ }, [contentKey]);   // antes: [items, tags]
+```
+
+`items` y `tags` tienen un `[]` por omisión y quien llama construye las etiquetas
+al dibujar, así que su identidad cambiaba siempre: con treinta celdas en pantalla,
+cualquier cambio de estado del comparador destruía y recreaba sesenta
+`ResizeObserver`.
+
+### 4.8 La impresión ya no contamina la siguiente
+
+```ts
+// src/lib/print.ts
+clearPrintArtifacts();                       // ← ahora también AL EMPEZAR
+if (scopeClass) document.body.classList.add(SCOPED_CLASS, scopeClass);
+```
+
+La limpieza colgaba sólo de `afterprint`, y ese evento no siempre llega (diálogo
+cancelado, impresión intervenida por política). Cuando no llegaba, la clase de
+ámbito se quedaba pegada al `<body>`: en pantalla no se nota, porque esas reglas
+viven dentro de `@media print`, pero **la impresión siguiente heredaba el ámbito
+equivocado** y la Lista de Postulantes salía sin encabezado institucional y con
+las reglas de la cuadrícula del comparador.
+
+### 4.9 Detalles de oficio
 
 - **El velocímetro admite «sin evaluar».** Borrar el número dejaba el valor
   anterior intacto; ahora emite `null`, que es lo que la hoja guarda como celda
@@ -462,6 +513,11 @@ escribiendo ya existe en la base.
 - **El comparador resuelve columnas con un índice.** Resolver la comparación con
   `find` recorría toda la base por columna; con miles de filas y diez columnas,
   eso son decenas de miles de comparaciones por dibujado.
+- **El identificador repetido se señala donde se ve.** Una chapa ámbar en la
+  tarjeta del listado y una nota en el buscador del comparador: la corrección está
+  en la hoja, y quien puede hacerla es quien tiene la ficha delante.
+- **La barra de vistas de Procesos ya no desborda en un teléfono.** Cuatro botones
+  `inline-flex` que no se encogen movían la página entera unos 60 px a lo ancho.
 
 ---
 
@@ -470,9 +526,9 @@ escribiendo ya existe en la base.
 ### 5.1 Comprobaciones estáticas
 
 ```
-npm run typecheck   → sin errores
+npm run typecheck    → sin errores
 npm run build        → build de producción correcto
-npm test             → 23 archivos, 297 pruebas (38 nuevas)
+npm test             → 24 archivos, 303 pruebas (44 nuevas)
 ```
 
 Las pruebas nuevas cubren cada defecto por su lado más barato:
@@ -484,12 +540,13 @@ Las pruebas nuevas cubren cada defecto por su lado más barato:
 | `src/lib/candidates.test.ts` | Unicidad del `id` y datos sucios de la hoja |
 | `src/context/TalentDataContext.test.tsx` | Rechazo, HTTP 500, HTML, sin red, cola de pendientes, edición de duplicados |
 | `src/modules/RegistrationForm.test.tsx` | El cuestionario no se cierra ante un rechazo |
+| `src/lib/print.test.ts` | El ámbito de impresión no sobrevive a la impresión siguiente |
 
 ### 5.2 Navegador real
 
 El arnés ([`scripts/qa/`](../../scripts/qa/README.md)) recorre el build de
 producción con Chromium y un backend de Apps Script simulado que se puede romper
-a voluntad. **24 escenarios, 24 en verde:**
+a voluntad. **26 escenarios, 26 en verde:**
 
 ```
 ✔ smoke-modulos                 ✔ postulantes-alta-ok
@@ -503,7 +560,8 @@ a voluntad. **24 escenarios, 24 en verde:**
 ✔ comparador-lleno              ✔ velocimetro
 ✔ comparador-movil              ✔ login-config-heredada
 ✔ impresion-comparador          ✔ almacenamiento-bloqueado
-✔ rendimiento                   ✔ datos-sucios
+✔ impresion-ambito              ✔ datos-sucios
+✔ procesos-movil                ✔ rendimiento
 ```
 
 Cada escenario corre en un contexto limpio y falla el proceso completo si una
@@ -563,10 +621,18 @@ El escenario `rendimiento` mide sobre el build de producción:
 
 **F · Identificadores repetidos (defecto 7).**
 1. En la hoja, duplique a propósito una fila (mismo identificador).
-2. En el Comparador busque a esa persona: deben ofrecerse **dos** fichas y poder
+2. En *Postulantes*, las **dos** tarjetas deben mostrar la chapa ámbar
+   «Identificador repetido».
+3. En el Comparador busque a esa persona: deben ofrecerse **dos** fichas y poder
    compararse a la vez.
-3. Pulse *Editar* en una de ellas y guarde: debe negarse explicando cuántas filas
+4. Pulse *Editar* en una de ellas y guarde: debe negarse explicando cuántas filas
    comparten el identificador.
+
+**G · Dos impresiones seguidas (defecto 8).**
+1. En el Comparador pulse *Imprimir comparativa* y **cancele** el diálogo.
+2. Vaya a *Postulantes* y pulse *Imprimir*.
+3. La segunda hoja debe llevar su encabezado institucional y el listado completo;
+   antes salía recortada con el ámbito del comparador.
 
 ---
 

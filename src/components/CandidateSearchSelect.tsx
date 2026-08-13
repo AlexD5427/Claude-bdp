@@ -243,6 +243,14 @@ export function CandidateSearchSelect({
                     <div className="truncate text-xs text-ink-faint">
                       {c.identificador || "Sin ID"} · Proceso{" "}
                       {extractProceso(c.identificador)}
+                      {/* La hoja admite el mismo identificador dos veces; cuando
+                          ocurre, decirlo es la única forma de distinguir las dos
+                          fichas en esta lista. */}
+                      {c.duplicado && (
+                        <span className="ml-1 font-bold text-amber-500">
+                          · identificador repetido
+                        </span>
+                      )}
                     </div>
                   </div>
                   <motion.span

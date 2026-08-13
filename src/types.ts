@@ -60,10 +60,13 @@ export interface RawCandidate {
 
 /** A candidate after normalisation — safe for the UI to consume. */
 export interface Candidate extends RawCandidate {
-  /** Stable key for React lists. */
+  /** Stable key for React lists. Único incluso si la hoja repite un
+   *  identificador (ver `lib/candidates.normaliseCandidates`). */
   id: string;
   /** Pre-computed display name with graceful fallback. */
   fullName: string;
+  /** `true` cuando otra fila de la hoja usa el mismo identificador. */
+  duplicado?: boolean;
   /** Parsed competency scores. */
   competenciasList: CompetencyScore[];
   /** Parsed technical-knowledge entries. */

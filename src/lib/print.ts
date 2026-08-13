@@ -21,6 +21,31 @@ export interface PrintOptions {
 
 const STYLE_ID = "bdp-print-page-style";
 const HEADER_ID = "bdp-print-header";
+/** Marca que acompaña a cualquier clase `bdp-scope-*` mientras se imprime. */
+const SCOPED_CLASS = "bdp-print-scoped";
+
+/**
+ * Borra los restos de una impresión anterior.
+ *
+ * La limpieza colgaba **sólo** de `afterprint`, y ese evento no siempre llega:
+ * hay navegadores que no lo emiten al cancelar el diálogo, y entornos donde la
+ * impresión está intervenida por política. Cuando no llegaba, la clase de ámbito
+ * se quedaba pegada al `<body>`. En pantalla no se nota —esas reglas viven dentro
+ * de `@media print`—, pero **la impresión siguiente heredaba el ámbito
+ * equivocado**: imprimir la Lista de Postulantes después de la comparativa salía
+ * sin encabezado institucional y con las reglas de la cuadrícula.
+ *
+ * Por eso cada impresión empieza por limpiar: no depende de que el navegador
+ * avise.
+ */
+function clearPrintArtifacts(): void {
+  document.getElementById(STYLE_ID)?.remove();
+  document.getElementById(HEADER_ID)?.remove();
+  const stale = [...document.body.classList].filter(
+    (c) => c === SCOPED_CLASS || c.startsWith("bdp-scope-"),
+  );
+  if (stale.length) document.body.classList.remove(...stale);
+}
 
 export function printModule(
   title: string,
@@ -30,19 +55,19 @@ export function printModule(
 ): void {
   if (typeof window === "undefined") return;
 
-  // 0 · Print scope (optional) — lets a module trim what gets printed.
+  // 0 · Empezar en limpio (ver `clearPrintArtifacts`) y aplicar el ámbito, que
+  //     permite a cada módulo recortar lo que sale en papel.
+  clearPrintArtifacts();
   const scopeClass = options.scope ? `bdp-scope-${options.scope}` : "";
-  if (scopeClass) document.body.classList.add("bdp-print-scoped", scopeClass);
+  if (scopeClass) document.body.classList.add(SCOPED_CLASS, scopeClass);
 
   // 1 · Paper size + margins.
-  document.getElementById(STYLE_ID)?.remove();
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `@media print { @page { size: ${paper} ${orientation}; margin: 14mm; } }`;
   document.head.appendChild(style);
 
   // 2 · Report banner (print-only).
-  document.getElementById(HEADER_ID)?.remove();
   const header = document.createElement("div");
   header.id = HEADER_ID;
   header.className = "bdp-print-header no-screen";
@@ -61,9 +86,7 @@ export function printModule(
   document.body.prepend(header);
 
   const cleanup = () => {
-    style.remove();
-    header.remove();
-    if (scopeClass) document.body.classList.remove("bdp-print-scoped", scopeClass);
+    clearPrintArtifacts();
     window.removeEventListener("afterprint", cleanup);
   };
   window.addEventListener("afterprint", cleanup);

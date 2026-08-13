@@ -37,6 +37,17 @@ describe("normaliseCandidates · unicidad del id", () => {
     expect(list.map((c) => c.nota_cap)).toEqual([88, 91, 95]);
   });
 
+  it("marca todas las fichas implicadas, incluida la primera", () => {
+    // Quien ve la ficha es quien puede ir a la hoja a unificarlas, así que el
+    // aviso tiene que aparecer en las dos.
+    const list = normaliseCandidates([
+      row({ identificador: "5033853-163-2026" }),
+      row({ identificador: "7841299-163-2026" }),
+      row({ identificador: "5033853-163-2026" }),
+    ]);
+    expect(list.map((c) => Boolean(c.duplicado))).toEqual([true, false, true]);
+  });
+
   it("no altera el identificador que viaja al backend", () => {
     const list = normaliseCandidates([
       row({ identificador: "5033853-163-2026" }),

@@ -138,13 +138,25 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
  * lo que viaja al backend.
  */
 export function normaliseCandidates(rows: RawCandidate[]): Candidate[] {
+  const normalised = rows.map((row, index) => normaliseCandidate(row, index));
+
+  // Cuántas filas comparten cada identificador. Se cuenta antes de renombrar
+  // nada para poder marcar **todas** las implicadas —incluida la primera—: quien
+  // ve la ficha es quien puede ir a la hoja a unificarlas.
+  const counts = new Map<string, number>();
+  for (const c of normalised) counts.set(c.id, (counts.get(c.id) ?? 0) + 1);
+
   const seen = new Map<string, number>();
-  return rows.map((row, index) => {
-    const candidate = normaliseCandidate(row, index);
+  return normalised.map((candidate) => {
+    const total = counts.get(candidate.id) ?? 1;
     const previous = seen.get(candidate.id) ?? 0;
     seen.set(candidate.id, previous + 1);
-    if (previous === 0) return candidate;
-    return { ...candidate, id: `${candidate.id}#${previous + 1}` };
+    if (total === 1) return candidate;
+    return {
+      ...candidate,
+      id: previous === 0 ? candidate.id : `${candidate.id}#${previous + 1}`,
+      duplicado: true,
+    };
   });
 }
 

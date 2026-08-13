@@ -90,8 +90,14 @@ export function ProcessToolbar({
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <Segmented ariaLabel={L.common.view} value={view} options={VIEW_OPTIONS} onChange={onView} size="sm" />
+      {/* En un teléfono los cuatro botones de vista no caben junto al contador y,
+          al ser `inline-flex`, no se encogen: la página entera se desplazaba unos
+          60 px en horizontal. La fila se reparte en dos y el conmutador se
+          desplaza dentro de sus propios límites. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="max-w-full overflow-x-auto">
+          <Segmented ariaLabel={L.common.view} value={view} options={VIEW_OPTIONS} onChange={onView} size="sm" />
+        </div>
         <p className="text-xs text-ink-faint">
           {L.sync.lastSynced}:{" "}
           {sync.lastSyncedAt ? formatRelative(sync.lastSyncedAt) : L.sync.never}

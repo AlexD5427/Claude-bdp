@@ -74,6 +74,8 @@ se aplica la configuración personal guardada en la hoja—.
 | `comparador-lleno` | Diez columnas: tira congelada, d-pad y vaciado. |
 | `comparador-movil` | 390 × 844 sin desborde horizontal. |
 | `impresion-comparador` | En papel no queda texto recortado. |
+| `impresion-ambito` | Dos impresiones seguidas no se contaminan. |
+| `procesos-movil` | Procesos no desborda a lo ancho en un teléfono. |
 | `postulantes-alta-ok` | Alta aceptada: una sola escritura y aparece en la lista. |
 | `postulantes-alta-rechazada` | Rechazo del servidor: el cuestionario no se cierra. |
 | `postulantes-alta-sin-red` | Sin red: no queda fila fantasma. |

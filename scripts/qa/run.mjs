@@ -471,7 +471,7 @@ scenario(
     check(
       checks,
       (await page.getByText(/Ya existe un registro con este identificador/).count()) === 1,
-      "Se avisa del identificador repetido",
+      "Se avisa del identificador repetido al escribirlo",
     );
     // El aviso no bloquea: registrar sigue siendo posible (a veces es a propósito).
     check(
@@ -485,6 +485,13 @@ scenario(
     await page.getByRole("button", { name: "Cancelar" }).click();
     await page.getByRole("button", { name: /^Salir$/ }).click().catch(() => {});
     await page.waitForTimeout(300);
+    const chapas = await page.getByText("Identificador repetido").count();
+    check(
+      checks,
+      chapas === 2,
+      "Las dos fichas homónimas quedan señaladas en el listado",
+      `chapas=${chapas}`,
+    );
     const tarjeta = page
       .locator("main .grid > div")
       .filter({ hasText: "Jorge Luis Mamani Quispe" })
@@ -851,6 +858,64 @@ scenario("postulantes-borrador", "Recuperación del borrador del cuestionario", 
   );
   await shot("borrador");
 });
+
+scenario(
+  "impresion-ambito",
+  "Dos impresiones seguidas no se contaminan",
+  async (ctx) => {
+    const { page, checks } = ctx;
+    // Se anula `window.print` (en un navegador sin interfaz el diálogo no existe)
+    // y, sobre todo, NO se emite `afterprint`: así se reproduce el navegador que
+    // no avisa al cancelar.
+    await page.addInitScript(() => {
+      window.print = () => {};
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("main");
+
+    await goModule(page, "Comparador");
+    await addToComparator(page, "Jorge");
+    await page.getByRole("button", { name: /Imprimir/ }).click();
+    await page.waitForTimeout(400);
+    const tras1 = await page.evaluate(() => [...document.body.classList]);
+    check(
+      checks,
+      tras1.includes("bdp-scope-comparador"),
+      "La comparativa aplica su ámbito de impresión",
+      tras1.join(" "),
+    );
+
+    await goModule(page, "Postulantes");
+    await page.getByRole("button", { name: /^Imprimir$/ }).click();
+    await page.waitForTimeout(400);
+    const tras2 = await page.evaluate(() => [...document.body.classList]);
+    check(
+      checks,
+      !tras2.some((c) => c.startsWith("bdp-scope-")),
+      "La impresión siguiente no hereda el ámbito anterior",
+      tras2.join(" "),
+    );
+    const banners = await page.locator("#bdp-print-header").count();
+    check(checks, banners === 1, "Un solo encabezado de reporte en el documento", `${banners}`);
+  },
+);
+
+scenario(
+  "procesos-movil",
+  "Procesos en un teléfono no desborda a lo ancho",
+  async (ctx) => {
+    const { page, checks, problems, shot } = ctx;
+    await goModule(page, "Procesos");
+    await page.waitForTimeout(900);
+    const desborde = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    check(checks, desborde <= 2, "Sin desplazamiento horizontal de la página", `desborde=${desborde}px`);
+    await shot("procesos-movil");
+    check(checks, problems.length === 0, "Sin errores de consola", problems.join(" | "));
+  },
+  { viewport: { width: 390, height: 844 } },
+);
 
 scenario("comparador-movil", "Comparativa en un teléfono (390×844)", async (ctx) => {
   const { page, checks, problems, shot } = ctx;

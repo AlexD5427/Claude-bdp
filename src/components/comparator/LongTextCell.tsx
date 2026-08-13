@@ -74,6 +74,20 @@ export function LongCell({
   // Medimos el desborde real (no el declarado): sólo así sabemos si hace falta
   // recorrer la celda. Un ResizeObserver en el recorte y en el contenido cubre
   // el cambio de tamaño de ventana, el modo compacto y la llegada de más datos.
+  //
+  // La dependencia es una **firma del contenido** y no los arreglos: `items` y
+  // `tags` tienen un `[]` por omisión y quien llama construye las etiquetas al
+  // dibujar, así que su identidad cambiaba en cada pasada. Con treinta celdas de
+  // este tipo en pantalla, cualquier cambio de estado del comparador destruía y
+  // volvía a crear sesenta observadores de tamaño.
+  const contentKey = useMemo(
+    () =>
+      kind === "items"
+        ? items.map((it) => `${it.nombre}|${it.nivel ?? ""}|${it.detalle ?? ""}`).join("¶")
+        : tags.join("¶"),
+    [kind, items, tags],
+  );
+
   useEffect(() => {
     const clip = clipRef.current;
     const inner = innerRef.current;
@@ -87,7 +101,7 @@ export function LongCell({
     ro.observe(clip);
     ro.observe(inner);
     return () => ro.disconnect();
-  }, [items, tags]);
+  }, [contentKey]);
 
   const revealing = hover && overflow > 0 && !reduceMotion;
   // ~26 px/s de lectura cómoda, con un 30 % del ciclo en pausa a cada extremo.
@@ -268,6 +282,11 @@ function CellViewer({
   const reduceMotion = usePrefersReducedMotion();
   const closeRef = useRef<HTMLButtonElement>(null);
   const open = origin !== null;
+  // Igual que en `Modal`: `onClose` es una lambda nueva en cada dibujado, así que
+  // dejarla entre las dependencias rearmaba sin parar el bloqueo del
+  // desplazamiento, el atajo de Escape y el temporizador de foco.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   // Cerrar con Escape y bloquear el desplazamiento del fondo SIN perder la
   // posición: al cerrar, el comparador queda exactamente donde estaba.
@@ -276,7 +295,7 @@ function CellViewer({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -292,7 +311,7 @@ function CellViewer({
       // devolvemos nosotros para que la vuelta sea siempre al mismo sitio.
       if (Math.abs(window.scrollY - scrollY) > 1) window.scrollTo({ top: scrollY });
     };
-  }, [open, onClose]);
+  }, [open]);
 
   // Transformación de partida: el panel nace en el centro de la celda.
   const from = useMemo(() => {

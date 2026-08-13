@@ -140,6 +140,19 @@ function CandidateCard({
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           Proceso {extractProceso(candidate.identificador)}
         </span>
+        {/* Un identificador repetido en la hoja no es un detalle estético: es la
+            clave con la que se guardan el expediente, el estado de contratación y
+            las referencias, y bloquea la edición de la ficha. Se avisa donde se ve
+            para que alguien lo corrija en el origen. */}
+        {candidate.duplicado && (
+          <span
+            title="Otra fila de la hoja usa el mismo identificador. Conviene unificarlas antes de editar."
+            className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 font-bold text-amber-500 ring-1 ring-amber-400/40"
+          >
+            <ShieldAlert className="h-3 w-3" />
+            Identificador repetido
+          </span>
+        )}
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           {candidate.competenciasList.length} comp.
         </span>
