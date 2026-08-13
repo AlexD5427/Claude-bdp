@@ -20,11 +20,13 @@ import {
   Sparkles,
   Building,
   LayoutPanelTop,
+  Stethoscope,
 } from "lucide-react";
 import { usePointerGlow } from "../hooks/usePointerGlow";
 import { TextField, SegmentedField, SelectField } from "../components/form/Fields";
 import { Toggle, RangeField, StepperField } from "../components/form/Controls";
 import { EmailTemplateEditor } from "../components/config/EmailTemplateEditor";
+import { DiagnosticoPanel } from "../components/DiagnosticoPanel";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useTheme } from "../context/ThemeContext";
 import { SCRIPT_URL } from "../constants";
@@ -376,6 +378,15 @@ export function Configuracion() {
             </div>
           </div>
         </div>
+      </Section>
+
+      {/* ── Diagnóstico ───────────────────────────────────────────── */}
+      <Section
+        icon={<Stethoscope className="h-5 w-5 text-cyan-400" />}
+        title="Diagnóstico del sistema"
+        subtitle="Qué falla en ESTE equipo: almacenamiento, red, datos y ajustes"
+      >
+        <DiagnosticoPanel />
       </Section>
 
       {/* ── Formatos de correo activos ────────────────────────────── */}
