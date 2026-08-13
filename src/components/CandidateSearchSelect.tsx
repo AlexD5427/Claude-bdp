@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search, Plus, X, Users } from "lucide-react";
+import { Search, Plus, X, Users, AlertTriangle } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { PortalDropdown } from "./PortalDropdown";
 import { extractProceso } from "../lib/candidates";
@@ -23,11 +23,34 @@ interface CandidateSearchSelectProps {
  * identificador) to add columns one by one. Already-selected candidates appear
  * as removable chips and are excluded from the suggestions.
  *
- * Dos detalles de uso que antes estorbaban:
- *   · Al agregar a alguien, la lista de sugerencias **se cierra**. Antes seguía
- *     abierta tapando el comparador, y había que hacer clic fuera para verlo.
- *   · Cada sugerencia y cada ficha entra y sale con su propia animación, con un
- *     escalonado corto, en lugar de aparecer de golpe.
+ * ## El bug que dejaba el comparador «sin funcionar»
+ *
+ * Al agregar a alguien la lista se cierra a propósito (para dejar la comparativa
+ * a la vista) y el foco vuelve al campo para poder escribir el nombre siguiente.
+ * Para que ese foco no reabriera la lista al instante, había una bandera de un
+ * solo uso, `skipOpenOnFocus`. Fallaba por dos motivos encadenados:
+ *
+ *  1. Hacer clic en una sugerencia —un `<button>` dentro del portal— ya había
+ *     **quitado** el foco del campo. El `focus()` que sigue a `onAdd` lo
+ *     devuelve y dispara `onFocus` de inmediato, que se **come** la bandera.
+ *  2. A partir de ahí el campo se queda enfocado. Y un clic sobre un campo que
+ *     ya tiene el foco **no emite ningún evento `focus`**: `setOpen(true)` no se
+ *     ejecutaba nunca más y la lista no volvía a abrirse.
+ *
+ * Resultado: quien agrega postulantes **escribiendo** el nombre no nota nada
+ * (`onChange` abre la lista), pero quien los agrega **haciendo clic y eligiendo
+ * de la lista** —lo natural con una base de pocas decenas— se queda con un solo
+ * candidato y concluye, con razón, que «el comparador no funciona». Eso explica
+ * por qué el fallo sólo lo reportaba una parte del equipo.
+ *
+ * La corrección tiene dos partes:
+ *   · la lista se abre desde `pointerdown`, `click`, `focus` y las teclas de
+ *     navegación (todas idempotentes), así que ninguna de esas vías puede
+ *     quedarse sin efecto;
+ *   · la bandera de supresión **sólo se arma cuando el `focus()` programático va
+ *     a producir de verdad un evento** (es decir, cuando el campo había perdido
+ *     el foco al pulsar la sugerencia) y cualquier gesto posterior la limpia. Ya
+ *     no puede quedarse pegada, y no hay ninguna ventana de tiempo muerta.
  */
 export function CandidateSearchSelect({
   candidates,
@@ -41,9 +64,9 @@ export function CandidateSearchSelect({
   const [active, setActive] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Al agregar devolvemos el foco al campo para poder escribir el nombre
-  // siguiente, pero ese foco no debe reabrir la lista que acabamos de cerrar.
-  const skipOpenOnFocus = useRef(false);
+  // Se arma justo antes de devolver el foco al campo tras agregar, y sólo si ese
+  // `focus()` va a emitir un evento. El primer `onFocus` la consume.
+  const ignoreNextFocus = useRef(false);
   const reduceMotion = usePrefersReducedMotion();
 
   const full = selectedIds.length >= max;
@@ -73,22 +96,41 @@ export function CandidateSearchSelect({
 
   useEffect(() => setActive(0), [query, open]);
 
+  /**
+   * Abre la lista por una acción deliberada del analista (clic, toque o tecla).
+   * Desarma la bandera: llegados aquí, la intención es inequívoca.
+   */
+  const openList = useCallback(() => {
+    ignoreNextFocus.current = false;
+    setOpen(true);
+  }, []);
+
+  /** El foco puede llegar solo (tras agregar); ahí sí hay que discriminar. */
+  const onFocus = useCallback(() => {
+    if (ignoreNextFocus.current) {
+      ignoreNextFocus.current = false;
+      return;
+    }
+    setOpen(true);
+  }, []);
+
   function choose(c: Candidate) {
     if (full) return;
     onAdd(c.id);
     setQuery("");
     setActive(0);
     // Cerrar el desplegable al agregar: la comparativa queda a la vista al
-    // instante. El foco se queda en el campo, así que escribir otro nombre
-    // vuelve a abrir la lista sin tocar el ratón.
+    // instante. El foco vuelve al campo, así que escribir otro nombre reabre la
+    // lista sin tocar el ratón.
     setOpen(false);
-    skipOpenOnFocus.current = true;
-    inputRef.current?.focus();
+    const input = inputRef.current;
+    if (input && document.activeElement !== input) ignoreNextFocus.current = true;
+    input?.focus();
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
-      setOpen(true);
+      openList();
       return;
     }
     if (e.key === "ArrowDown") {
@@ -133,31 +175,46 @@ export function CandidateSearchSelect({
           <input
             ref={inputRef}
             value={query}
-            disabled={full}
             onChange={(e) => {
               setQuery(e.target.value);
               setOpen(true);
             }}
-            onFocus={() => {
-              if (skipOpenOnFocus.current) {
-                skipOpenOnFocus.current = false;
-                return;
-              }
-              setOpen(true);
-            }}
+            // Tres vías redundantes a propósito: `pointerdown` cubre el clic
+            // sobre un campo que ya tiene el foco (que no emite `focus`),
+            // `focus` cubre la llegada por teclado y `click` cubre los teclados
+            // en pantalla que no emiten eventos de puntero.
+            onPointerDown={openList}
+            onClick={openList}
+            onFocus={onFocus}
             onKeyDown={onKeyDown}
             placeholder={
               full
-                ? `Límite alcanzado (${max}/${max})`
+                ? `Límite de ${max} columnas alcanzado`
                 : "Buscar por nombre o identificador… (datos en vivo)"
             }
-            className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none disabled:cursor-not-allowed"
+            className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none"
             role="combobox"
             aria-expanded={open}
             aria-controls="candidate-listbox"
             autoComplete="off"
           />
         </div>
+
+        {/* Al llegar al máximo el campo NO se desactiva: se explica qué pasa y
+            cómo seguir. Antes quedaba muerto y sin mensaje visible, y eso se
+            leía como «el buscador dejó de funcionar». */}
+        <PortalDropdown
+          open={open && full}
+          anchorRef={wrapRef}
+          onClose={() => setOpen(false)}
+        >
+          <div className="glass-heavy w-full rounded-2xl px-4 py-3 text-sm text-ink-soft">
+            Ya hay <strong className="text-ink">{max}</strong> postulantes en la
+            comparación, el máximo configurado. Quite a alguien con su ✕ o amplíe
+            el límite en <strong className="text-ink">Configuración → Evaluación y
+            comparador</strong>.
+          </div>
+        </PortalDropdown>
 
         <PortalDropdown
           open={open && !full && suggestions.length > 0}
@@ -211,9 +268,23 @@ export function CandidateSearchSelect({
                     <div className="truncate text-sm font-semibold text-ink">
                       {c.fullName}
                     </div>
-                    <div className="truncate text-xs text-ink-faint">
-                      {c.identificador || "Sin ID"} · Proceso{" "}
-                      {extractProceso(c.identificador)}
+                    <div className="flex min-w-0 items-center gap-1.5 truncate text-xs text-ink-faint">
+                      <span className="truncate">
+                        {c.identificador || "Sin ID"} · Proceso{" "}
+                        {extractProceso(c.identificador)}
+                      </span>
+                      {/* Dos registros con el mismo identificador se distinguen
+                          aquí; antes eran indistinguibles y sólo se podía
+                          comparar al primero. */}
+                      {c.duplicado && (
+                        <span
+                          title="Otro registro de la hoja usa este mismo identificador."
+                          className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-400/20 px-1.5 py-0.5 font-bold text-amber-500"
+                        >
+                          <AlertTriangle className="h-3 w-3" />
+                          ID repetido
+                        </span>
+                      )}
                     </div>
                   </div>
                   <motion.span
