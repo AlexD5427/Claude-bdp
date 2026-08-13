@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { readJson, safeLocal, writeJson } from "../shared/safeStorage";
 
 /**
  * System configuration store.
@@ -325,43 +326,177 @@ export function defaultConfig(): AppConfig {
 /* Store plumbing                                                      */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Saneamiento                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Un valor de configuración imposible dejaba módulos inservibles.
+ *
+ * La configuración no llega sólo del módulo de Configuración (cuyos controles ya
+ * acotan cada campo): también llega **del `localStorage` de una versión
+ * anterior** y, sobre todo, del `config_personal_perfil` que cada perfil guarda
+ * en la hoja y que se aplica al iniciar sesión. Por esa segunda vía un
+ * `maxComparador: 0` seguía a la persona de un equipo a otro, y el buscador del
+ * Comparador aparecía apagado con «Límite alcanzado (0/0)»: la persona no podía
+ * comparar a nadie mientras al resto del equipo todo le funcionaba. Reproducido
+ * en el arnés de QA (`login-config-heredada`).
+ *
+ * Por eso el saneamiento vive aquí, en la única puerta de entrada del estado, y
+ * no en cada consumidor: {@link load} y {@link setConfig} pasan por él, así que
+ * ningún valor fuera de rango puede alcanzar la interfaz.
+ */
+function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function pickOption<T extends string>(
+  value: unknown,
+  options: readonly T[],
+  fallback: T,
+): T {
+  return options.includes(value as T) ? (value as T) : fallback;
+}
+
+function pickBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function pickText(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+const RANK_PLACEMENTS = ["tarjeta", "fila", "ambos"] as const;
+const COMPARATOR_ORDERS = ["desc", "asc"] as const;
+const PAPER_SIZES = ["Letter", "Legal"] as const;
+const ORIENTATIONS = ["portrait", "landscape"] as const;
+const THREE_QUALITIES = ["auto", "alta", "media", "baja"] as const;
+const DOCK_POSITIONS = ["top", "bottom", "left", "right"] as const;
+const DOCK_SIZES = ["sm", "md", "lg"] as const;
+
+/** Sólo se conservan los formatos de correo que tienen la forma esperada. */
+function sanitiseTemplates(value: unknown, fallback: EmailTemplate[]): EmailTemplate[] {
+  if (!Array.isArray(value)) return fallback;
+  const valid = value.filter(
+    (t): t is EmailTemplate =>
+      Boolean(t) &&
+      typeof t === "object" &&
+      typeof (t as EmailTemplate).id === "string" &&
+      typeof (t as EmailTemplate).name === "string" &&
+      EMAIL_CATEGORY_ORDER.includes((t as EmailTemplate).category),
+  );
+  return valid.length ? valid : fallback;
+}
+
+/**
+ * Devuelve una configuración completa y coherente a partir de cualquier objeto
+ * (persistido, heredado del perfil o parcial). `base` es el estado sobre el que
+ * se aplica el parche; los campos ausentes se conservan tal cual.
+ */
+export function sanitiseConfig(
+  patch: Partial<AppConfig> | null | undefined,
+  base: AppConfig = defaultConfig(),
+): AppConfig {
+  if (!patch || typeof patch !== "object") return base;
+  const has = (key: keyof AppConfig) => key in patch;
+  const keep = <K extends keyof AppConfig>(key: K): AppConfig[K] => base[key];
+
+  return {
+    orgName: has("orgName") ? pickText(patch.orgName, base.orgName) : keep("orgName"),
+    teamName: has("teamName") ? pickText(patch.teamName, base.teamName) : keep("teamName"),
+    reclutador: has("reclutador") ? pickText(patch.reclutador, base.reclutador) : keep("reclutador"),
+
+    capApprovalThreshold: has("capApprovalThreshold")
+      ? clampNumber(patch.capApprovalThreshold, 40, 100, base.capApprovalThreshold)
+      : keep("capApprovalThreshold"),
+    // El máximo de columnas nunca puede bajar de 2: con 0 o 1 el comparador
+    // deja de poder comparar, que es literalmente su única función.
+    maxComparador: has("maxComparador")
+      ? clampNumber(patch.maxComparador, 2, 10, base.maxComparador)
+      : keep("maxComparador"),
+    rankingEnabled: has("rankingEnabled")
+      ? pickBoolean(patch.rankingEnabled, base.rankingEnabled)
+      : keep("rankingEnabled"),
+    rankPlacement: has("rankPlacement")
+      ? pickOption(patch.rankPlacement, RANK_PLACEMENTS, base.rankPlacement)
+      : keep("rankPlacement"),
+    sortByCapDesc: has("sortByCapDesc")
+      ? pickBoolean(patch.sortByCapDesc, base.sortByCapDesc)
+      : keep("sortByCapDesc"),
+    comparatorOrder: has("comparatorOrder")
+      ? pickOption(patch.comparatorOrder, COMPARATOR_ORDERS, base.comparatorOrder)
+      : keep("comparatorOrder"),
+    comparatorNavHelper: has("comparatorNavHelper")
+      ? pickBoolean(patch.comparatorNavHelper, base.comparatorNavHelper)
+      : keep("comparatorNavHelper"),
+    defaultPaper: has("defaultPaper")
+      ? pickOption(patch.defaultPaper, PAPER_SIZES, base.defaultPaper)
+      : keep("defaultPaper"),
+    defaultOrientation: has("defaultOrientation")
+      ? pickOption(patch.defaultOrientation, ORIENTATIONS, base.defaultOrientation)
+      : keep("defaultOrientation"),
+
+    evaluarUrl: has("evaluarUrl") ? pickText(patch.evaluarUrl, base.evaluarUrl) : keep("evaluarUrl"),
+    autoRefresh: has("autoRefresh")
+      ? pickBoolean(patch.autoRefresh, base.autoRefresh)
+      : keep("autoRefresh"),
+    // Menos de 15 s martillearía la hoja y agotaría la cuota de Apps Script.
+    autoRefreshSeconds: has("autoRefreshSeconds")
+      ? clampNumber(patch.autoRefreshSeconds, 15, 900, base.autoRefreshSeconds)
+      : keep("autoRefreshSeconds"),
+    showRefreshButton: has("showRefreshButton")
+      ? pickBoolean(patch.showRefreshButton, base.showRefreshButton)
+      : keep("showRefreshButton"),
+
+    enableThree: has("enableThree")
+      ? pickBoolean(patch.enableThree, base.enableThree)
+      : keep("enableThree"),
+    threeQuality: has("threeQuality")
+      ? pickOption(patch.threeQuality, THREE_QUALITIES, base.threeQuality)
+      : keep("threeQuality"),
+    reduceMotion: has("reduceMotion")
+      ? pickBoolean(patch.reduceMotion, base.reduceMotion)
+      : keep("reduceMotion"),
+    staticAvatars: has("staticAvatars")
+      ? pickBoolean(patch.staticAvatars, base.staticAvatars)
+      : keep("staticAvatars"),
+
+    dockPosition: has("dockPosition")
+      ? pickOption(patch.dockPosition, DOCK_POSITIONS, base.dockPosition)
+      : keep("dockPosition"),
+    dockSize: has("dockSize")
+      ? pickOption(patch.dockSize, DOCK_SIZES, base.dockSize)
+      : keep("dockSize"),
+    dockCollapsed: has("dockCollapsed")
+      ? pickBoolean(patch.dockCollapsed, base.dockCollapsed)
+      : keep("dockCollapsed"),
+
+    emailTemplates: has("emailTemplates")
+      ? sanitiseTemplates(patch.emailTemplates, base.emailTemplates)
+      : keep("emailTemplates"),
+  };
+}
+
 function load(): AppConfig {
   const base = defaultConfig();
-  if (typeof window === "undefined") return base;
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return base;
-    const parsed = JSON.parse(raw) as Partial<AppConfig>;
-    // Migration: the comparator cap moved from 5 (old default) → 10. Bump the
-    // untouched default and clamp any explicit choice into the new [2,10] range.
-    const maxComparador =
-      parsed.maxComparador === undefined || parsed.maxComparador === 5
-        ? 10
-        : Math.min(10, Math.max(2, parsed.maxComparador));
-    return {
-      ...base,
-      ...parsed,
-      maxComparador,
-      // Templates: keep persisted ones if present, else the seeded set.
-      emailTemplates:
-        Array.isArray(parsed.emailTemplates) && parsed.emailTemplates.length
-          ? parsed.emailTemplates
-          : base.emailTemplates,
-    };
-  } catch {
-    return base;
+  const parsed = readJson<Partial<AppConfig> | null>(safeLocal, KEY, null);
+  if (!parsed) return base;
+  // Migración: el máximo del comparador pasó de 5 (valor antiguo por omisión) a
+  // 10. Se respeta cualquier elección explícita distinta de la anterior.
+  const migrated: Partial<AppConfig> = { ...parsed };
+  if (migrated.maxComparador === undefined || migrated.maxComparador === 5) {
+    migrated.maxComparador = 10;
   }
+  return sanitiseConfig(migrated, base);
 }
 
 let state: AppConfig = load();
 const listeners = new Set<() => void>();
 
 function persist() {
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* ignore quota / private mode */
-  }
+  writeJson(safeLocal, KEY, state);
 }
 
 function emit() {
@@ -373,8 +508,16 @@ function emit() {
 /* Mutations                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Aplica un parche de configuración **saneado**.
+ *
+ * Los parches no vienen sólo de los controles del módulo: `applyBundle` (ver
+ * `lib/profilesStore`) aplica aquí lo que el perfil guardó en la hoja, que puede
+ * ser de otra versión o estar corrupto. Sanear en la puerta de entrada es lo que
+ * garantiza que el resto de la aplicación pueda confiar en estos valores.
+ */
 export function setConfig(patch: Partial<AppConfig>): void {
-  state = { ...state, ...patch };
+  state = sanitiseConfig(patch, state);
   emit();
 }
 

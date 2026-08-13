@@ -12,6 +12,7 @@ import {
   subscribeDashboard,
   type DashWidget,
 } from "./dashboardStore";
+import { readJson as readSafeJson, safeLocal, writeJson as writeSafeJson } from "../shared/safeStorage";
 import type { RawPerfil } from "../types";
 
 /* ------------------------------------------------------------------ */
@@ -144,37 +145,44 @@ function slug(name: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
+/*
+ * La sesión vive en una cookie. Los tres accesos van envueltos porque
+ * `document.cookie` **lanza** en documentos con el almacenamiento restringido
+ * (iframe sin permisos, cookies bloqueadas): sin la envoltura, iniciar sesión
+ * tiraba la aplicación en vez de, simplemente, no recordar la sesión.
+ */
 function setCookie(name: string, value: string, days: number): void {
   if (typeof document === "undefined") return;
   const maxAge = days * 86400;
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  try {
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  } catch {
+    /* sin cookies: la sesión durará lo que dure la pestaña */
+  }
 }
 function getCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
-  const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return m ? decodeURIComponent(m[1]) : null;
+  try {
+    const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+    return m ? decodeURIComponent(m[1]) : null;
+  } catch {
+    return null;
+  }
 }
 function delCookie(name: string): void {
   if (typeof document === "undefined") return;
-  document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+  try {
+    document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+  } catch {
+    /* ídem */
+  }
 }
 
 function readJson<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
+  return readSafeJson(safeLocal, key, fallback);
 }
 function writeJson(key: string, value: unknown): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* ignore */
-  }
+  writeSafeJson(safeLocal, key, value);
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,17 +345,30 @@ export function getBundle(id: string): ProfileConfigBundle {
 
 /** Capture the current global preferences as this session's bundle. */
 export function captureBundle(): ProfileConfigBundle {
-  const theme = (typeof window !== "undefined"
-    ? (window.localStorage.getItem("bdp-theme") as "dark" | "light" | null)
-    : null) ?? undefined;
+  // `safeLocal` y no `localStorage`: esta función corre en cada cambio de
+  // preferencia y, con el almacenamiento bloqueado, lanzaba dentro del emisor
+  // del store de configuración (rompiendo cualquier ajuste de la interfaz).
+  const stored = safeLocal.getItem("bdp-theme");
+  const theme = stored === "dark" || stored === "light" ? stored : undefined;
   return { theme, appConfig: getConfig(), layout: getLayout() };
 }
 
-/** Apply a profile's saved bundle to the live app (theme handled by the app). */
+/**
+ * Apply a profile's saved bundle to the live app (theme handled by the app).
+ *
+ * El paquete puede venir de la hoja (`config_personal_perfil`) o de una versión
+ * anterior de la aplicación, así que se trata como entrada no confiable: cada
+ * store lo sanea por su cuenta (ver `sanitiseConfig` y `sanitiseWidgets`) y aquí
+ * se envuelve además en un `try`, porque **fallar aquí impedía iniciar sesión**.
+ */
 function applyBundle(id: string): void {
   const bundle = getBundle(id);
-  if (bundle.appConfig) setConfig(bundle.appConfig);
-  if (bundle.layout) importLayout(bundle.layout);
+  try {
+    if (bundle.appConfig) setConfig(bundle.appConfig);
+    if (bundle.layout) importLayout(bundle.layout);
+  } catch (err) {
+    console.warn("No se pudo aplicar la configuración del perfil:", err);
+  }
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;

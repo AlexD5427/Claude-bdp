@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { readJson, safeLocal, writeJson } from "../shared/safeStorage";
 
 /**
  * Dashboard layout store.
@@ -94,30 +95,42 @@ export interface DashState {
 
 const KEY = "bdp-dashboard-layout";
 
-function load(): DashState {
-  if (typeof window === "undefined") return { widgets: [...DEFAULT_LAYOUT] };
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    if (!raw) return { widgets: [...DEFAULT_LAYOUT] };
-    const parsed = JSON.parse(raw) as Partial<DashState>;
-    const widgets = Array.isArray(parsed.widgets) ? parsed.widgets : null;
-    // Keep only widgets that still exist in the catalogue.
-    const valid = widgets?.filter((w) => widgetDef(w.id)) ?? [];
-    return { widgets: valid.length ? valid : [...DEFAULT_LAYOUT] };
-  } catch {
-    return { widgets: [...DEFAULT_LAYOUT] };
+/**
+ * Se queda sólo con los bloques que siguen existiendo en el catálogo.
+ *
+ * Los elementos que no son objetos se descartan antes de mirar su `id`: la
+ * disposición puede llegar de una versión anterior o del `config_personal_perfil`
+ * de la hoja, y un `null` en la lista lanzaba `TypeError` en medio del inicio de
+ * sesión, que es el peor sitio posible para fallar.
+ */
+function sanitiseWidgets(widgets: unknown): DashWidget[] {
+  if (!Array.isArray(widgets)) return [];
+  const seen = new Set<string>();
+  const valid: DashWidget[] = [];
+  for (const w of widgets) {
+    if (!w || typeof w !== "object") continue;
+    const { id, size } = w as Partial<DashWidget>;
+    if (typeof id !== "string" || !widgetDef(id) || seen.has(id)) continue;
+    seen.add(id);
+    const clamped = ([1, 2, 3, 4] as WidgetSize[]).includes(size as WidgetSize)
+      ? (size as WidgetSize)
+      : widgetDef(id)!.defaultSize;
+    valid.push({ id, size: clamped });
   }
+  return valid;
+}
+
+function load(): DashState {
+  const parsed = readJson<Partial<DashState>>(safeLocal, KEY, {});
+  const valid = sanitiseWidgets(parsed.widgets);
+  return { widgets: valid.length ? valid : [...DEFAULT_LAYOUT] };
 }
 
 let state: DashState = load();
 const listeners = new Set<() => void>();
 
 function emit() {
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(state));
-  } catch {
-    /* ignore */
-  }
+  writeJson(safeLocal, KEY, state);
   for (const l of listeners) l();
 }
 
@@ -157,7 +170,7 @@ export function resetLayout(): void {
 
 /** Replace the whole layout (used when applying a profile's saved config). */
 export function importLayout(widgets: DashWidget[]): void {
-  const valid = Array.isArray(widgets) ? widgets.filter((w) => widgetDef(w.id)) : [];
+  const valid = sanitiseWidgets(widgets);
   state = { widgets: valid.length ? valid : [...DEFAULT_LAYOUT] };
   emit();
 }
