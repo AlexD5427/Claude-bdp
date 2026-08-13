@@ -150,6 +150,30 @@ describe("RegistrationForm · envío accidental", () => {
       await screen.findByText(/El Identificador Único es el único campo obligatorio/i),
     ).toBeInTheDocument();
   });
+
+  it("mantiene el cuestionario abierto y muestra el motivo cuando el servidor rechaza", async () => {
+    // El fallo original: cualquier resultado se anunciaba como éxito, el modal
+    // se cerraba y el trabajo del analista se perdía sin dejar rastro.
+    submitCandidate.mockResolvedValueOnce({
+      ok: false,
+      message: "El identificador ya existe en la hoja. Su avance sigue en el formulario.",
+    });
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(<RegistrationForm open onClose={onClose} onSaved={onSaved} />);
+
+    await fillIdentificador(user, "5033853-163-2026");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    expect(
+      await screen.findByText(/El identificador ya existe en la hoja/i),
+    ).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    // Y el avance sigue en su sitio, listo para reintentar.
+    expect(screen.getByLabelText(/Identificador Único/i)).toHaveValue("5033853-163-2026");
+  });
 });
 
 describe("RegistrationForm · edición", () => {

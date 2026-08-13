@@ -117,6 +117,38 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
 }
 
 /**
+ * Normalise the whole sheet, guaranteeing that **every fila tiene un `id`
+ * único**.
+ *
+ * El identificador es la clave natural del registro, pero la hoja no la impone:
+ * cargar dos veces la misma ficha (o corregir una a medias) deja dos filas con
+ * el mismo `CI - Proceso - Año`. Con el `id` duplicado la aplicación trataba a
+ * las dos filas como una sola persona, y las consecuencias eran silenciosas:
+ *
+ *   · el comparador dejaba de ofrecer la segunda ficha en cuanto se agregaba la
+ *     primera (misma clave ⇒ «ya está seleccionada»), así que sus notas eran
+ *     **inalcanzables** desde la comparativa;
+ *   · «Ver perfil» y «Editar» abrían siempre la primera coincidencia;
+ *   · React recibía dos hijos con la misma `key`, lo que en producción no avisa
+ *     por consola pero sí puede reciclar el nodo equivocado al reordenar.
+ *
+ * A partir de la segunda aparición se añade el sufijo `#n`. La primera conserva
+ * el identificador tal cual, así que las sesiones y preferencias guardadas por
+ * identificador siguen siendo válidas. El campo `identificador` no se toca: es
+ * lo que viaja al backend.
+ */
+export function normaliseCandidates(rows: RawCandidate[]): Candidate[] {
+  const seen = new Map<string, number>();
+  return rows.map((row, index) => {
+    const candidate = normaliseCandidate(row, index);
+    const previous = seen.get(candidate.id) ?? 0;
+    seen.set(candidate.id, previous + 1);
+    if (previous === 0) return candidate;
+    return { ...candidate, id: `${candidate.id}#${previous + 1}` };
+  });
+}
+
+/**
  * Derive the "Nro Proceso" from an identificador shaped like
  * "CI - Nro Proceso - Año" (e.g. "8456872-105-2026" → "105"). Identificadores
  * that don't follow the convention are bucketed under "Sin proceso".

@@ -352,7 +352,7 @@ function EditHL({ on, children }: { on: boolean; children: React.ReactNode }) {
  * objeto.
  */
 export function RegistrationForm({ open, onClose, onSaved, editing }: RegistrationFormProps) {
-  const { competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
+  const { candidatos, competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
     useTalentData();
   const isEdit = Boolean(editing);
   const [form, setForm] = useState<FormState>({ ...EMPTY });
@@ -460,6 +460,25 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
   }, [open, dirty]);
 
   const compsCount = form.competencias.length;
+
+  /**
+   * ¿El identificador que se está escribiendo ya está en la base?
+   *
+   * El identificador es la clave del registro («único obligatorio» en el propio
+   * formulario), pero la hoja no lo impone: dos altas con el mismo valor dejan
+   * dos filas que el sistema no puede distinguir y que hacen inalcanzable a una
+   * de las dos personas. El aviso es **informativo, no bloqueante**: quien opera
+   * sabe si está corrigiendo algo a propósito, y nunca hay que dejar a nadie sin
+   * poder registrar.
+   */
+  const identificadorRepetido = useMemo(() => {
+    if (isEdit) return false;
+    const id = form.identificador.trim().toLowerCase();
+    if (!id) return false;
+    return candidatos.some(
+      (c) => String(c.identificador ?? "").trim().toLowerCase() === id,
+    );
+  }, [candidatos, form.identificador, isEdit]);
 
   const setField = useCallback(<K extends FormKey>(key: K, value: FormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -739,6 +758,7 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
               setField={setField}
               cargos={auxiliares.cargos_bdp}
               identificadorRef={identificadorRef}
+              identificadorRepetido={identificadorRepetido}
             />
 
             <ScoresSection
@@ -925,11 +945,14 @@ const PersonalSection = memo(function PersonalSection({
   setField,
   cargos,
   identificadorRef,
+  identificadorRepetido,
 }: SectionProps & {
   form: FormState;
   isEdit: boolean;
   cargos: string[];
   identificadorRef: React.RefObject<HTMLInputElement>;
+  /** El identificador escrito ya existe en la base (aviso, no bloqueo). */
+  identificadorRepetido: boolean;
 }) {
   return (
     <Section
@@ -953,6 +976,22 @@ const PersonalSection = memo(function PersonalSection({
             placeholder="CI - Nro Proceso - Año"
             readOnly={isEdit}
           />
+          <AnimatePresence initial={false}>
+            {identificadorRepetido && (
+              <motion.p
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-1.5 flex items-start gap-1.5 overflow-hidden text-[0.7rem] font-semibold text-amber-500"
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  Ya existe un registro con este identificador. Si continúa, la hoja tendrá dos
+                  fichas que el sistema no podrá distinguir.
+                </span>
+              </motion.p>
+            )}
+          </AnimatePresence>
         </div>
         <EditHL on={changed.has("edad")}>
           <TextField
@@ -1073,6 +1112,7 @@ const PersonalSection = memo(function PersonalSection({
   prev.isEdit === next.isEdit &&
   prev.cargos === next.cargos &&
   prev.setField === next.setField &&
+  prev.identificadorRepetido === next.identificadorRepetido &&
   PERSONAL_KEYS.every((k) => prev.form[k] === next.form[k]));
 
 const ScoresSection = memo(function ScoresSection({

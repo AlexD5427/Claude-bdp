@@ -10,7 +10,8 @@ import {
 } from "react";
 import { SCRIPT_URL } from "../constants";
 import { getConfig, subscribeConfig } from "../lib/configStore";
-import { normaliseCandidate } from "../lib/candidates";
+import { normaliseCandidates } from "../lib/candidates";
+import { readJson, safeLocal, writeJson } from "../shared/safeStorage";
 import {
   FALLBACK_DISC,
   parseDiscArchetypes,
@@ -142,35 +143,159 @@ async function fetchPayload(
   }
 }
 
-function readCache(): CachedPayload | null {
-  if (typeof window === "undefined") return null;
+/** Tiempo máximo que se espera a una escritura antes de darla por perdida. */
+const WRITE_TIMEOUT_MS = 25_000;
+
+/**
+ * Escribe en la hoja y **comprueba de verdad si se guardó**.
+ *
+ * Antes cada escritura era un `await fetch(...)` a secas: no se miraba el código
+ * HTTP ni el sobre `{status}` que devuelve el Apps Script. Con eso, un rechazo
+ * del backend (identificador repetido, hoja bloqueada, despliegue caducado)
+ * llegaba al analista como «Postulante registrado correctamente», el
+ * cuestionario se cerraba y el trabajo se perdía sin dejar rastro. Reproducido
+ * en el arnés de QA (`postulantes-alta-rechazada`).
+ *
+ * Aquí se cierran las cuatro puertas: tiempo límite —Apps Script puede quedarse
+ * colgado y el botón se quedaba en «Guardando…» para siempre—, código HTTP,
+ * respuesta que no es JSON (una página de error de Google lo es a menudo) y
+ * sobre con `status: "error"`, cuyo mensaje se muestra tal cual porque lo escribe
+ * el backend pensando en quien opera.
+ */
+async function writeToScript(
+  body: Record<string, unknown>,
+): Promise<{ ok: boolean; message: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS);
   try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedPayload;
-    if (!parsed || !Array.isArray(parsed.candidatos)) return null;
-    return parsed;
-  } catch {
-    return null;
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      redirect: "follow",
+      // Apps Script web apps accept a JSON body on POST; text/plain avoids a
+      // CORS preflight that the default Apps Script deployment can't answer.
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        message: `El servidor respondió con un error (HTTP ${res.status}). No se guardó nada.`,
+      };
+    }
+    const text = await res.text();
+    // Un despliegue mal publicado responde HTML: no es un éxito, aunque el
+    // código HTTP sea 200.
+    let envelope: { status?: string; message?: string } | null = null;
+    try {
+      envelope = text ? (JSON.parse(text) as { status?: string; message?: string }) : null;
+    } catch {
+      envelope = null;
+    }
+    if (envelope === null && text.trim() !== "") {
+      return {
+        ok: false,
+        message:
+          "El servidor no devolvió una respuesta válida. Verifique el despliegue del backend.",
+      };
+    }
+    if (envelope?.status && envelope.status !== "success") {
+      return {
+        ok: false,
+        message: envelope.message || "El servidor rechazó la operación.",
+      };
+    }
+    return { ok: true, message: envelope?.message || "Operación registrada." };
+  } catch (err) {
+    const aborted = err instanceof DOMException && err.name === "AbortError";
+    return {
+      ok: false,
+      message: aborted
+        ? "El servidor tardó demasiado en responder. No se guardó nada; vuelva a intentarlo."
+        : "No se pudo conectar con el servidor. Revise su conexión e inténtelo de nuevo.",
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Escrituras confirmadas que la hoja todavía no devuelve              */
+/* ------------------------------------------------------------------ */
+
+const PENDING_KEY = "bdp-talent-pendientes";
+/** Una escritura confirmada se sostiene como máximo un día. */
+const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+
+interface PendingWrite {
+  row: RawCandidate;
+  at: number;
+}
+
+/**
+ * El backend confirma la escritura, pero la lectura siguiente puede no traerla
+ * todavía: Apps Script cachea la respuesta del `doGet` y la hoja tarda en
+ * propagar. El módulo de Postulantes refresca justo después de guardar, así que
+ * el postulante recién registrado **desaparecía de la lista** y volvía sólo al
+ * refresco siguiente. Desde la silla del analista eso es exactamente «registro a
+ * alguien y no se guarda» (reproducido en `postulantes-base-rezagada`).
+ *
+ * Las filas confirmadas se sostienen aquí —sobreviven incluso a una recarga— y
+ * se sueltan en cuanto la hoja las devuelve, o al cabo de un día si algo salió
+ * mal en el servidor y nunca aparecen.
+ */
+function readPending(): PendingWrite[] {
+  const list = readJson<PendingWrite[]>(safeLocal, PENDING_KEY, []);
+  if (!Array.isArray(list)) return [];
+  const fresh = list.filter(
+    (p) => p && typeof p === "object" && p.row && Date.now() - Number(p.at) < PENDING_TTL_MS,
+  );
+  return fresh;
+}
+
+function writePending(list: PendingWrite[]): void {
+  if (list.length === 0) safeLocal.removeItem(PENDING_KEY);
+  else writeJson(safeLocal, PENDING_KEY, list);
+}
+
+const identOf = (c: RawCandidate) => String(c.identificador ?? "").trim();
+
+/** Añade a la carga las filas confirmadas que la hoja aún no devuelve. */
+function mergePending(rows: RawCandidate[], pending: PendingWrite[]): RawCandidate[] {
+  if (pending.length === 0) return rows;
+  const present = new Set(rows.map(identOf));
+  const missing = pending.filter((p) => !present.has(identOf(p.row)));
+  return missing.length ? [...missing.map((p) => p.row), ...rows] : rows;
+}
+
+function readCache(): CachedPayload | null {
+  const parsed = readJson<CachedPayload | null>(safeLocal, CACHE_KEY, null);
+  if (!parsed || !Array.isArray(parsed.candidatos)) return null;
+  return parsed;
+}
+
 function writeCache(payload: TalentPayload): void {
-  if (typeof window === "undefined") return;
-  try {
-    const cached: CachedPayload = { ...payload, cachedAt: new Date().toISOString() };
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
-  } catch {
-    /* ignore quota / private mode */
-  }
+  writeJson(safeLocal, CACHE_KEY, {
+    ...payload,
+    cachedAt: new Date().toISOString(),
+  } satisfies CachedPayload);
 }
 
 export function TalentDataProvider({ children }: { children: ReactNode }) {
   // Hydrate synchronously from cache so the first paint already has data
   // (stale-while-revalidate): the network refresh then runs in the background.
   const initial = readCache();
+  // Las escrituras confirmadas que la hoja aún no devuelve se sostienen aparte,
+  // así que un registro recién guardado sigue a la vista incluso tras recargar.
+  const pendingRef = useRef<PendingWrite[]>(readPending());
 
-  const [raw, setRaw] = useState<RawCandidate[]>(initial?.candidatos ?? []);
+  const [raw, setRaw] = useState<RawCandidate[]>(
+    mergePending(initial?.candidatos ?? [], pendingRef.current),
+  );
+  // Espejo de `raw` para leerlo desde los callbacks sin volverlos a crear en
+  // cada carga de la base (y sin capturar una copia vieja).
+  const rawRef = useRef(raw);
+  rawRef.current = raw;
   const [competencias, setCompetencias] = useState<string[]>(
     initial?.competencias ?? [],
   );
@@ -213,7 +338,16 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     fetchPayload(controller.signal)
       .then((payload) => {
         if (controller.signal.aborted) return;
-        setRaw(payload.candidatos);
+        // Una fila pendiente se suelta en cuanto la hoja la devuelve.
+        const present = new Set(payload.candidatos.map(identOf));
+        const stillPending = pendingRef.current.filter(
+          (p) => !present.has(identOf(p.row)) && Date.now() - p.at < PENDING_TTL_MS,
+        );
+        if (stillPending.length !== pendingRef.current.length) {
+          pendingRef.current = stillPending;
+          writePending(stillPending);
+        }
+        setRaw(mergePending(payload.candidatos, stillPending));
         setCompetencias(payload.competencias);
         setArquetiposRaw(payload.arquetipos_disc ?? []);
         setAuxiliares(normaliseAuxiliares(payload.auxiliares));
@@ -297,93 +431,77 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
 
   const submitCandidate = useCallback(
     async (candidate: RawCandidate) => {
-      try {
-        // Apps Script web apps accept a JSON body on POST; text/plain avoids a
-        // CORS preflight that the default Apps Script deployment can't answer.
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(candidate),
-        });
-        // Optimistically reflect the new candidate without waiting for a reload.
-        setRaw((prev) => [candidate, ...prev]);
-        return { ok: true, message: "Postulante registrado correctamente." };
-      } catch {
-        // Still surface it locally so the operator's work isn't lost.
-        setRaw((prev) => [candidate, ...prev]);
+      const result = await writeToScript(candidate);
+      if (!result.ok) {
+        // Antes, ante un fallo, la ficha se insertaba igual en la lista local:
+        // el analista la veía «guardada» y desaparecía al siguiente refresco,
+        // sin quedar en ninguna parte. Ahora no se inventa nada — el
+        // cuestionario se queda abierto con el aviso y el borrador intacto.
         return {
           ok: false,
-          message:
-            "Se guardó localmente, pero la sincronización con el servidor falló.",
+          message: `${result.message} Su avance sigue en el formulario.`,
         };
       }
+      // Escritura confirmada: se sostiene hasta que la hoja la devuelva.
+      const entry: PendingWrite = { row: candidate, at: Date.now() };
+      pendingRef.current = [
+        ...pendingRef.current.filter((p) => identOf(p.row) !== identOf(candidate)),
+        entry,
+      ];
+      writePending(pendingRef.current);
+      setRaw((prev) => mergePending(prev, [entry]));
+      return { ok: true, message: "Postulante registrado correctamente." };
     },
     [],
   );
 
   const updateCandidate = useCallback(
     async (candidate: RawCandidate) => {
-      const id = String(candidate.identificador ?? "").trim();
-      const matches = (c: RawCandidate) =>
-        String(c.identificador ?? "").trim() === id;
-      // Optimistically patch the matching row so the UI reflects the edit at
-      // once (fast), then re-sync the whole database (efficient + complete).
-      const applyLocal = () =>
-        setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
-      try {
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          // `action: "update"` routes to the sheet upsert that edits the exact
-          // row (matched by identificador) column by column.
-          body: JSON.stringify({ action: "update", ...candidate }),
-        });
-        applyLocal();
-        // The POST invalidates the backend cache, so a full refetch now returns
-        // fresh data and repaints every module from a single source of truth.
-        load();
-        return { ok: true, message: "Postulante actualizado correctamente." };
-      } catch {
-        applyLocal();
+      const id = identOf(candidate);
+      // La hoja no impone que el identificador sea único, y el backend edita la
+      // **primera** fila que coincide. Con dos filas homónimas, guardar desde la
+      // segunda ficha sobrescribiría la primera sin que nadie se enterase: mejor
+      // detenerse y pedir que se corrija el duplicado en la hoja.
+      const homonimas = rawRef.current.filter((c) => identOf(c) === id).length;
+      if (homonimas > 1) {
         return {
           ok: false,
-          message:
-            "Se actualizó localmente, pero la sincronización con el servidor falló.",
+          message: `Hay ${homonimas} filas con el identificador ${id} en la hoja. Corrija el duplicado antes de editar: el guardado modificaría la primera de ellas.`,
         };
       }
+      // `action: "update"` routes to the sheet upsert that edits the exact row
+      // (matched by identificador) column by column.
+      const result = await writeToScript({ action: "update", ...candidate });
+      if (!result.ok) {
+        // No se toca la copia local: mostrar el cambio como aplicado cuando la
+        // hoja no lo tiene sería mentir sobre el estado del expediente.
+        return {
+          ok: false,
+          message: `${result.message} Los cambios siguen en el formulario.`,
+        };
+      }
+      setRaw((prev) => prev.map((c) => (identOf(c) === id ? { ...c, ...candidate } : c)));
+      // La escritura invalida la caché del backend, así que un refetch ahora
+      // devuelve datos frescos y repinta todos los módulos desde una sola
+      // fuente de verdad.
+      load();
+      return { ok: true, message: "Postulante actualizado correctamente." };
     },
     [load],
   );
 
   // ---- Perfiles de Cargo (perfil_cargo_bdp) ------------------------------
-  // These mirror submitCandidate/updateCandidate: POST with a text/plain body
-  // (no CORS preflight), then re-sync the whole payload so the sheet stays the
-  // single source of truth. The backend addresses rows by their 1-based data
-  // index (`fila`) since the sheet has no id column; a refetch after each write
-  // keeps those indices fresh (deletes shift rows up — no blank gaps).
+  // Mismo camino que las altas de postulante: se comprueba el sobre del backend
+  // y sólo entonces se re-sincroniza todo, de modo que la hoja siga siendo la
+  // única fuente de verdad. El backend direcciona las filas por su índice
+  // 1-based (`fila`) porque la hoja no tiene columna de id; el refetch tras cada
+  // escritura mantiene esos índices frescos (al borrar, las filas suben).
   const postPerfilCargo = useCallback(
     async (body: Record<string, unknown>, okMsg: string) => {
-      try {
-        const res = await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ type: "perfil_cargo", ...body }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
-        if (data.status && data.status !== "success") {
-          return { ok: false, message: data.message || "El servidor rechazó la operación." };
-        }
-        load();
-        return { ok: true, message: okMsg };
-      } catch {
-        return {
-          ok: false,
-          message: "No se pudo sincronizar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
-        };
-      }
+      const result = await writeToScript({ type: "perfil_cargo", ...body });
+      if (!result.ok) return result;
+      load();
+      return { ok: true, message: okMsg };
     },
     [load],
   );
@@ -404,10 +522,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [postPerfilCargo],
   );
 
-  const candidatos = useMemo(
-    () => raw.map((c, i) => normaliseCandidate(c, i)),
-    [raw],
-  );
+  const candidatos = useMemo(() => normaliseCandidates(raw), [raw]);
 
   const arquetipos = useMemo<DiscArchetype[]>(() => {
     const parsed = parseDiscArchetypes(arquetiposRaw);
