@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { safeLocal } from "../shared/safeStorage";
 
 export type Theme = "dark" | "light";
 
@@ -19,13 +20,21 @@ interface ThemeValue {
 const STORAGE_KEY = "bdp-theme";
 const ThemeContext = createContext<ThemeValue | null>(null);
 
-/** Read the persisted theme, falling back to the OS preference, then dark. */
+/**
+ * Read the persisted theme, falling back to the OS preference, then dark.
+ *
+ * Pasa por {@link safeLocal} porque este es el primer código de la aplicación
+ * que toca el almacenamiento: en un navegador con el almacenamiento del sitio
+ * bloqueado, leerlo a pelo lanzaba `SecurityError` durante el primer dibujado de
+ * `ThemeProvider` —por encima de toda frontera de error— y la aplicación se
+ * quedaba en blanco. Ver `shared/safeStorage`.
+ */
 function readInitialTheme(): Theme {
   if (typeof window === "undefined") return "dark";
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = safeLocal.getItem(STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
   const prefersLight =
-    window.matchMedia &&
+    typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-color-scheme: light)").matches;
   return prefersLight ? "light" : "dark";
 }
@@ -46,11 +55,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.setAttribute("data-theme", theme);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", theme === "dark" ? "#04122a" : "#eaf1fb");
-    try {
-      window.localStorage.setItem(STORAGE_KEY, theme);
-    } catch {
-      /* storage may be unavailable (private mode) — non-fatal. */
-    }
+    safeLocal.setItem(STORAGE_KEY, theme);
   }, [theme]);
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), []);

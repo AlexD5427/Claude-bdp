@@ -37,6 +37,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { toast } from "../../../design-system/liquid-glass/toast";
+import { safeLocal } from "../../../shared/safeStorage";
 import { GlassDialog } from "../../../design-system/liquid-glass/GlassDialog";
 import { TextArea } from "../../../design-system/liquid-glass/fields";
 import type { TalentPermissions } from "../../shared/permissions";
@@ -146,14 +147,10 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
   useEffect(() => {
     if (!sucio) return;
     const timer = setTimeout(() => {
-      try {
-        window.localStorage.setItem(
-          `${CLAVE_BORRADOR}:${contenido.evaluacion.id}`,
-          JSON.stringify({ contenido, guardadoEn: new Date().toISOString() }),
-        );
-      } catch {
-        /* sin espacio: el guardado explícito sigue disponible */
-      }
+      safeLocal.setItem(
+        `${CLAVE_BORRADOR}:${contenido.evaluacion.id}`,
+        JSON.stringify({ contenido, guardadoEn: new Date().toISOString() }),
+      );
     }, 900);
     return () => clearTimeout(timer);
   }, [contenido, sucio]);
@@ -163,12 +160,12 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
   // es exactamente cómo se pierde trabajo.
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
+      const raw = safeLocal.getItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
       if (!raw) return;
       const copia = JSON.parse(raw) as { contenido: typeof contenido; guardadoEn: string };
       if (!copia?.contenido || !copia.guardadoEn) return;
       if (Date.parse(copia.guardadoEn) <= Date.parse(documento.evaluacion.actualizadoEn)) {
-        window.localStorage.removeItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
+        safeLocal.removeItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
         return;
       }
       setRecuperable({ titulo: copia.contenido.evaluacion.titulo, guardadoEn: copia.guardadoEn });
@@ -180,18 +177,22 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
 
   const recuperarBorrador = () => {
     try {
-      const raw = window.localStorage.getItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
+      const raw = safeLocal.getItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
       if (!raw) return;
       const copia = JSON.parse(raw) as { contenido: typeof contenido };
       despachar({ tipo: "reemplazar", contenido: copia.contenido });
       toast.success("Se recuperó el borrador local. Revísalo y guárdalo.");
+    } catch {
+      // Copia ilegible (o almacenamiento bloqueado): antes la excepción salía
+      // del manejador del clic y se llevaba el módulo por delante.
+      toast.error("La copia local está dañada; no se pudo recuperar.");
     } finally {
       setRecuperable(null);
     }
   };
 
   const descartarBorrador = () => {
-    window.localStorage.removeItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
+    safeLocal.removeItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
     setRecuperable(null);
   };
 
@@ -225,7 +226,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
       setGuardado("guardado");
       setConflicto(null);
       onDocumento(res.value);
-      window.localStorage.removeItem(`${CLAVE_BORRADOR}:${res.value.evaluacion.id}`);
+      safeLocal.removeItem(`${CLAVE_BORRADOR}:${res.value.evaluacion.id}`);
       // Un identificador nuevo para la siguiente intención del usuario.
       solicitudGuardado.current = nuevaSolicitudId();
       if (!opciones.silencioso) toast.success("Borrador guardado.");
