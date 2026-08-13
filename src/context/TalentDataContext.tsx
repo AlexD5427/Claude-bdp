@@ -10,7 +10,7 @@ import {
 } from "react";
 import { SCRIPT_URL } from "../constants";
 import { getConfig, subscribeConfig } from "../lib/configStore";
-import { normaliseCandidate } from "../lib/candidates";
+import { normaliseCandidates } from "../lib/candidates";
 import {
   FALLBACK_DISC,
   parseDiscArchetypes,
@@ -53,30 +53,23 @@ export interface TalentDataValue {
   error: string | null;
   /** Re-run the GET request. */
   refetch: () => void;
-  /** POST a new candidate, then optimistically add it locally. */
-  submitCandidate: (
-    candidate: RawCandidate,
-  ) => Promise<{ ok: boolean; message: string }>;
   /**
-   * POST an edit for an existing candidate (matched by identificador), reflect
-   * it locally at once and then re-sync the whole database in the background.
+   * POST a new candidate. Resolves `ok: true` **only** when the sheet confirms
+   * the write; nothing is added locally otherwise (see `postToSheet`).
    */
-  updateCandidate: (
-    candidate: RawCandidate,
-  ) => Promise<{ ok: boolean; message: string }>;
+  submitCandidate: (candidate: RawCandidate) => Promise<WriteResult>;
+  /**
+   * POST an edit for an existing candidate (matched by identificador). On a
+   * confirmed write it patches the row locally at once and re-syncs the whole
+   * database in the background.
+   */
+  updateCandidate: (candidate: RawCandidate) => Promise<WriteResult>;
   /** Append a new job profile row to `perfil_cargo_bdp`, then re-sync. */
-  submitPerfilCargo: (
-    row: RawPerfilCargo,
-  ) => Promise<{ ok: boolean; message: string }>;
+  submitPerfilCargo: (row: RawPerfilCargo) => Promise<WriteResult>;
   /** Overwrite the job-profile row at 1-based data index `fila`, then re-sync. */
-  updatePerfilCargo: (
-    fila: number,
-    row: RawPerfilCargo,
-  ) => Promise<{ ok: boolean; message: string }>;
+  updatePerfilCargo: (fila: number, row: RawPerfilCargo) => Promise<WriteResult>;
   /** Delete the job-profile row at 1-based data index `fila` (rows shift up). */
-  deletePerfilCargo: (
-    fila: number,
-  ) => Promise<{ ok: boolean; message: string }>;
+  deletePerfilCargo: (fila: number) => Promise<WriteResult>;
 }
 
 const TalentDataContext = createContext<TalentDataValue | null>(null);
@@ -139,6 +132,105 @@ async function fetchPayload(
       return fetchPayload(signal, attempt + 1);
     }
     throw err;
+  }
+}
+
+/** Cuánto se espera a que la hoja conteste una escritura antes de rendirse. */
+const WRITE_TIMEOUT_MS = 25_000;
+
+/**
+ * Resultado de una escritura, tal y como lo entiende la interfaz.
+ *
+ * `pendiente` distingue el caso más delicado: la petición salió pero nunca
+ * volvió (proxy corporativo, red que se cae a medias). No sabemos si la hoja
+ * guardó o no, y decirle al analista «listo» sería mentirle.
+ */
+export interface WriteResult {
+  ok: boolean;
+  message: string;
+  /** Verdadero cuando el resultado real en la hoja es indeterminado. */
+  pendiente?: boolean;
+}
+
+/**
+ * POST a la hoja **comprobando la respuesta**.
+ *
+ * ## Lo que hacía antes
+ *
+ * `submitCandidate` lanzaba el `fetch`, ignoraba la respuesta y devolvía
+ * `ok: true` en cuanto la promesa se resolvía. Con eso, dos escenarios
+ * cotidianos acababan con el postulante perdido y el analista convencido de
+ * haberlo registrado:
+ *
+ *   1. **La hoja rechaza la fila** (identificador repetido, permisos, hoja
+ *      renombrada). Apps Script responde `{status:"error"}` con un `200`, así
+ *      que la aplicación cerraba el cuestionario, borraba el borrador y decía
+ *      «Postulante registrado correctamente». La ficha no existía en ninguna
+ *      parte.
+ *   2. **El POST no sale** (extensión, proxy, sin red). El `catch` insertaba la
+ *      fila **sólo en memoria** y anunciaba que se había guardado «localmente».
+ *      A los sesenta segundos el refresco en segundo plano traía la hoja de
+ *      verdad y la tarjeta desaparecía sin dejar rastro.
+ *
+ * Ahora se lee el sobre de respuesta, se respeta un tiempo máximo y nada se
+ * inserta en memoria si la hoja no confirmó: el borrador local sigue intacto y
+ * el cuestionario permanece abierto para reintentar.
+ */
+async function postToSheet(body: unknown): Promise<WriteResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WRITE_TIMEOUT_MS);
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      redirect: "follow",
+      // Apps Script web apps accept a JSON body on POST; text/plain avoids a
+      // CORS preflight that the default Apps Script deployment can't answer.
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        message: `El servidor respondió ${res.status}. No se guardó nada; vuelva a intentarlo.`,
+      };
+    }
+    const text = await res.text();
+    // Un despliegue viejo puede contestar vacío o con texto plano: si el HTTP
+    // fue correcto y no hay un "error" explícito, se toma como aceptado.
+    const data = parseEnvelope(text);
+    if (data && data.status && data.status !== "success") {
+      return {
+        ok: false,
+        message: data.message || "El servidor rechazó la operación.",
+      };
+    }
+    return { ok: true, message: "" };
+  } catch (err) {
+    // Se mira el `name` y no `instanceof DOMException`: no todos los entornos
+    // que ejecutan este código (navegador, jsdom, undici) usan la misma clase.
+    const aborted = (err as { name?: string } | null)?.name === "AbortError";
+    return {
+      ok: false,
+      pendiente: true,
+      message: aborted
+        ? "El servidor no respondió en 25 segundos. No se pudo confirmar el guardado: revise la hoja antes de reintentar."
+        : "No se pudo contactar con el servidor. Revise su conexión (o el antivirus/proxy de su equipo) y reintente; su avance sigue guardado en este equipo.",
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function parseEnvelope(text: string): { status?: string; message?: string } | null {
+  if (!text.trim()) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === "object"
+      ? (parsed as { status?: string; message?: string })
+      : null;
+  } catch {
+    return null;
   }
 }
 
@@ -297,62 +389,33 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
 
   const submitCandidate = useCallback(
     async (candidate: RawCandidate) => {
-      try {
-        // Apps Script web apps accept a JSON body on POST; text/plain avoids a
-        // CORS preflight that the default Apps Script deployment can't answer.
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(candidate),
-        });
-        // Optimistically reflect the new candidate without waiting for a reload.
-        setRaw((prev) => [candidate, ...prev]);
-        return { ok: true, message: "Postulante registrado correctamente." };
-      } catch {
-        // Still surface it locally so the operator's work isn't lost.
-        setRaw((prev) => [candidate, ...prev]);
-        return {
-          ok: false,
-          message:
-            "Se guardó localmente, pero la sincronización con el servidor falló.",
-        };
-      }
+      const result = await postToSheet(candidate);
+      if (!result.ok) return result;
+      // Sólo cuando la hoja confirmó: se refleja al instante (rápido) y se
+      // vuelve a leer la base entera (completo y sin inventar filas).
+      setRaw((prev) => [candidate, ...prev]);
+      load();
+      return { ok: true, message: "Postulante registrado correctamente." };
     },
-    [],
+    [load],
   );
 
   const updateCandidate = useCallback(
     async (candidate: RawCandidate) => {
       const id = String(candidate.identificador ?? "").trim();
+      // `action: "update"` routes to the sheet upsert that edits the exact row
+      // (matched by identificador) column by column.
+      const result = await postToSheet({ action: "update", ...candidate });
+      if (!result.ok) return result;
       const matches = (c: RawCandidate) =>
         String(c.identificador ?? "").trim() === id;
-      // Optimistically patch the matching row so the UI reflects the edit at
-      // once (fast), then re-sync the whole database (efficient + complete).
-      const applyLocal = () =>
-        setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
-      try {
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          // `action: "update"` routes to the sheet upsert that edits the exact
-          // row (matched by identificador) column by column.
-          body: JSON.stringify({ action: "update", ...candidate }),
-        });
-        applyLocal();
-        // The POST invalidates the backend cache, so a full refetch now returns
-        // fresh data and repaints every module from a single source of truth.
-        load();
-        return { ok: true, message: "Postulante actualizado correctamente." };
-      } catch {
-        applyLocal();
-        return {
-          ok: false,
-          message:
-            "Se actualizó localmente, pero la sincronización con el servidor falló.",
-        };
-      }
+      // Patch the matching row so the UI reflects the edit at once (fast), then
+      // re-sync the whole database (efficient + complete). The POST invalidates
+      // the backend cache, so the refetch returns fresh data and repaints every
+      // module from a single source of truth.
+      setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
+      load();
+      return { ok: true, message: "Postulante actualizado correctamente." };
     },
     [load],
   );
@@ -365,25 +428,10 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
   // keeps those indices fresh (deletes shift rows up — no blank gaps).
   const postPerfilCargo = useCallback(
     async (body: Record<string, unknown>, okMsg: string) => {
-      try {
-        const res = await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ type: "perfil_cargo", ...body }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
-        if (data.status && data.status !== "success") {
-          return { ok: false, message: data.message || "El servidor rechazó la operación." };
-        }
-        load();
-        return { ok: true, message: okMsg };
-      } catch {
-        return {
-          ok: false,
-          message: "No se pudo sincronizar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
-        };
-      }
+      const result = await postToSheet({ type: "perfil_cargo", ...body });
+      if (!result.ok) return result;
+      load();
+      return { ok: true, message: okMsg };
     },
     [load],
   );
@@ -404,10 +452,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [postPerfilCargo],
   );
 
-  const candidatos = useMemo(
-    () => raw.map((c, i) => normaliseCandidate(c, i)),
-    [raw],
-  );
+  const candidatos = useMemo(() => normaliseCandidates(raw), [raw]);
 
   const arquetipos = useMemo<DiscArchetype[]>(() => {
     const parsed = parseDiscArchetypes(arquetiposRaw);
