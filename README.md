@@ -117,6 +117,14 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
 - **Arquetipo DISC dinámico:** el desplegable y el pop-up de significado se
   alimentan de la hoja «Auxiliar» (columna `arquetipo_disc`); un icono «!» junto
   al arquetipo abre su descripción en todo el sistema (cuestionario y comparador).
+- **Estabilidad verificable:** todas las escrituras validan la respuesta del
+  backend (Apps Script devuelve `200` + HTML cuando su despliegue pierde
+  permisos, y antes eso se daba por un alta correcta); el estado de la conexión se
+  dice en voz alta (punto **rojo** en el dock y botón «Sin conexión»); el
+  almacenamiento del navegador y los observadores del DOM **degradan** en lugar de
+  tumbar el módulo; y **Configuración → Integraciones** trae un **diagnóstico de
+  conexión** de cuatro comprobaciones con informe copiable. Ver
+  [docs/estabilidad/EXPLICACION.md](docs/estabilidad/EXPLICACION.md).
 - **Impresión institucional** a Carta / Oficio en todos los módulos, con
   banderola de reporte y aplanado de vidrio para máxima legibilidad.
 - **Módulo — Procesos (ProcessOS):** gestión completa de la operación de
@@ -212,6 +220,34 @@ GET  →  { candidatos: [...], competencias: [...], arquetipos_disc: [...] }
 
 El hook global `useTalentData` (Context API) obtiene, normaliza y distribuye los
 datos, gestionando estados de carga y error con reintentos de *backoff*.
+
+> [!IMPORTANT]
+> **Toda escritura pasa por `src/lib/backendWrite.ts` y valida la respuesta.**
+> Apps Script **no** devuelve 401 cuando a un despliegue se le caducan los
+> permisos: devuelve **HTTP 200 con una página HTML** de autorización. El código
+> anterior hacía `await fetch(...)` sin mirar nada, así que el sistema decía
+> «Postulante registrado correctamente» y cerraba el cuestionario sin haber
+> escrito una sola celda. Nunca añadas un `fetch` de escritura por tu cuenta:
+> `postToBackend()` comprueba `res.ok`, detecta el HTML y valida el sobre
+> `{ status }`, y devuelve una causa (`red`, `permisos-backend`, `http`,
+> `respuesta-invalida`, `rechazado`, `tiempo`) con un mensaje accionable.
+
+> [!TIP]
+> **¿«No funciona» en un solo equipo?** Abre **Configuración → Integraciones →
+> Ejecutar diagnóstico**. Separa cuatro comprobaciones que apuntan a culpables
+> distintos —el propio sitio, el endpoint de Apps Script, el formato de su
+> respuesta y el almacenamiento del navegador— y «Copiar informe» deja en el
+> portapapeles un texto listo para pegar en un correo de soporte. Sólo lee: nunca
+> escribe una fila de prueba en la hoja.
+>
+> El punto del dock tiene tres estados (verde sincronizado, ámbar sincronizando,
+> **rojo sin conexión**). En rojo, lo que se ve es una copia local y nada de lo
+> que se registre llegará a la base.
+>
+> Investigación completa de los siete defectos que producían «el comparador no
+> funciona» y «no puedo añadir postulantes», con el antes y el después medidos en
+> el navegador: **[`docs/estabilidad/EXPLICACION.md`](docs/estabilidad/EXPLICACION.md)**.
+> El arnés que los reproduce está en [`qa/README.md`](qa/README.md).
 
 > El módulo **Documentación** persiste sus expedientes en `localStorage` y los
 > sincroniza *best-effort* con el backend (`type: "documentacion"`). Para el
