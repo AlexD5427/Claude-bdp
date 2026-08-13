@@ -70,6 +70,11 @@ export interface Candidate extends RawCandidate {
   conocimientosList: TechnicalKnowledge[];
   /** Parsed tool-handling entries (Manejo de Herramientas u otros). */
   herramientasList: TechnicalKnowledge[];
+  /**
+   * True cuando otro registro de la hoja ya usaba este identificador. Su `id`
+   * lleva un sufijo (`…#2`) para no colisionar; ver `normaliseCandidates`.
+   */
+  duplicado?: boolean;
 }
 
 /**

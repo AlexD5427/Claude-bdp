@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
+import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer, AlertTriangle } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { Avatar } from "../components/Avatar";
 import { CandidateActions } from "../components/CandidateActions";
@@ -10,7 +10,7 @@ import { RegistrationForm } from "./RegistrationForm";
 import { usePointerGlow } from "../hooks/usePointerGlow";
 import { printModule } from "../lib/print";
 import { ensureSeen, setStatus, useHiring, HIRING_LABELS, type HiringStatus } from "../lib/hiringStore";
-import { extractProceso } from "../lib/candidates";
+import { duplicatedIdentificadores, extractProceso } from "../lib/candidates";
 import type { Candidate } from "../types";
 
 export function ListaPostulantes() {
@@ -22,6 +22,11 @@ export function ListaPostulantes() {
   useEffect(() => {
     if (candidatos.length) ensureSeen(candidatos.map((c) => c.id));
   }, [candidatos]);
+
+  // Identificadores repetidos en la hoja. No se pueden arreglar desde la web
+  // (la clave la escribe una persona), pero sí hay que decirlo: mientras existan,
+  // editar uno de esos registros escribe sobre la primera fila que coincida.
+  const duplicados = useMemo(() => duplicatedIdentificadores(candidatos), [candidatos]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -63,6 +68,30 @@ export function ListaPostulantes() {
           Nuevo Postulante
         </button>
       </div>
+
+      {duplicados.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 26 }}
+          className="flex items-start gap-3 rounded-2xl bg-amber-400/12 px-4 py-3 ring-1 ring-amber-400/40 no-print"
+        >
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+          <div className="min-w-0 text-sm text-ink-soft">
+            <strong className="text-ink">
+              {duplicados.length} identificador(es) repetido(s) en la hoja.
+            </strong>{" "}
+            Cada clave debe pertenecer a una sola persona: mientras se repita, una
+            edición se escribe sobre la primera fila que coincida. Corrija el
+            identificador en la hoja de{" "}
+            {duplicados
+              .slice(0, 4)
+              .map((d) => `${d.identificador} (${d.count} registros)`)
+              .join(", ")}
+            {duplicados.length > 4 ? " y otros más." : "."}
+          </div>
+        </motion.div>
+      )}
 
       {loading ? (
         <LoadingState />
@@ -140,6 +169,15 @@ function CandidateCard({
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           Proceso {extractProceso(candidate.identificador)}
         </span>
+        {candidate.duplicado && (
+          <span
+            title="Otro registro de la hoja usa este mismo identificador único."
+            className="inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2.5 py-0.5 font-bold text-amber-500 ring-1 ring-amber-400/40"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            ID repetido
+          </span>
+        )}
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           {candidate.competenciasList.length} comp.
         </span>

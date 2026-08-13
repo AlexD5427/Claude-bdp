@@ -18,9 +18,12 @@ import type { Candidate, RawCandidate } from "../types";
 const submitCandidate = vi.fn(async (_candidate: RawCandidate) => ({ ok: true, message: "ok" }));
 const updateCandidate = vi.fn(async (_candidate: RawCandidate) => ({ ok: true, message: "ok" }));
 
+/** La base que ve el cuestionario; cada prueba la ajusta si lo necesita. */
+const baseCandidatos: Candidate[] = [];
+
 vi.mock("../context/TalentDataContext", () => ({
   useTalentData: () => ({
-    candidatos: [],
+    candidatos: baseCandidatos,
     competencias: ["Trabajo en Equipo,Sí,Sí,Sí,\"Colabora\""],
     arquetipos: [{ code: "D", label: "Impulsor (D)", description: "Acción" }],
     auxiliares: {
@@ -56,6 +59,7 @@ class ResizeObserverStub {
 
 beforeEach(() => {
   window.localStorage.clear();
+  baseCandidatos.length = 0;
   submitCandidate.mockClear();
   updateCandidate.mockClear();
   globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
@@ -229,5 +233,67 @@ describe("RegistrationForm · edición", () => {
       identificador: "5033853-163-2026",
       localidad_residencia: "El Alto",
     });
+  });
+});
+
+describe("RegistrationForm · identificador ya usado", () => {
+  it("no registra un identificador que ya existe y dice de quién es", async () => {
+    const user = userEvent.setup();
+    baseCandidatos.push(
+      candidate({
+        identificador: "9001122-107-2026",
+        nombres: "Carlos",
+        apellido_paterno: "Terán",
+        apellido_materno: "Ovando",
+      }),
+    );
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    await fillIdentificador(user, "9001122-107-2026");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    // Aquí nacían los duplicados que rompían el comparador y la edición.
+    expect(submitCandidate).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/Ya existe un postulante con ese identificador: Carlos Terán Ovando/i),
+    ).toBeInTheDocument();
+  });
+
+  it("ignora mayúsculas y espacios al comparar la clave", async () => {
+    const user = userEvent.setup();
+    baseCandidatos.push(candidate({ identificador: "abc-107-2026", nombres: "Ana" }));
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    await fillIdentificador(user, "  ABC-107-2026  ");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    expect(submitCandidate).not.toHaveBeenCalled();
+  });
+
+  it("registra con normalidad cuando la clave es nueva", async () => {
+    const user = userEvent.setup();
+    baseCandidatos.push(candidate({ identificador: "9001122-107-2026", nombres: "Carlos" }));
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    await fillIdentificador(user, "5544332-108-2026");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    await waitFor(() => expect(submitCandidate).toHaveBeenCalledTimes(1));
+  });
+
+  it("en edición no se estorba con su propio identificador", async () => {
+    const user = userEvent.setup();
+    const existente = candidate({
+      identificador: "9001122-107-2026",
+      nombres: "Carlos",
+      apellido_paterno: "Terán",
+    });
+    baseCandidatos.push(existente);
+    render(<RegistrationForm open onClose={vi.fn()} editing={existente} />);
+
+    await user.type(screen.getByLabelText(/Localidad de Residencia/i), "El Alto");
+    await user.click(screen.getByRole("button", { name: /Guardar Cambios/i }));
+
+    await waitFor(() => expect(updateCandidate).toHaveBeenCalledTimes(1));
   });
 });

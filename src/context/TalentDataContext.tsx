@@ -10,7 +10,7 @@ import {
 } from "react";
 import { SCRIPT_URL } from "../constants";
 import { getConfig, subscribeConfig } from "../lib/configStore";
-import { normaliseCandidate } from "../lib/candidates";
+import { normaliseCandidates } from "../lib/candidates";
 import {
   FALLBACK_DISC,
   parseDiscArchetypes,
@@ -140,6 +140,19 @@ async function fetchPayload(
     }
     throw err;
   }
+}
+
+/**
+ * Mensaje legible de un fallo de red o de un rechazo del backend, para que el
+ * analista sepa si el problema es su conexión o la hoja.
+ */
+function describe(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  if (!raw) return "error desconocido.";
+  if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+    return "no hay conexión con Google (revise su red, proxy o antivirus).";
+  }
+  return raw.endsWith(".") ? raw : `${raw}.`;
 }
 
 function readCache(): CachedPayload | null {
@@ -295,31 +308,75 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  /**
+   * POST a candidate payload and **verify that the sheet accepted it**.
+   *
+   * ## El fallo que esto cierra
+   *
+   * Antes se hacía `await fetch(...)` y se devolvía `ok: true` sin mirar la
+   * respuesta. Cualquier rechazo del backend —un `500` de Apps Script, una cuota
+   * agotada, un `302` a la pantalla de acceso de Google, o el propio
+   * `{status:"error"}` que el script devuelve cuando la fila no se pudo
+   * escribir— terminaba con el cartel «Postulante registrado correctamente», el
+   * modal cerrándose y `clearDraft()` **tirando a la basura** lo que el analista
+   * había escrito. La ficha no llegaba nunca a la hoja y, en el siguiente
+   * refresco en segundo plano, la fila optimista desaparecía de la pantalla.
+   * Desde la silla del analista eso es exactamente «registro postulantes y no se
+   * guardan».
+   *
+   * Se comprueban las dos señales que el backend puede dar:
+   *   · el código HTTP (`res.ok`), y
+   *   · el sobre `{status, message}` que ya honra `postPerfilCargo`.
+   *
+   * Un cuerpo que no es JSON **no** se considera un fallo: los despliegues
+   * antiguos del script contestan texto plano y seguirían funcionando.
+   */
+  const postCandidate = useCallback(async (body: Record<string, unknown>) => {
+    // Apps Script web apps accept a JSON body on POST; text/plain avoids a
+    // CORS preflight that the default Apps Script deployment can't answer.
+    const res = await fetch(SCRIPT_URL, {
+      method: "POST",
+      redirect: "follow",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`El servidor respondió HTTP ${res.status}.`);
+    const text = await res.text().catch(() => "");
+    let envelope: { status?: string; message?: string } = {};
+    try {
+      envelope = text ? (JSON.parse(text) as typeof envelope) : {};
+    } catch {
+      /* respuesta en texto plano: los despliegues antiguos del script no
+         devuelven JSON y se siguen considerando correctos. */
+    }
+    if (envelope.status && envelope.status !== "success") {
+      throw new Error(envelope.message || "El servidor rechazó la operación.");
+    }
+  }, []);
+
   const submitCandidate = useCallback(
     async (candidate: RawCandidate) => {
       try {
-        // Apps Script web apps accept a JSON body on POST; text/plain avoids a
-        // CORS preflight that the default Apps Script deployment can't answer.
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(candidate),
-        });
-        // Optimistically reflect the new candidate without waiting for a reload.
+        await postCandidate(candidate);
+        // Se refleja al instante sin volver a pedir la base: quien llama
+        // (`onSaved` del cuestionario) ya dispara su propio refresco, y pedirla
+        // aquí arriesgaba traer la copia en caché del script —todavía sin la fila
+        // nueva— y hacer «desaparecer» al postulante recién registrado.
         setRaw((prev) => [candidate, ...prev]);
         return { ok: true, message: "Postulante registrado correctamente." };
-      } catch {
-        // Still surface it locally so the operator's work isn't lost.
-        setRaw((prev) => [candidate, ...prev]);
+      } catch (err) {
+        // Un alta fallida NO se inserta en la base local. Insertarla creaba una
+        // fila fantasma que desaparecía en el siguiente refresco y, peor, hacía
+        // que el propio reintento chocara con la comprobación de identificador
+        // repetido del cuestionario. Nada se pierde: el cuestionario sigue
+        // abierto con todo lo escrito y el borrador local ya está guardado.
         return {
           ok: false,
-          message:
-            "Se guardó localmente, pero la sincronización con el servidor falló.",
+          message: `No se pudo guardar en la hoja: ${describe(err)} Nada se perdió: corrija y vuelva a pulsar «Registrar Postulante».`,
         };
       }
     },
-    [],
+    [postCandidate],
   );
 
   const updateCandidate = useCallback(
@@ -332,29 +389,24 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       const applyLocal = () =>
         setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
       try {
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          // `action: "update"` routes to the sheet upsert that edits the exact
-          // row (matched by identificador) column by column.
-          body: JSON.stringify({ action: "update", ...candidate }),
-        });
+        // `action: "update"` routes to the sheet upsert that edits the exact
+        // row (matched by identificador) column by column.
+        await postCandidate({ action: "update", ...candidate });
         applyLocal();
         // The POST invalidates the backend cache, so a full refetch now returns
         // fresh data and repaints every module from a single source of truth.
         load();
         return { ok: true, message: "Postulante actualizado correctamente." };
-      } catch {
-        applyLocal();
+      } catch (err) {
+        // Igual que en el alta: si la hoja no lo aceptó, no se finge que sí. El
+        // modal permanece abierto con los campos modificados resaltados.
         return {
           ok: false,
-          message:
-            "Se actualizó localmente, pero la sincronización con el servidor falló.",
+          message: `No se pudo actualizar en la hoja: ${describe(err)} Sus cambios siguen en el formulario; vuelva a pulsar «Guardar Cambios».`,
         };
       }
     },
-    [load],
+    [load, postCandidate],
   );
 
   // ---- Perfiles de Cargo (perfil_cargo_bdp) ------------------------------
@@ -404,10 +456,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [postPerfilCargo],
   );
 
-  const candidatos = useMemo(
-    () => raw.map((c, i) => normaliseCandidate(c, i)),
-    [raw],
-  );
+  const candidatos = useMemo(() => normaliseCandidates(raw), [raw]);
 
   const arquetipos = useMemo<DiscArchetype[]>(() => {
     const parsed = parseDiscArchetypes(arquetiposRaw);

@@ -352,7 +352,7 @@ function EditHL({ on, children }: { on: boolean; children: React.ReactNode }) {
  * objeto.
  */
 export function RegistrationForm({ open, onClose, onSaved, editing }: RegistrationFormProps) {
-  const { competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
+  const { candidatos, competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
     useTalentData();
   const isEdit = Boolean(editing);
   const [form, setForm] = useState<FormState>({ ...EMPTY });
@@ -548,6 +548,26 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
       });
       identificadorRef.current?.focus();
       return;
+    }
+
+    // El identificador es la clave con la que la hoja localiza la fila y con la
+    // que todo el sistema resuelve a una persona. Registrar dos veces el mismo
+    // rompía la comparativa (dos registros con la misma clave), abría el perfil
+    // equivocado y hacía que una edición pisara la fila ajena. Se corta aquí,
+    // que es donde nacen los duplicados.
+    if (!isEdit) {
+      const clave = form.identificador.trim().toLowerCase();
+      const existente = candidatos.find(
+        (c) => asText(c.identificador).toLowerCase() === clave,
+      );
+      if (existente) {
+        setFeedback({
+          kind: "warn",
+          message: `Ya existe un postulante con ese identificador: ${existente.fullName}. Use «Editar» sobre su ficha o corrija el identificador.`,
+        });
+        identificadorRef.current?.focus();
+        return;
+      }
     }
 
     const savedComps = form.competencias.map((c) =>

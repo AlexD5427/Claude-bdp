@@ -117,6 +117,62 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
 }
 
 /**
+ * Normalise the whole database, guaranteeing that **every candidate has a
+ * unique `id`**.
+ *
+ * ## Por qué esto es necesario
+ *
+ * El `id` se derivaba directamente del identificador único de la hoja. Pero el
+ * identificador lo teclea una persona («CI - Nro Proceso - Año»), así que se
+ * repite: alguien vuelve a registrar al mismo postulante, o dos analistas
+ * escriben el mismo CI. Cuando eso pasaba, dos registros distintos compartían
+ * `id` y todo el sistema se rompía de formas difíciles de explicar:
+ *
+ *   · React avisaba «Encountered two children with the same key» y se reservaba
+ *     el derecho de **omitir o duplicar** tarjetas de la lista de postulantes.
+ *   · El buscador del comparador excluye de las sugerencias a los ya elegidos
+ *     comparando `id`: al agregar al primero, **el segundo desaparecía de la
+ *     lista para siempre** y no había manera de compararlo.
+ *   · `candidatos.find(c => c.id === id)` —que usan el comparador, el visor de
+ *     perfil y el modal de edición— devolvía siempre el primero: se abría o se
+ *     editaba a la persona equivocada.
+ *
+ * Ahora la primera aparición conserva el identificador como `id` (así las
+ * comparaciones guardadas en la sesión siguen resolviéndose) y las siguientes
+ * reciben un sufijo `#2`, `#3`… Además se marcan con {@link Candidate.duplicado}
+ * para que la interfaz pueda avisar de que la hoja necesita una limpieza.
+ */
+export function normaliseCandidates(list: RawCandidate[]): Candidate[] {
+  const seen = new Map<string, number>();
+  return list.map((raw, index) => {
+    const candidate = normaliseCandidate(raw, index);
+    const previous = seen.get(candidate.id) ?? 0;
+    seen.set(candidate.id, previous + 1);
+    if (previous === 0) return candidate;
+    return { ...candidate, id: `${candidate.id}#${previous + 1}`, duplicado: true };
+  });
+}
+
+/**
+ * Identificadores que aparecen más de una vez en la base, con el número de
+ * registros que los comparten. Alimenta el aviso del módulo de Postulantes.
+ */
+export function duplicatedIdentificadores(
+  candidates: Candidate[],
+): { identificador: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const c of candidates) {
+    const id = asText(c.identificador);
+    if (!id) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([identificador, count]) => ({ identificador, count }))
+    .sort((a, b) => b.count - a.count || a.identificador.localeCompare(b.identificador));
+}
+
+/**
  * Derive the "Nro Proceso" from an identificador shaped like
  * "CI - Nro Proceso - Año" (e.g. "8456872-105-2026" → "105"). Identificadores
  * that don't follow the convention are bucketed under "Sin proceso".
