@@ -76,6 +76,7 @@ import {
   type ComparatorOrder,
 } from "../lib/configStore";
 import { setDockOverride } from "../lib/dockOverrideStore";
+import { observeIntersection, observeResize } from "../lib/observers";
 import {
   useComparator,
   addComparator,
@@ -87,6 +88,8 @@ import {
   setSectionCollapsed,
   setRowHidden,
   showAllRows,
+  showAllSections,
+  pruneMissing,
   resetComparatorView,
   COMPARATOR_SECTION_IDS,
   COMPARATOR_SECTION_LABELS,
@@ -128,10 +131,21 @@ export function NuevoComparador() {
   const [paper, setPaper] = useState<PaperSize>(config.defaultPaper);
   const [orientation, setOrientation] = useState<PaperOrientation>(config.defaultOrientation);
   const [tab, setTab] = useState<Tab>("comparativa");
+  /** Cuántos postulantes se cayeron de la comparación por no existir ya. */
+  const [pruned, setPruned] = useState(0);
 
   // The compact frozen bar clears whatever chrome sits at the top. When the
   // dock lives on top we must clear it; otherwise a small offset suffices.
   const stickyTop = config.dockPosition === "top" ? 84 : 12;
+
+  // En cuanto hay datos se descartan los identificadores que ya no existen. Sin
+  // esto el contador de columnas seguía contándolos y el buscador se bloqueaba en
+  // «Límite alcanzado» con la comparativa vacía (ver `lib/comparatorStore`).
+  useEffect(() => {
+    if (candidatos.length === 0) return;
+    const removed = pruneMissing(candidatos.map((c) => c.id));
+    if (removed > 0) setPruned((n) => n + removed);
+  }, [candidatos]);
 
   const selected = useMemo(
     () =>
@@ -181,6 +195,13 @@ export function NuevoComparador() {
     [cmp.rowHidden],
   );
 
+  // ¿Queda algo que dibujar? Apagar las seis secciones y la fila de ranking
+  // dejaba una cuadrícula con las tarjetas de los postulantes y absolutamente
+  // nada debajo, sin ninguna pista de que el propio analista lo había apagado
+  // desde la pestaña de Configuración (ver `qa/sondas.mjs secciones-apagadas`).
+  const anySectionVisible = COMPARATOR_SECTION_IDS.some((id) => cmp.sectionVisible[id]);
+  const gridIsEmpty = !anySectionVisible && !showRankRow;
+
   // --- frozen-header logic: reveal the compact bar once the big header cards
   //     scroll past the top chrome (no trembling). ---
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -191,14 +212,13 @@ export function NuevoComparador() {
       setStuck(false);
       return;
     }
-    const obs = new IntersectionObserver(
-      ([entry]) => {
-        setStuck(!entry.isIntersecting && entry.boundingClientRect.top < stickyTop);
+    return observeIntersection(
+      el,
+      (visible, rect) => {
+        setStuck(!visible && (rect?.top ?? 0) < stickyTop);
       },
       { rootMargin: `-${stickyTop}px 0px 0px 0px`, threshold: 0 },
     );
-    obs.observe(el);
-    return () => obs.disconnect();
   }, [selected.length, tab, stickyTop]);
 
   // When the sticky candidate strip appears (the operator has scrolled into the
@@ -247,14 +267,10 @@ export function NuevoComparador() {
   useEffect(() => {
     if (tab !== "comparativa") return;
     syncStrip();
-    const sc = scrollRef.current;
-    const grid = gridRef.current;
-    const ro = new ResizeObserver(() => syncStrip());
-    if (grid) ro.observe(grid);
-    if (sc) ro.observe(sc);
+    const stopObserving = observeResize([gridRef.current, scrollRef.current], syncStrip);
     window.addEventListener("resize", syncStrip);
     return () => {
-      ro.disconnect();
+      stopObserving();
       window.removeEventListener("resize", syncStrip);
     };
   }, [tab, selected.length, cmp.dense, syncStrip]);
@@ -300,6 +316,7 @@ export function NuevoComparador() {
             onRemove={remove}
             max={MAX_COLUMNS}
           />
+          <PrunedNotice count={pruned} onDismiss={() => setPruned(0)} />
         </div>
       )}
 
@@ -581,6 +598,8 @@ export function NuevoComparador() {
 
                   <div ref={sentinelRef} style={{ gridColumn: "1 / -1", height: 1 }} />
 
+                  {gridIsEmpty && <HiddenEverythingNotice />}
+
                   {/* ===== Ranking row (dedicated placement) ===== */}
                   {showRankRow && (
                     <RowFragment row={RANKING_ROW} index={0}>
@@ -781,6 +800,76 @@ export function NuevoComparador() {
 
 /** La fila de ranking se dibuja aparte de las secciones, en la cabecera. */
 const RANKING_ROW = COMPARATOR_ROWS.find((r) => r.id === "ranking")!;
+
+/* ------------------------------------------------------------------ */
+/* Avisos que explican una comparativa que parece rota                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Aviso de los postulantes que se cayeron de la comparación.
+ *
+ * Cuando un identificador desaparece de la base (se corrigió en la hoja, se
+ * borró la fila) su columna no puede dibujarse. Antes se descartaba en silencio y
+ * el hueco seguía contando para el límite de columnas; ahora se descarta de
+ * verdad y se dice, porque «tenía siete y ahora veo cinco» sin explicación es
+ * indistinguible de un fallo del sistema.
+ */
+function PrunedNotice({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+  return (
+    <AnimatePresence>
+      {count > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ type: "spring", stiffness: 320, damping: 26 }}
+          role="status"
+          className="no-print mt-2 flex flex-wrap items-center gap-2 rounded-2xl bg-amber-400/10 px-4 py-3 text-xs text-ink ring-1 ring-amber-400/40"
+        >
+          <Scale className="h-4 w-4 shrink-0 text-amber-500" />
+          <span className="min-w-0 flex-1">
+            Se quitaron <strong>{count}</strong> postulante(s) de la comparación porque ya no están
+            en la base de datos. Vuelva a agregarlos con el buscador si siguen vigentes.
+          </span>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="shrink-0 rounded-full fill-softer px-3 py-1.5 font-bold text-ink ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-95"
+          >
+            Entendido
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * Lo que se ve cuando el analista apagó todas las secciones. Ocupa el ancho
+ * completo de la cuadrícula y ofrece el remedio en el sitio donde surge el
+ * problema, en lugar de mandar a leer la pestaña de Configuración.
+ */
+function HiddenEverythingNotice() {
+  return (
+    <div
+      style={{ gridColumn: "1 / -1" }}
+      className="mt-2 flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-[color:var(--hairline)] px-4 py-5 text-sm text-ink-soft"
+    >
+      <Eye className="h-5 w-5 shrink-0 text-cyan-400" />
+      <span className="min-w-0 flex-1">
+        Todas las secciones de la comparativa están ocultas, así que no hay datos que mostrar. Se
+        activan desde la pestaña <strong className="text-ink">Configuración</strong> de este módulo.
+      </span>
+      <button
+        type="button"
+        onClick={showAllSections}
+        className="shrink-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-4 py-2 text-xs font-bold text-white shadow-glass ring-1 ring-white/30 transition-all hover:-translate-y-0.5 active:scale-95"
+      >
+        Mostrar todas las secciones
+      </button>
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Compact frozen strip chip                                           */
