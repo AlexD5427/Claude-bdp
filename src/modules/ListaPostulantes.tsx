@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
+import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer, Copy, AlertTriangle } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { Avatar } from "../components/Avatar";
 import { CandidateActions } from "../components/CandidateActions";
@@ -11,10 +11,19 @@ import { usePointerGlow } from "../hooks/usePointerGlow";
 import { printModule } from "../lib/print";
 import { ensureSeen, setStatus, useHiring, HIRING_LABELS, type HiringStatus } from "../lib/hiringStore";
 import { extractProceso } from "../lib/candidates";
+import { reliabilityTone, type Tone } from "../lib/levels";
 import type { Candidate } from "../types";
 
+/** Tinte suave de la píldora de confiabilidad dentro de la ficha. */
+const CONFIABILIDAD_TONO: Record<Tone, string> = {
+  green: "bg-emerald-500/15 text-emerald-500 ring-emerald-400/30",
+  amber: "bg-amber-500/15 text-amber-500 ring-amber-400/40",
+  red: "bg-rose-500/15 text-rose-500 ring-rose-400/30",
+  muted: "fill-softer text-ink-soft ring-[color:var(--hairline)]",
+};
+
 export function ListaPostulantes() {
-  const { candidatos, loading, error, refetch } = useTalentData();
+  const { candidatos, duplicados, loading, error, refetch } = useTalentData();
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
 
@@ -64,12 +73,18 @@ export function ListaPostulantes() {
         </button>
       </div>
 
+      {duplicados.length > 0 && <DuplicadosAviso identificadores={duplicados} />}
+
       {loading ? (
         <LoadingState />
       ) : error ? (
         <ErrorState message={error} onRetry={refetch} />
+      ) : candidatos.length === 0 ? (
+        // Distinto de «la búsqueda no encontró nada»: aquí no hay base que
+        // buscar, y decirlo evita que se interprete como un filtro mal puesto.
+        <EmptyState message="Aún no hay postulantes en la base de datos. Use «Nuevo Postulante» para registrar el primero." />
       ) : filtered.length === 0 ? (
-        <EmptyState message="No hay postulantes que coincidan con la búsqueda." />
+        <EmptyState message={`Ningún postulante coincide con «${query.trim()}».`} />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((c, i) => (
@@ -87,6 +102,43 @@ export function ListaPostulantes() {
   );
 }
 
+/**
+ * Aviso de integridad: identificadores repetidos en la hoja.
+ *
+ * El identificador es la clave de la fila, y con la clave repetida el sistema no
+ * puede distinguir a dos personas: la segunda desaparecía del buscador del
+ * Comparador y «Editar» abría siempre a la primera. Ahora cada ficha tiene una
+ * clave interna única, pero la hoja sigue necesitando corrección humana, y esto
+ * es lo que la pide señalando exactamente qué claves revisar.
+ */
+function DuplicadosAviso({ identificadores }: { identificadores: string[] }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 260, damping: 26 }}
+      role="alert"
+      className="no-print flex flex-wrap items-start gap-3 rounded-2xl bg-rose-500/12 px-4 py-3 ring-1 ring-rose-400/40"
+    >
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-rose-400/20 text-rose-500">
+        <Copy className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-bold text-rose-500">
+          {identificadores.length === 1
+            ? "Hay un identificador repetido en la hoja."
+            : `Hay ${identificadores.length} identificadores repetidos en la hoja.`}
+        </p>
+        <p className="mt-0.5 text-xs text-ink-soft">
+          El identificador es la clave de cada ficha: mientras esté duplicado, la edición no
+          puede saber a qué fila escribir. Corrija en la hoja:{" "}
+          <span className="font-semibold text-ink">{identificadores.join(" · ")}</span>
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
 function CandidateCard({
   candidate,
   index,
@@ -95,13 +147,10 @@ function CandidateCard({
   index: number;
 }) {
   const { onMouseMove } = usePointerGlow();
-  const confiable =
-    (candidate.nivel_general_confiabilidad ?? "")
-      .toLowerCase()
-      .includes("confiable") &&
-    !(candidate.nivel_general_confiabilidad ?? "")
-      .toLowerCase()
-      .includes("no confiable");
+  // Misma escala semántica que el Comparador (verde / ámbar / rojo). La ficha
+  // usaba un sí-o-no, así que «Confiabilidad Media» se pintaba de rojo, igual
+  // que «No Confiable»: dos cosas distintas con el mismo color.
+  const tonoConfiabilidad = reliabilityTone(candidate.nivel_general_confiabilidad);
 
   return (
     <motion.div
@@ -143,15 +192,22 @@ function CandidateCard({
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           {candidate.competenciasList.length} comp.
         </span>
+        {candidate.identificadorDuplicado && (
+          <span
+            title={`El identificador ${candidate.identificador} aparece más de una vez en la hoja.`}
+            className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 px-2.5 py-0.5 font-bold text-rose-500 ring-1 ring-rose-400/40"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            ID duplicado
+          </span>
+        )}
         <span
           className={[
             "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-bold ring-1",
-            confiable
-              ? "bg-emerald-500/15 text-emerald-500 ring-emerald-400/30"
-              : "bg-rose-500/15 text-rose-500 ring-rose-400/30",
+            CONFIABILIDAD_TONO[tonoConfiabilidad],
           ].join(" ")}
         >
-          {confiable ? (
+          {tonoConfiabilidad === "green" ? (
             <ShieldCheck className="h-3 w-3" />
           ) : (
             <ShieldAlert className="h-3 w-3" />

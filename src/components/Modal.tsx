@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
@@ -25,10 +25,19 @@ export function Modal({
   size = "max-w-5xl",
   ariaLabel,
 }: ModalProps) {
+  // El cierre se lee de una referencia para que el efecto dependa sólo de
+  // `open`. Con `onRequestClose` en las dependencias —y casi siempre es una
+  // función anónima creada en el render del padre— el efecto se rearmaba en cada
+  // dibujado: cada vez restauraba `body.overflow` y lo volvía a poner en
+  // `hidden`, lo que en el cuestionario (que se redibuja al teclear) provocaba
+  // saltos del desplazamiento de fondo.
+  const cerrarRef = useRef(onRequestClose);
+  cerrarRef.current = onRequestClose;
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onRequestClose();
+      if (e.key === "Escape") cerrarRef.current();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -37,7 +46,7 @@ export function Modal({
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onRequestClose]);
+  }, [open]);
 
   return createPortal(
     <AnimatePresence>

@@ -149,7 +149,9 @@ export function NuevoComparador() {
     if (config.sortByCapDesc) return orderForDisplay(ranked, config.comparatorOrder);
     // Sin ordenamiento por CAP se respeta el orden en que se agregaron.
     const byId = new Map(ranked.map((r) => [r.candidate.id, r]));
-    return selected.map((c) => byId.get(c.id)!).filter(Boolean);
+    return selected
+      .map((c) => byId.get(c.id))
+      .filter((r): r is RankedCandidate => r !== undefined);
   }, [ranked, selected, config.sortByCapDesc, config.comparatorOrder]);
 
   // Ranking visibility & placement (profile card / dedicated row / both).
@@ -180,6 +182,27 @@ export function NuevoComparador() {
       rowsOfSection(section).filter((row) => !cmp.rowHidden[row.id]),
     [cmp.rowHidden],
   );
+
+  /**
+   * Filas que de verdad se van a dibujar.
+   *
+   * Los interruptores de «Secciones visibles» y «Filas visibles» viven en la
+   * sesión, así que un analista podía apagarlos, cambiar de módulo, volver y
+   * encontrarse la comparativa con las tarjetas y **nada debajo**. Desde su
+   * silla eso es «el comparador dejó de funcionar». Contamos las filas para
+   * poder explicarlo y ofrecer el camino de vuelta.
+   */
+  const filasVisibles = useMemo(() => {
+    let total = showRankRow ? 1 : 0;
+    for (const id of COMPARATOR_SECTION_IDS) {
+      if (!cmp.sectionVisible[id]) continue;
+      total +=
+        id === "competencias"
+          ? competencyRows.filter((name) => !cmp.rowHidden[competencyRowId(name)]).length
+          : visibleRows(id).length;
+    }
+    return total;
+  }, [showRankRow, cmp.sectionVisible, cmp.rowHidden, competencyRows, visibleRows]);
 
   // --- frozen-header logic: reveal the compact bar once the big header cards
   //     scroll past the top chrome (no trembling). ---
@@ -281,9 +304,15 @@ export function NuevoComparador() {
   const dense = cmp.dense;
   // Candidate columns are a touch wider by default so the personal-data chip has
   // more breathing room (names wrap by word, ranking badge fits comfortably).
+  //
+  // La primera columna tiene un **techo en píxeles** y no una fracción. Con `0.8fr`
+  // crecía con el espacio libre, así que comparando a una sola persona la columna
+  // de rótulos se comía la mitad de la pantalla y la ficha quedaba encajada a la
+  // derecha, como si la cuadrícula estuviera descuadrada. Acotada, el espacio
+  // sobrante va a las columnas de postulantes, que es donde está la información.
   const columns = dense
-    ? `minmax(130px, 0.6fr) repeat(${ordered.length}, minmax(150px, 1fr))`
-    : `minmax(184px, 0.8fr) repeat(${ordered.length}, minmax(238px, 1fr))`;
+    ? `minmax(130px, 190px) repeat(${ordered.length}, minmax(150px, 1fr))`
+    : `minmax(184px, 264px) repeat(${ordered.length}, minmax(238px, 1fr))`;
   const printColumns = `minmax(88px, 0.5fr) repeat(${ordered.length}, minmax(0, 1fr))`;
 
   return (
@@ -581,6 +610,28 @@ export function NuevoComparador() {
 
                   <div ref={sentinelRef} style={{ gridColumn: "1 / -1", height: 1 }} />
 
+                  {filasVisibles === 0 && (
+                    <div
+                      style={{ gridColumn: "1 / -1" }}
+                      className="no-print flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-amber-400/50 bg-amber-500/10 px-4 py-4 text-sm"
+                    >
+                      <Eye className="h-5 w-5 shrink-0 text-amber-500" />
+                      <span className="min-w-0 flex-1 text-ink-soft">
+                        <strong className="text-ink">La comparativa está vacía porque todas sus filas están ocultas.</strong>{" "}
+                        Se apagaron desde «Configuración → Secciones / Filas visibles» y esa
+                        elección dura toda la sesión.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={resetComparatorView}
+                        className="inline-flex shrink-0 items-center gap-2 rounded-full fill-softer px-3.5 py-2 text-xs font-bold text-ink ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft active:scale-95"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Mostrar todo
+                      </button>
+                    </div>
+                  )}
+
                   {/* ===== Ranking row (dedicated placement) ===== */}
                   {showRankRow && (
                     <RowFragment row={RANKING_ROW} index={0}>
@@ -779,8 +830,21 @@ export function NuevoComparador() {
   );
 }
 
-/** La fila de ranking se dibuja aparte de las secciones, en la cabecera. */
-const RANKING_ROW = COMPARATOR_ROWS.find((r) => r.id === "ranking")!;
+/**
+ * La fila de ranking se dibuja aparte de las secciones, en la cabecera.
+ *
+ * Sin el respaldo, un `!` a nivel de módulo convertía cualquier renombrado del
+ * catálogo en una pantalla en blanco del módulo entero. Aquí no cuesta nada
+ * degradar con elegancia.
+ */
+const RANKING_ROW: ComparatorRowDef =
+  COMPARATOR_ROWS.find((r) => r.id === "ranking") ?? {
+    id: "ranking",
+    section: "ranking",
+    label: "Ranking",
+    sub: "Nota de Adecuación al Puesto",
+    kind: "ranking",
+  };
 
 /* ------------------------------------------------------------------ */
 /* Compact frozen strip chip                                           */
@@ -1527,7 +1591,12 @@ function RowValue({ row, candidate }: { row: ComparatorRowDef; candidate: Candid
 function RankingValue({ entry }: { entry: RankedCandidate }) {
   const explanation = tiebreakExplanation(entry);
   return (
-    <div className="flex h-full min-h-[64px] flex-col items-center justify-center gap-1 rounded-2xl fill-softer p-2 ring-1 ring-[color:var(--hairline)]">
+    // El alto mínimo tiene que caber la chapa **y** el aviso de desempate. Con el
+    // mínimo anterior (64 px) el contenido medía unos 78 px: se desbordaba de la
+    // celda y la banda azul de la sección siguiente —que se dibuja después— le
+    // pasaba por encima, así que el aviso aparecía cortado por la mitad justo en
+    // el caso en el que más importa leerlo.
+    <div className="flex h-full min-h-[5rem] flex-col items-center justify-center gap-1.5 rounded-2xl fill-softer px-2 py-2.5 ring-1 ring-[color:var(--hairline)]">
       <motion.div
         initial={{ opacity: 0, scale: 0.82, y: 6 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

@@ -7,6 +7,7 @@ import { FloatingDock } from "./components/FloatingDock";
 import { BrandHeader } from "./components/BrandHeader";
 import { KpiBar } from "./components/KpiBar";
 import { FilterBar } from "./components/FilterBar";
+import { StaleBanner } from "./components/StaleBanner";
 import { RefreshButton } from "./components/RefreshButton";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { CandidateProfileViewer } from "./components/profile/CandidateProfileViewer";
@@ -78,11 +79,11 @@ const MAIN_PAD: Record<DockPosition, string> = {
 
 function AppShell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
-  const { status } = useTalentData();
+  const { status, stale } = useTalentData();
   const { reduceMotion, dockPosition } = useConfig();
   const { current } = useProfiles();
   const { setTheme } = useTheme();
-  const synced = status === "success";
+  const synced = status === "success" && !stale;
 
   // Let the "Reducir movimiento" preference dampen animations app-wide.
   useEffect(() => {
@@ -121,6 +122,12 @@ function AppShell() {
 
         <div className="print-scope-hide">
           <FilterBar />
+        </div>
+
+        {/* Un solo aviso, arriba y en todos los módulos: si lo que se ve viene
+            de la caché local y el refresco falla, hay que decirlo. */}
+        <div className="print-scope-hide">
+          <StaleBanner />
         </div>
 
         {/* The comparator and the new ProcessOS/AssessmentOS modules provide

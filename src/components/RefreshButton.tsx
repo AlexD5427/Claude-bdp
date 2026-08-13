@@ -15,11 +15,14 @@ import { useConfig, type DockPosition } from "../lib/configStore";
  * itself to stay clear of the floating dock wherever the dock is anchored.
  */
 export function RefreshButton() {
-  const { syncing, refetch, lastSyncedAt, status } = useTalentData();
+  const { syncing, refetch, lastSyncedAt, status, stale, syncError } = useTalentData();
   const { showRefreshButton, dockPosition } = useConfig();
 
   if (!showRefreshButton) return null;
 
+  // El punto verde mentía: con datos en caché el estado seguía siendo "success"
+  // aunque cada refresco fallara. Ahora `stale` también lo pone en rojo.
+  const fallando = status === "error" || stale;
   const lastLabel = lastSyncedAt
     ? `Última sincronización: ${new Date(lastSyncedAt).toLocaleTimeString("es-BO", {
         hour: "2-digit",
@@ -37,7 +40,13 @@ export function RefreshButton() {
       transition={{ type: "spring", stiffness: 260, damping: 22, delay: 0.3 }}
       whileHover={{ y: -2, scale: 1.03 }}
       whileTap={{ scale: 0.95 }}
-      title={`Actualizar base de datos · ${lastLabel}`}
+      title={[
+        "Actualizar base de datos",
+        lastLabel,
+        fallando && syncError ? `Sin sincronizar: ${syncError}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       aria-label="Actualizar base de datos"
       className={[
         "glass-heavy no-print fixed z-[90] inline-flex items-center gap-2 rounded-full px-3.5 py-2.5 text-xs font-bold text-ink shadow-glass ring-1 ring-[color:var(--hairline)] transition-colors hover:text-cyan-400 disabled:cursor-progress",
@@ -56,7 +65,7 @@ export function RefreshButton() {
           "h-2 w-2 rounded-full",
           syncing
             ? "bg-amber-400 shadow-glow-amber"
-            : status === "error"
+            : fallando
               ? "bg-rose-500"
               : "bg-green-500 shadow-glow-green",
         ].join(" ")}
