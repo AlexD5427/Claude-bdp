@@ -181,6 +181,18 @@ export function NuevoComparador() {
     [cmp.rowHidden],
   );
 
+  // Las observaciones llegan como un texto con comas y hay que partirlas. Se
+  // hace **una vez por comparación** y no en cada dibujado de la celda: con el
+  // troceo dentro del JSX, cada re-dibujado entregaba un arreglo nuevo a la
+  // celda y eso rehacía su medición del desborde sin que nada hubiera cambiado.
+  const observaciones = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const entry of ordered) {
+      map.set(entry.candidate.id, observationTags(entry.candidate.observaciones));
+    }
+    return map;
+  }, [ordered]);
+
   // --- frozen-header logic: reveal the compact bar once the big header cards
   //     scroll past the top chrome (no trembling). ---
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -279,11 +291,16 @@ export function NuevoComparador() {
   }
 
   const dense = cmp.dense;
-  // Candidate columns are a touch wider by default so the personal-data chip has
-  // more breathing room (names wrap by word, ranking badge fits comfortably).
+  // Anchos de columna.
+  //
+  // La primera columna es la de rótulos y antes era `0.8fr`: con dos o tres
+  // candidatos se quedaba con casi la mitad de la pantalla para escribir «Nota
+  // CAP», mientras las tarjetas quedaban desplazadas al centro. Ahora tiene un
+  // techo fijo y las columnas de candidatos crecen con la pantalla pero también
+  // con un tope, para que comparar a dos personas no dibuje dos carteles.
   const columns = dense
-    ? `minmax(130px, 0.6fr) repeat(${ordered.length}, minmax(150px, 1fr))`
-    : `minmax(184px, 0.8fr) repeat(${ordered.length}, minmax(238px, 1fr))`;
+    ? `minmax(130px, 168px) repeat(${ordered.length}, minmax(150px, 1fr))`
+    : `minmax(184px, 236px) repeat(${ordered.length}, minmax(238px, 1fr))`;
   const printColumns = `minmax(88px, 0.5fr) repeat(${ordered.length}, minmax(0, 1fr))`;
 
   return (
@@ -738,7 +755,7 @@ export function NuevoComparador() {
                           <Cell key={entry.candidate.id + row.id}>
                             <LongCell
                               kind="tags"
-                              tags={observationTags(entry.candidate.observaciones)}
+                              tags={observaciones.get(entry.candidate.id) ?? []}
                               rowLabel={row.label}
                               rowSub={row.sub}
                               candidateName={entry.candidate.fullName}

@@ -74,6 +74,17 @@ export function LongCell({
   // Medimos el desborde real (no el declarado): sólo así sabemos si hace falta
   // recorrer la celda. Un ResizeObserver en el recorte y en el contenido cubre
   // el cambio de tamaño de ventana, el modo compacto y la llegada de más datos.
+  //
+  // La dependencia es una **firma del contenido** y no los arreglos: las
+  // observaciones se dividen en cada dibujado (`observationTags`), así que con
+  // los arreglos en las dependencias este efecto se rehacía —y creaba un
+  // `ResizeObserver` nuevo— en cada re-dibujado del comparador, para todas las
+  // celdas a la vez.
+  const signature =
+    kind === "items"
+      ? items.map((it) => `${it.nombre}\u0001${it.nivel ?? ""}\u0001${it.detalle ?? ""}`).join("\u0002")
+      : tags.join("\u0002");
+
   useEffect(() => {
     const clip = clipRef.current;
     const inner = innerRef.current;
@@ -87,7 +98,7 @@ export function LongCell({
     ro.observe(clip);
     ro.observe(inner);
     return () => ro.disconnect();
-  }, [items, tags]);
+  }, [signature]);
 
   const revealing = hover && overflow > 0 && !reduceMotion;
   // ~26 px/s de lectura cómoda, con un 30 % del ciclo en pausa a cada extremo.

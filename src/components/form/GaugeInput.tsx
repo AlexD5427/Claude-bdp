@@ -6,13 +6,27 @@ interface GaugeInputProps {
   hint?: string;
   /** 0..100, or null when unset. */
   value: number | null;
-  onChange: (value: number) => void;
+  /**
+   * Nuevo valor, o `null` al vaciar el campo. Poder volver a «sin dato» importa:
+   * una nota puesta por error no se podía deshacer sin cerrar el cuestionario, y
+   * un 0 no significa lo mismo que «no evaluado» en la comparativa.
+   */
+  onChange: (value: number | null) => void;
 }
 
 const R = 78;
 const CX = 100;
 const CY = 100;
 const STROKE = 16;
+/**
+ * Caja de dibujo del velocímetro. El mapeo de puntero a valor **tiene que**
+ * usar exactamente estas medidas: antes convertía la coordenada vertical con un
+ * alto de 120 mientras el `viewBox` medía 116, así que cada clic sobre el dial
+ * caía un 3 % más abajo de donde el analista había apuntado y el valor salía
+ * desviado (más cuanto más cerca de los extremos). Una sola fuente de verdad.
+ */
+const VIEW_W = 200;
+const VIEW_H = 116;
 
 /** Describe the SVG arc path from value `a` to value `b` along the dial. */
 function arcPath(a: number, b: number): string {
@@ -75,9 +89,9 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
     const svg = svgRef.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
-    // Map screen point into the 200×120 viewBox coordinate space.
-    const px = ((clientX - rect.left) / rect.width) * 200;
-    const py = ((clientY - rect.top) / rect.height) * 120;
+    // Map screen point into the SVG viewBox coordinate space.
+    const px = ((clientX - rect.left) / rect.width) * VIEW_W;
+    const py = ((clientY - rect.top) / rect.height) * VIEW_H;
     let angle = Math.atan2(CY - py, px - CX); // radians, 0 = right, π = left
     // Below the dial's baseline: snap to the nearest end instead of wrapping.
     if (angle < 0) angle = px < CX ? Math.PI : 0;
@@ -107,7 +121,12 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
   }, []);
 
   function commitDraft(text: string) {
-    const n = Number.parseInt(text.replace(/[^0-9]/g, ""), 10);
+    const digits = text.replace(/[^0-9]/g, "");
+    if (digits === "") {
+      onChange(null);
+      return;
+    }
+    const n = Number.parseInt(digits, 10);
     if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100, n)));
   }
 
@@ -133,7 +152,7 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
       >
         <svg
           ref={svgRef}
-          viewBox="0 0 200 116"
+          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           className="w-full cursor-pointer touch-none"
           onPointerDown={(e) => {
             dragging.current = true;

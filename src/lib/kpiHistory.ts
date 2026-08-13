@@ -42,6 +42,14 @@ function save(store: Store) {
   }
 }
 
+function sameValues(a: KpiValues, b: KpiValues): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if ((a[k] ?? null) !== (b[k] ?? null)) return false;
+  }
+  return true;
+}
+
 export function monthKey(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -57,18 +65,31 @@ function monthLabel(key: string): string {
   return new Intl.DateTimeFormat("es-BO", { month: "short" }).format(new Date(y, m - 1, 1));
 }
 
-/** Upsert the current month's snapshot (best-effort backend sync included). */
+/**
+ * Upsert the current month's snapshot (best-effort backend sync included).
+ *
+ * Dos detalles que importan a la hoja:
+ *   · Los valores se **fusionan** con lo que ya había del mes en curso en lugar
+ *     de reemplazarlos, para que un indicador que hoy no se puede calcular no
+ *     borre el que sí se calculó antes.
+ *   · Si el mes ya está guardado con exactamente estos valores no se escribe ni
+ *     se envía nada. El tablero y la barra de indicadores montan los dos el
+ *     mismo grabador, así que cada navegación disparaba dos POST idénticos
+ *     contra Apps Script sin aportar ningún dato nuevo.
+ */
 export function recordCurrent(values: KpiValues) {
   const store = load();
   const key = monthKey();
-  store[key] = { month: key, values, updatedAt: new Date().toISOString() };
+  const merged = { ...(store[key]?.values ?? {}), ...values };
+  if (store[key] && sameValues(store[key].values, merged)) return;
+  store[key] = { month: key, values: merged, updatedAt: new Date().toISOString() };
   save(store);
   try {
     void fetch(SCRIPT_URL, {
       method: "POST",
       redirect: "follow",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ type: "kpi_snapshot", month: key, values }),
+      body: JSON.stringify({ type: "kpi_snapshot", month: key, values: merged }),
     }).catch(() => {});
   } catch {
     /* ignore */

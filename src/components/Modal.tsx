@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
@@ -25,19 +25,34 @@ export function Modal({
   size = "max-w-5xl",
   ariaLabel,
 }: ModalProps) {
+  // El cierre vive en una referencia: los llamadores lo declaran dentro del
+  // cuerpo del componente (identidad nueva en cada dibujado), así que con la
+  // función en las dependencias este efecto se desmontaba y volvía a montar
+  // —quitando y poniendo el escuchador de teclado y reescribiendo el `overflow`
+  // del `<body>`— en **cada pulsación de tecla** del cuestionario.
+  const closeRef = useRef(onRequestClose);
+  closeRef.current = onRequestClose;
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onRequestClose();
+      if (e.key === "Escape") closeRef.current();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
+    // Se recuerda la posición de la página: enfocar un campo dentro de un panel
+    // `fixed` hace que el navegador desplace también el documento que hay
+    // detrás, y al cerrar el modal la aplicación se quedaba corrida (en el móvil
+    // eran 40 px: justo los que metían la cabecera institucional debajo del
+    // dock). Al cerrar la devolvemos a donde estaba.
+    const scrollY = window.scrollY;
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
+      if (Math.abs(window.scrollY - scrollY) > 1) window.scrollTo({ top: scrollY });
     };
-  }, [open, onRequestClose]);
+  }, [open]);
 
   return createPortal(
     <AnimatePresence>

@@ -51,16 +51,19 @@ export function TagInput({
         {hint && <span className="text-[0.65rem] text-ink-faint">{hint}</span>}
       </span>
       <div className="glass flex flex-wrap items-center gap-1.5 rounded-xl px-2.5 py-2 focus-within:ring-2 focus-within:ring-cyan-400/70">
-        {tags.map((tag) => (
+        {tags.map((tag, i) => (
           <span
-            key={tag}
+            // El texto no sirve como clave: las observaciones que ya vienen de la
+            // hoja pueden traer la misma etiqueta dos veces y React avisaría de
+            // claves repetidas (y podría omitir una).
+            key={`${tag}-${i}`}
             className="inline-flex items-center gap-1 rounded-full bg-gradient-to-br from-[#00b0d8]/80 to-[#005baa]/80 px-2.5 py-1 text-xs font-semibold text-white ring-1 ring-white/30"
           >
             {tag}
             <button
               type="button"
               aria-label={`Quitar ${tag}`}
-              onClick={() => onChange(tags.filter((t) => t !== tag))}
+              onClick={() => onChange(tags.filter((_, j) => j !== i))}
               className="grid h-4 w-4 place-items-center rounded-full bg-white/20 transition-colors hover:bg-rose-500/80"
             >
               <X className="h-3 w-3" />

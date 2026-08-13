@@ -108,7 +108,12 @@ export function ItemListBuilder({
               >
                 <div className="flex items-center gap-2">
                   <input
-                    ref={(el) => (nameRefs.current[item.uid] = el)}
+                    ref={(el) => {
+                      // Las filas eliminadas no deben dejar su nodo colgando en
+                      // el mapa: React llama con `null` al desmontar.
+                      if (el) nameRefs.current[item.uid] = el;
+                      else delete nameRefs.current[item.uid];
+                    }}
                     value={item.nombre}
                     onChange={(e) => onChange(item.uid, { nombre: e.target.value })}
                     placeholder={namePlaceholder}

@@ -14,20 +14,37 @@ export function useDebouncedValue<T>(value: T, delay = 250): T {
   return debounced;
 }
 
-/** Track a CSS media query with SSR-safe defaults. */
+/**
+ * Track a CSS media query with SSR-safe defaults.
+ *
+ * La comprobación es `typeof window.matchMedia === "function"` y no
+ * `"matchMedia" in window`: hay entornos —jsdom entre ellos, y algún navegador
+ * embebido antiguo— donde la propiedad existe pero no es invocable, y ahí el
+ * `in` daba luz verde para acabar en «window.matchMedia is not a function».
+ * Es la clase de detalle que tumba la aplicación entera en un solo equipo.
+ */
 export function useMediaQuery(query: string): boolean {
+  const supported = () =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function";
   const [matches, setMatches] = useState(() =>
-    typeof window !== "undefined" && "matchMedia" in window
-      ? window.matchMedia(query).matches
-      : false,
+    supported() ? window.matchMedia(query).matches : false,
   );
   useEffect(() => {
-    if (typeof window === "undefined" || !("matchMedia" in window)) return;
+    if (!supported()) return;
     const mql = window.matchMedia(query);
     const onChange = () => setMatches(mql.matches);
     onChange();
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
+    // Safari < 14 sólo tiene la API antigua (`addListener`).
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    const legacy = mql as MediaQueryList & {
+      addListener?: (cb: () => void) => void;
+      removeListener?: (cb: () => void) => void;
+    };
+    legacy.addListener?.(onChange);
+    return () => legacy.removeListener?.(onChange);
   }, [query]);
   return matches;
 }

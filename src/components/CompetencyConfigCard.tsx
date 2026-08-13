@@ -44,14 +44,22 @@ export const CompetencyConfigCard = memo(function CompetencyConfigCard({
   const ajuste = computeAjuste(esperado, obtenido);
 
   // Let users type a comma as a decimal separator even on type=number inputs.
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === ",") {
-      e.preventDefault();
-      const input = e.currentTarget;
-      if (!input.value.includes(".")) {
-        input.value = input.value + ".";
-      }
-    }
+  //
+  // Antes esto escribía `input.value = value + "."` directamente en el DOM. Dos
+  // problemas: React desconocía el cambio (el estado se quedaba atrás) y, sobre
+  // todo, en un `input[type=number]` el navegador **rechaza** un valor como
+  // "3." porque no es un número válido y lo deja en blanco: teclear la coma
+  // borraba el número que ya estaba escrito. Ahora la coma se traduce a punto en
+  // el propio estado, que es la única fuente de verdad del campo.
+  function commaToDot(
+    e: React.KeyboardEvent<HTMLInputElement>,
+    field: "esperadoText" | "obtenidoText",
+    current: string,
+  ) {
+    if (e.key !== ",") return;
+    e.preventDefault();
+    if (current.includes(".")) return;
+    onChange(competency.uid, { [field]: `${current}.` } as Partial<FormCompetency>);
   }
 
   return (
@@ -105,7 +113,7 @@ export const CompetencyConfigCard = memo(function CompetencyConfigCard({
               step="any"
               inputMode="decimal"
               value={competency.esperadoText}
-              onKeyDown={handleKeyDown}
+              onKeyDown={(e) => commaToDot(e, "esperadoText", competency.esperadoText)}
               onChange={(e) =>
                 onChange(competency.uid, { esperadoText: e.target.value })
               }
@@ -126,7 +134,7 @@ export const CompetencyConfigCard = memo(function CompetencyConfigCard({
               step="any"
               inputMode="decimal"
               value={competency.obtenidoText}
-              onKeyDown={handleKeyDown}
+              onKeyDown={(e) => commaToDot(e, "obtenidoText", competency.obtenidoText)}
               onChange={(e) =>
                 onChange(competency.uid, { obtenidoText: e.target.value })
               }
