@@ -31,6 +31,11 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   explícito** (botón o `Ctrl/⌘+Intro`): pulsar Intro en un campo ya no envía la
   ficha a medio llenar, que era la causa de que el avance «se reiniciara solo»
   (ver [docs/comparador-postulantes/EXPLICACION.md](docs/comparador-postulantes/EXPLICACION.md)).
+  Se **impide crear dos fichas con el mismo Identificador Único** y, cuando la
+  hoja ya los trae repetidos, el módulo los denuncia en lugar de disimularlos.
+  El guardado **verifica que la hoja aceptó la fila**: un rechazo del servidor ya
+  no se muestra como éxito (ver
+  [docs/auditoria-comparador-postulantes/EXPLICACION.md](docs/auditoria-comparador-postulantes/EXPLICACION.md)).
 - **Perfil de Postulante (Vista Completa):** panel a pantalla completa que
   **centraliza toda la información de una persona** en un solo lugar, accesible
   desde **cualquier módulo** (comparador, procesos, postulantes, documentación,
@@ -144,11 +149,9 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   `correctas ÷ calificables × 100`; las preguntas abiertas dejan el intento
   *pendiente de revisión* en lugar de otorgar cero. La **API pública nunca expone
   respuestas correctas** (verificado con 14 pruebas dedicadas).
-  Backend listo para copiar en [`apps-script/evaluations/`](apps-script/evaluations/)
-  y documentación completa en [`docs/evaluations/`](docs/evaluations/) (estado,
-  arquitectura, contrato de API, modelo de datos, configuración de Sheets y Apps
-  Script, seguridad, revisión de código, pruebas, despliegue, rollback, tipos de
-  pregunta, auditoría visual y entrega al portal de candidatos).
+  Backend listo para copiar en [`apps-script/evaluaciones/`](apps-script/evaluaciones/)
+  y documentación en [`docs/evaluaciones/`](docs/evaluaciones/): contrato de la
+  API para el frontend, entrega al portal de candidatos y formato de importación.
 - Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1).
 
 > Documentación técnica de los módulos ProcessOS + AssessmentOS en
@@ -174,27 +177,27 @@ npm run build      # typecheck + build de producción
 npm run preview    # previsualizar el build
 npm test           # suite de pruebas (Vitest)
 npm run typecheck  # solo comprobación de tipos
-npm run check      # verificaciones estáticas del módulo Evaluaciones
-npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
+
+npm run backend:check  # coherencia backend-frontend del módulo Evaluaciones
+npm run doc:check      # coherencia backend-frontend del módulo Documentación
 ```
+
+> **Si la interfaz responde con retraso en un equipo concreto**, empiece por
+> *Configuración → Apariencia y rendimiento → «Vidrio ligero»* (o el preajuste
+> «Modo ligero»). El desenfoque de fondo es, medido, el 99 % del coste de dibujar
+> una tecla; apagarlo multiplica por ~5 la respuesta en equipos cuya GPU no lo
+> acelera. El razonamiento y las mediciones están en
+> [docs/auditoria-comparador-postulantes/EXPLICACION.md](docs/auditoria-comparador-postulantes/EXPLICACION.md).
 
 > El módulo **Evaluaciones** usa su propio libro de Google Sheets y su propio
 > proyecto de Apps Script, independientes del resto del sistema. En desarrollo
 > arranca con datos de demostración; en producción los tres valores públicos
 > viajan en `.env.production`.
 >
-> Para ponerlo en marcha, corregir su configuración o diagnosticar un fallo, la
-> guía paso a paso —escrita para alguien que no domina Git, Vercel ni Apps
-> Script— es
-> **[`docs/evaluations/GUIA_OPERATIVA_FINAL.md`](docs/evaluations/GUIA_OPERATIVA_FINAL.md)**.
-> Incluye tabla de síntomas, rollback, rotación de secretos y una checklist
-> imprimible. Si el portal dice «Esta evaluación no está disponible», empieza por
-> su §13.
->
-> Contexto del incidente de julio de 2026 en
-> [`REPARACION_2026-07.md`](docs/evaluations/REPARACION_2026-07.md); referencia
-> completa en [`APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md) y
-> [`DEPLOYMENT.md`](docs/evaluations/DEPLOYMENT.md).
+> El contrato de su API y el formato de importación están en
+> [`docs/evaluaciones/`](docs/evaluaciones/); las instrucciones de despliegue del
+> proyecto de Apps Script, en
+> [`apps-script/evaluaciones/README.md`](apps-script/evaluaciones/README.md).
 
 ## 🔌 Backend
 
@@ -216,9 +219,9 @@ datos, gestionando estados de carga y error con reintentos de *backoff*.
 > El módulo **Documentación** persiste sus expedientes en `localStorage` y los
 > sincroniza *best-effort* con el backend (`type: "documentacion"`). Para el
 > guardado real en Google Sheets, la lectura de `arquetipos_disc`/`carrera` y el
-> **envío automático de correos cada 3 días**, despliegue
-> [`docs/backend/Documentacion.gs`](docs/backend/Documentacion.gs) (ver
-> `docs/backend/README.md`).
+> **envío automático de correos cada 3 días**, despliegue el proyecto de
+> [`apps-script/documentacion/`](apps-script/documentacion/) siguiendo su
+> [README](apps-script/documentacion/README.md).
 
 ## 🎨 Sistema de diseño
 
@@ -238,9 +241,9 @@ src/
 ├── content/locale/  # Catálogo de textos es-MX + formateadores
 ├── context/         # useTalentData + useTheme (Context API)
 ├── design-system/   # Tokens semánticos, motion y primitivas Liquid Glass
-├── features/        # ProcessOS (processes/) y AssessmentOS (assessments/)
+├── features/        # ProcessOS (processes/) y AssessmentOS (evaluaciones/)
 ├── infrastructure/  # Proveedores (mock/Apps Script/Supabase), mappers, sync
-├── hooks/           # usePointerGlow, useFormDraft (autosave/recuperación)
+├── hooks/           # usePointerGlow, useFormDraft, useBodyScrollLock
 ├── lib/             # cálculos, normalización, niveles, impresión, DISC y docStore
 ├── modules/         # Tablero, Cara a Cara, Comparador, Postulantes, Perfiles, Documentación
 ├── shared/          # Result, ids, envelope, sanitize, store, hooks, flags
@@ -248,9 +251,10 @@ src/
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 
 apps-script/
-└── evaluations/     # backend de Evaluaciones listo para copiar a Apps Script
+├── evaluaciones/    # backend de Evaluaciones listo para copiar a Apps Script
+└── documentacion/   # backend de Documentación (libro `registro_ingresos`)
 scripts/
-├── check-evaluations.mjs   # verificaciones estáticas (npm run check)
-├── run-apps-script.mjs     # arnés que ejecuta los .gs en Node (pruebas)
-└── visual-qa.mjs           # capturas reproducibles de la matriz visual
+├── evaluaciones-backend.mjs        # arnés que ejecuta los .gs en Node (pruebas)
+├── evaluaciones-backend-check.mjs  # `npm run backend:check`
+└── documentacion-backend-check.mjs # `npm run doc:check`
 ```
