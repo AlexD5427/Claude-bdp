@@ -936,14 +936,20 @@
 }
 
 /* When the dock glides to the left edge (see dockOverrideStore), nudge the
-   comparator content right on wide screens so the vertical dock never overlaps
-   the frozen label column. Animated so it feels connected to the dock's move. */
+   comparator content right so the vertical dock never overlaps the frozen label
+   column. Animated so it feels connected to the dock's move.
+
+   La consulta de medios arranca en 640 px, el mismo umbral con el que el módulo
+   decide pedir el traslado: si la compensación empezara más arriba (como ocurría
+   con 1024 px), entre 640 y 1023 px el dock se movía sin que nada se apartara y
+   se comía los rótulos de la primera columna. El ancho cubre el dock vertical
+   (unos 76 px con su margen) con holgura. */
 .cmp-shifted {
   transition: padding-left 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
-@media (min-width: 1024px) {
+@media (min-width: 640px) {
   .cmp-shifted.is-shifted {
-    padding-left: 5rem;
+    padding-left: 5.5rem;
   }
 }
 

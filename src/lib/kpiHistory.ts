@@ -57,22 +57,51 @@ function monthLabel(key: string): string {
   return new Intl.DateTimeFormat("es-BO", { month: "short" }).format(new Date(y, m - 1, 1));
 }
 
-/** Upsert the current month's snapshot (best-effort backend sync included). */
+/**
+ * Upsert the current month's snapshot.
+ *
+ * ## Dos grabadores, una sola fila
+ *
+ * Hay dos componentes que registran indicadores (`KpiBar`, con los del módulo
+ * activo, y `Dashboard`, con los ejecutivos) y ambos escriben el mismo mes.
+ * Antes cada uno **reemplazaba** el mapa completo de valores, así que el último
+ * en dibujarse borraba los indicadores del otro: la historia mensual —de la que
+ * salen las variaciones «mes contra mes»— quedaba a medias y cambiaba según qué
+ * módulo se hubiera abierto. Ahora se combinan las claves.
+ *
+ * El envío al backend se agrupa: la hoja recibe una sola escritura con el mapa
+ * ya combinado en lugar de una por grabador y por módulo visitado. (El script
+ * actual responde `ignored` a este tipo, pero el contrato queda listo para
+ * cuando se implemente la hoja de KPIs.)
+ */
 export function recordCurrent(values: KpiValues) {
   const store = load();
   const key = monthKey();
-  store[key] = { month: key, values, updatedAt: new Date().toISOString() };
+  const merged: KpiValues = { ...(store[key]?.values ?? {}), ...values };
+  store[key] = { month: key, values: merged, updatedAt: new Date().toISOString() };
   save(store);
-  try {
-    void fetch(SCRIPT_URL, {
-      method: "POST",
-      redirect: "follow",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ type: "kpi_snapshot", month: key, values }),
-    }).catch(() => {});
-  } catch {
-    /* ignore */
-  }
+  queueSync(key, merged);
+}
+
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Agrupa las escrituras del mes en un solo POST (best-effort). */
+function queueSync(month: string, values: KpiValues) {
+  if (typeof window === "undefined") return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    try {
+      void fetch(SCRIPT_URL, {
+        method: "POST",
+        redirect: "follow",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ type: "kpi_snapshot", month, values }),
+      }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }, 1500);
 }
 
 /** Previous calendar month's stored value for a KPI key (for MoM deltas). */

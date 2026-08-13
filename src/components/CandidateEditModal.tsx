@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTalentData } from "../context/TalentDataContext";
 import { useCandidateEdit, closeEdit } from "../lib/candidateEditStore";
+import { toast } from "../design-system/liquid-glass/toast";
 import { RegistrationForm } from "../modules/RegistrationForm";
 import type { Candidate } from "../types";
 
@@ -19,9 +20,21 @@ import type { Candidate } from "../types";
  */
 export function CandidateEditModal() {
   const editingId = useCandidateEdit();
-  const { candidatos } = useTalentData();
+  const { candidatos, status } = useTalentData();
   const candidate = editingId ? candidatos.find((c) => c.id === editingId) ?? null : null;
   const visible = candidate !== null;
+
+  // Si se pidió editar a alguien que la base no tiene (una fila borrada desde
+  // la hoja, un enlace viejo), no se puede dejar la petición colgada en el
+  // store: se avisa y se cierra. Antes esto no hacía nada en absoluto y el
+  // botón parecía averiado.
+  useEffect(() => {
+    if (!editingId || candidate || status === "loading" || status === "idle") return;
+    toast.warning(
+      "No se encontró ese postulante en la base de datos. Actualice los datos e inténtelo de nuevo.",
+    );
+    closeEdit();
+  }, [editingId, candidate, status]);
 
   // Durante la animación de cierre ya no hay candidato en el store: conservamos
   // el último para que el modal no cambie de título mientras se va.

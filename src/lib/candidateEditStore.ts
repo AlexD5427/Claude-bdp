@@ -18,9 +18,15 @@ function emit() {
   for (const l of listeners) l();
 }
 
-/** Open the edit modal for a candidate id (its stable `Candidate.id`). */
+/**
+ * Open the edit modal for a candidate id (its stable `Candidate.id`).
+ *
+ * No hay atajo para «ya está abierto en ese id»: si el modal no llegó a abrirse
+ * (por ejemplo porque la base aún no tenía esa fila), quedarse callado dejaba el
+ * botón «Editar» muerto para siempre en ese registro. Volver a emitir es barato
+ * y hace que el segundo clic siempre haga algo.
+ */
 export function openEdit(id: string): void {
-  if (editingId === id) return;
   editingId = id;
   emit();
 }

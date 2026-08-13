@@ -93,6 +93,7 @@ import {
   type ComparatorSectionId,
 } from "../lib/comparatorStore";
 import { proficiencyTone } from "../lib/levels";
+import { useMediaQuery } from "../shared/hooks";
 import { printModule, type PaperSize, type PaperOrientation } from "../lib/print";
 import type { Candidate, CompetencyScore } from "../types";
 import "../components/comparator/comparator-motion.css";
@@ -206,8 +207,16 @@ export function NuevoComparador() {
   // it clears the top for the strip. We also nudge the grid right so the moved
   // dock never sits over the frozen label column. Everything reverts on the way
   // back up, on tab change and on unmount.
+  //
+  // El desplazamiento compensatorio es una regla CSS con consulta de medios, así
+  // que **sólo se pide el traslado del dock donde esa compensación existe**
+  // (≥ 640 px). En un teléfono, un dock vertical se comía un tercio del ancho y
+  // encima tapaba la columna de rótulos, que es precisamente lo que se quería
+  // evitar.
+  const wideEnoughForSideDock = useMediaQuery("(min-width: 640px)");
   const moveDock =
     stuck &&
+    wideEnoughForSideDock &&
     tab === "comparativa" &&
     (config.dockPosition === "top" || config.dockPosition === "bottom");
   useEffect(() => {
@@ -755,8 +764,14 @@ export function NuevoComparador() {
 
           {/* Fixed navigation helper — appears once the comparison grows past a
               handful of candidates, so panning across (and down) the audit stays
-              effortless. Toggleable from the comparator's Configuración tab. */}
-          {config.comparatorNavHelper && selected.length > 4 && (
+              effortless. Toggleable from the comparator's Configuración tab.
+
+              Sólo se muestra cuando el analista ya está dentro de la cuadrícula
+              (el mismo momento en que aparece la tira congelada). Antes se
+              dibujaba desde el principio, flotando en el centro del borde
+              derecho, justo encima del buscador y de las fichas de candidatos:
+              tapaba el control que se acababa de usar para llegar hasta ahí. */}
+          {config.comparatorNavHelper && selected.length > 4 && stuck && (
             <ComparatorNavHelper
               onPan={panBy}
               canLeft={scrollNav.left > 1}
