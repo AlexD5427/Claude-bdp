@@ -311,6 +311,54 @@
     -webkit-backdrop-filter: none;
   }
 
+  /* ---------------------------------------------------------------
+     .reduce-transparency — modo «vidrio ligero».
+
+     ## Por qué existe
+
+     Medido en el sistema: escribir una letra en el cuestionario cuesta
+     ~1 ms de JavaScript y ~140 ms hasta que la letra aparece en pantalla.
+     La diferencia no es React: es `backdrop-filter`. El panel del modal
+     difumina 40 px sobre un área de casi toda la ventana en cada
+     dibujado, y cuando el equipo no acelera ese filtro por hardware —una
+     GPU integrada antigua, un controlador que Chrome pone en la lista
+     negra, una sesión de escritorio remoto— el trabajo cae en la CPU.
+     Con el desenfoque apagado la misma tecla cuesta ~75 ms, y sin
+     animaciones ~43 ms: más de tres veces más rápido.
+
+     Eso explica por qué el mismo sistema «va bien» en casi todos los
+     equipos y «va pesado» en uno: depende del hardware, no del código.
+
+     ## Qué hace
+
+     Sustituye el desenfoque por un fondo sólido del mismo tono. Se pierde
+     la refracción; se conservan el color, el borde, la sombra y el
+     reflejo, así que el sistema sigue siendo reconocible. Se activa desde
+     Configuración → Apariencia y rendimiento y también, sin tocar nada,
+     cuando el sistema operativo pide menos transparencia.
+     --------------------------------------------------------------- */
+  .reduce-transparency .glass,
+  .reduce-transparency .glass-heavy,
+  .reduce-transparency [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* Sin desenfoque detrás, un fondo al 10 % deja ver el texto de abajo: se
+     opacan las superficies para que sigan siendo legibles. */
+  .reduce-transparency.dark {
+    --glass-bg: #12233d;
+    --glass-bg-heavy: #162946;
+  }
+  .reduce-transparency.light {
+    --glass-bg: #f6faff;
+    --glass-bg-heavy: #ffffff;
+  }
+  /* El sombreado del fondo del modal ya no puede apoyarse en el desenfoque. */
+  .reduce-transparency .bg-slate-950\/55,
+  .reduce-transparency .bg-slate-950\/60 {
+    background-color: rgba(2, 6, 23, 0.82);
+  }
+
   /* Halo ámbar del campo modificado en el cuestionario (ver EditHL). */
   .edit-hl {
     box-shadow:

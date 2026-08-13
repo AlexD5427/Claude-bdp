@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2023"],
+    // `vitest.setup.ts` corre dentro de jsdom y rellena `matchMedia` y
+    // `ResizeObserver`, así que este proyecto también necesita los tipos del DOM.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",

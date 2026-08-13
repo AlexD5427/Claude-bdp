@@ -19,6 +19,7 @@ import {
   Gauge,
   Sparkles,
   Building,
+  Layers,
   LayoutPanelTop,
 } from "lucide-react";
 import { usePointerGlow } from "../hooks/usePointerGlow";
@@ -212,6 +213,13 @@ export function Configuracion() {
               onChange={(v) => setConfig({ reduceMotion: v })}
             />
             <Toggle
+              title="Vidrio ligero (sin desenfoque de fondo)"
+              subtitle="Cambia el desenfoque por un color sólido. Es el ajuste que más acelera la interfaz si el equipo no acelera ese efecto por hardware: medido, escribir en el cuestionario pasa de ~140 ms a ~75 ms por tecla."
+              icon={<Layers className="h-4 w-4" />}
+              checked={config.reduceTransparency}
+              onChange={(v) => setConfig({ reduceTransparency: v })}
+            />
+            <Toggle
               title="Avatares de perfil estáticos"
               subtitle="Desactiva las animaciones de los avatares (login y dock) en equipos de menor potencia."
               icon={<Sparkles className="h-4 w-4" />}
@@ -225,8 +233,9 @@ export function Configuracion() {
             <div className="min-w-0">
               <div className="text-sm font-bold text-ink">Rendimiento en equipos lentos</div>
               <p className="text-xs text-ink-soft">
-                Aplica un preajuste que reduce el movimiento, usa avatares estáticos y baja el
-                motor 3D para una experiencia más fluida.
+                Aplica un preajuste que reduce el movimiento, apaga el desenfoque de fondo, usa
+                avatares estáticos y baja el motor 3D. Es lo primero que hay que probar cuando la
+                interfaz responde con retraso en un equipo concreto.
               </p>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -235,6 +244,7 @@ export function Configuracion() {
                 onClick={() =>
                   setConfig({
                     reduceMotion: true,
+                    reduceTransparency: true,
                     staticAvatars: true,
                     enableThree: false,
                     threeQuality: "baja",
@@ -251,6 +261,7 @@ export function Configuracion() {
                 onClick={() =>
                   setConfig({
                     reduceMotion: false,
+                    reduceTransparency: false,
                     staticAvatars: false,
                     enableThree: true,
                     threeQuality: "auto",

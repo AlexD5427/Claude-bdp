@@ -15,6 +15,7 @@ import { LoginScreen } from "./components/login/LoginScreen";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { TalentDataProvider, useTalentData } from "./context/TalentDataContext";
 import { useConfig, type DockPosition } from "./lib/configStore";
+import { usePrefersReducedTransparency } from "./shared/hooks";
 import {
   getBundle,
   logActivity,
@@ -79,7 +80,8 @@ const MAIN_PAD: Record<DockPosition, string> = {
 function AppShell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
   const { status } = useTalentData();
-  const { reduceMotion, dockPosition } = useConfig();
+  const { reduceMotion, reduceTransparency, dockPosition } = useConfig();
+  const prefersReducedTransparency = usePrefersReducedTransparency();
   const { current } = useProfiles();
   const { setTheme } = useTheme();
   const synced = status === "success";
@@ -88,6 +90,15 @@ function AppShell() {
   useEffect(() => {
     document.documentElement.classList.toggle("reduce-motion", reduceMotion);
   }, [reduceMotion]);
+
+  // «Vidrio ligero»: cambia el desenfoque de fondo por un color sólido. Es el
+  // ajuste que más devuelve en equipos cuya GPU no acelera `backdrop-filter`
+  // (ver `.reduce-transparency` en index.css). Se respeta también la preferencia
+  // del sistema operativo, sin que nadie tenga que descubrir el interruptor.
+  const flatGlass = reduceTransparency || prefersReducedTransparency;
+  useEffect(() => {
+    document.documentElement.classList.toggle("reduce-transparency", flatGlass);
+  }, [flatGlass]);
 
   // Apply the logged-in profile's saved theme (the rest of the bundle —
   // appConfig + dashboard layout — is applied by the store on login).

@@ -133,6 +133,13 @@ export interface AppConfig {
   enableThree: boolean;
   threeQuality: ThreeQuality;
   reduceMotion: boolean;
+  /**
+   * Modo «vidrio ligero»: cambia el desenfoque de fondo (`backdrop-filter`) por
+   * un color sólido. Es el ajuste que más rendimiento devuelve en equipos cuya
+   * GPU no acelera ese filtro; ver el bloque `.reduce-transparency` de
+   * `src/index.css` para las mediciones.
+   */
+  reduceTransparency: boolean;
   /** Render profile avatars as static (no idle animations) for low-end devices. */
   staticAvatars: boolean;
 
@@ -311,6 +318,7 @@ export function defaultConfig(): AppConfig {
     enableThree: true,
     threeQuality: "auto",
     reduceMotion: false,
+    reduceTransparency: false,
     staticAvatars: false,
 
     dockPosition: "top",
@@ -332,16 +340,27 @@ function load(): AppConfig {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
-    // Migration: the comparator cap moved from 5 (old default) → 10. Bump the
-    // untouched default and clamp any explicit choice into the new [2,10] range.
-    const maxComparador =
-      parsed.maxComparador === undefined || parsed.maxComparador === 5
-        ? 10
-        : Math.min(10, Math.max(2, parsed.maxComparador));
+    // El máximo de columnas se sanea, no se «migra». La versión anterior
+    // reescribía a 10 cualquier valor igual a 5 (el antiguo valor por omisión),
+    // así que quien elegía deliberadamente 5 en Configuración lo perdía en cada
+    // recarga. Aquí sólo se rellena lo ausente y se recorta lo imposible.
+    const maxComparador = clampNumber(parsed.maxComparador, 2, 10, base.maxComparador);
     return {
       ...base,
       ...parsed,
       maxComparador,
+      capApprovalThreshold: clampNumber(
+        parsed.capApprovalThreshold,
+        0,
+        100,
+        base.capApprovalThreshold,
+      ),
+      autoRefreshSeconds: clampNumber(
+        parsed.autoRefreshSeconds,
+        15,
+        3600,
+        base.autoRefreshSeconds,
+      ),
       // Templates: keep persisted ones if present, else the seeded set.
       emailTemplates:
         Array.isArray(parsed.emailTemplates) && parsed.emailTemplates.length
@@ -351,6 +370,25 @@ function load(): AppConfig {
   } catch {
     return base;
   }
+}
+
+/**
+ * Recorta un ajuste numérico persistido al rango que la interfaz sabe manejar.
+ *
+ * Un `localStorage` puede traer cualquier cosa: una versión anterior de la app,
+ * una edición manual, o un `NaN` de un campo que quedó vacío. Y un valor fuera
+ * de rango en `maxComparador` es especialmente dañino: con 0, el comparador
+ * rechaza en silencio todo lo que se le agregue.
+ */
+function clampNumber(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
 let state: AppConfig = load();
