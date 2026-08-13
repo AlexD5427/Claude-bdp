@@ -26,3 +26,6 @@ dist-ssr
 # Tooling artifacts (not part of the app)
 .claude/
 skills-lock.json
+
+# Informe del arnés de QA (se regenera con `npm run qa`)
+docs/qa/informe.json

@@ -116,6 +116,88 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
   };
 }
 
+export interface BaseNormalizada {
+  candidatos: Candidate[];
+  /**
+   * Identificadores que aparecen más de una vez en la hoja, en el orden en que
+   * se encontraron. La interfaz los muestra como aviso de integridad: son un
+   * problema de datos que sólo se puede arreglar en la hoja.
+   */
+  duplicados: string[];
+}
+
+/**
+ * Normaliza la base completa **garantizando que cada ficha tenga una clave
+ * única**.
+ *
+ * ## Por qué esto era un fallo grave
+ *
+ * `Candidate.id` salía directamente del identificador de la hoja. En cuanto dos
+ * filas comparten identificador —y en una hoja que se llena a mano pasa: un
+ * copiado y pegado, un proceso reabierto, dos personas con el mismo CI mal
+ * escrito— las dos fichas pasaban a tener el **mismo `id`**, y ese `id` es la
+ * identidad con la que trabaja todo el sistema:
+ *
+ *   · El buscador del Comparador excluye de las sugerencias a quien ya está
+ *     comparado. Con la clave repetida, agregar a la primera persona hacía
+ *     **desaparecer a la segunda del buscador**: no había forma de compararla, y
+ *     el módulo parecía roto («no me deja agregar a esta persona»).
+ *   · «Ver perfil» y «Editar» resuelven por `find(c => c.id === id)`, así que
+ *     abrían *siempre* la primera de las dos: se editaba a la persona
+ *     equivocada.
+ *   · React recibía dos hijos con la misma `key` en la lista de Postulantes, con
+ *     el reciclado de nodos que eso implica.
+ *
+ * La solución no inventa datos: la primera ficha conserva su identificador como
+ * clave (para no invalidar lo ya guardado en el equipo: estado de contratación,
+ * expedientes, referencias) y las repetidas reciben un sufijo `#2`, `#3`, …
+ * Además se marcan con `identificadorDuplicado` para que la interfaz pueda
+ * avisar de que la hoja necesita corrección.
+ *
+ * @example
+ * // Hoja: [ {id:"8456872-105-2026", …}, {id:"8456872-105-2026", …}, {id:"", …} ]
+ * // Claves: "8456872-105-2026", "8456872-105-2026#2", "sin-id-3"
+ */
+export function normaliseCandidates(rows: RawCandidate[]): BaseNormalizada {
+  const conteo = new Map<string, number>();
+  for (const row of rows) {
+    const ident = asText(row.identificador).toLowerCase();
+    if (!ident) continue;
+    conteo.set(ident, (conteo.get(ident) ?? 0) + 1);
+  }
+
+  const duplicados: string[] = [];
+  const vistos = new Set<string>();
+  const usados = new Set<string>();
+
+  const candidatos = rows.map((row, index) => {
+    const base = normaliseCandidate(row, index);
+    const ident = asText(row.identificador);
+    const clave = ident.toLowerCase();
+
+    if (clave && (conteo.get(clave) ?? 0) > 1) {
+      base.identificadorDuplicado = true;
+      if (!vistos.has(clave)) {
+        vistos.add(clave);
+        duplicados.push(ident);
+      }
+    }
+
+    // Sin identificador la clave se deriva de la fila, que sí es única.
+    let id = ident || `sin-id-${index + 1}`;
+    if (usados.has(id)) {
+      let n = 2;
+      while (usados.has(`${id}#${n}`)) n += 1;
+      id = `${id}#${n}`;
+    }
+    usados.add(id);
+    base.id = id;
+    return base;
+  });
+
+  return { candidatos, duplicados };
+}
+
 /**
  * Derive the "Nro Proceso" from an identificador shaped like
  * "CI - Nro Proceso - Año" (e.g. "8456872-105-2026" → "105"). Identificadores

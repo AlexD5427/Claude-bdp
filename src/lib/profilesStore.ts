@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { SCRIPT_URL } from "../constants";
+import { almacenLocal, escribirJson, leerJson } from "../shared/storage";
 import {
   getConfig,
   setConfig,
@@ -160,21 +161,10 @@ function delCookie(name: string): void {
 }
 
 function readJson<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
+  return leerJson<T>(key, fallback);
 }
 function writeJson(key: string, value: unknown): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* ignore */
-  }
+  escribirJson(key, value);
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,9 +327,11 @@ export function getBundle(id: string): ProfileConfigBundle {
 
 /** Capture the current global preferences as this session's bundle. */
 export function captureBundle(): ProfileConfigBundle {
-  const theme = (typeof window !== "undefined"
-    ? (window.localStorage.getItem("bdp-theme") as "dark" | "light" | null)
-    : null) ?? undefined;
+  // Vía `almacenLocal`: esta función se ejecuta en cada cambio de configuración
+  // (la suscripción del final del archivo), así que un acceso que lanza dejaba
+  // **inservibles todos los interruptores** de Configuración y del Comparador en
+  // un navegador con el almacenamiento bloqueado.
+  const theme = (almacenLocal.get("bdp-theme") as "dark" | "light" | null) ?? undefined;
   return { theme, appConfig: getConfig(), layout: getLayout() };
 }
 
