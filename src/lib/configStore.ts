@@ -322,6 +322,102 @@ export function defaultConfig(): AppConfig {
 }
 
 /* ------------------------------------------------------------------ */
+/* Saneamiento                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Convierte cualquier retazo de configuración en uno **utilizable**.
+ *
+ * ## Por qué no basta con confiar en la interfaz
+ *
+ * Los controles de Configuración ya acotan lo que se puede elegir (el
+ * *stepper* de «Máx. candidatos a comparar» nunca baja de 2). Pero la
+ * configuración entra al sistema por tres puertas más, y ninguna la valida:
+ *
+ *   1. `localStorage` de la máquina, que puede venir de una versión anterior.
+ *   2. El **paquete personal del perfil**, que viaja en la columna
+ *      `config_personal_perfil` de la hoja `Perfiles_y_Configuracion` y se
+ *      aplica al iniciar sesión (`profilesStore.applyBundle`).
+ *   3. Cualquier edición manual de esa celda.
+ *
+ * Un `maxComparador: 0` colado por ahí dejaba el Comparador **inservible**: el
+ * buscador aparecía deshabilitado con «Límite alcanzado (0/0)» y no había forma
+ * de agregar a nadie. Y como el paquete vive en la hoja, el fallo seguía a esa
+ * persona a cualquier equipo en el que entrara — mientras el resto del equipo
+ * veía el módulo funcionando perfectamente. De ahí el clásico «a mí no me
+ * funciona» que no se reproduce en ninguna otra máquina.
+ *
+ * Sanear en la **frontera** (al cargar y en cada `setConfig`) cierra las cuatro
+ * puertas de una vez: no hay ningún camino por el que un valor imposible pueda
+ * llegar al estado vivo.
+ */
+export function sanitizeConfig(patch: Partial<AppConfig>): Partial<AppConfig> {
+  const out: Partial<AppConfig> = { ...patch };
+
+  const num = (value: unknown, min: number, max: number): number | undefined => {
+    // Ojo con `Number(null)` y `Number("")`: los dos dan 0, que aquí sería un
+    // valor «válido» inventado de la nada. Sólo un número o un texto numérico.
+    let n: number;
+    if (typeof value === "number") n = value;
+    else if (typeof value === "string" && value.trim() !== "") n = Number(value);
+    else return undefined;
+    if (!Number.isFinite(n)) return undefined;
+    return Math.min(max, Math.max(min, Math.round(n)));
+  };
+  const clampInto = (key: "capApprovalThreshold" | "maxComparador" | "autoRefreshSeconds", min: number, max: number) => {
+    if (!(key in out)) return;
+    const value = num(out[key], min, max);
+    if (value === undefined) delete out[key];
+    else out[key] = value;
+  };
+  const oneOf = <K extends keyof AppConfig>(key: K, allowed: readonly AppConfig[K][]) => {
+    if (!(key in out)) return;
+    if (!allowed.includes(out[key] as AppConfig[K])) delete out[key];
+  };
+  const bool = (key: keyof AppConfig) => {
+    if (!(key in out)) return;
+    if (typeof out[key] !== "boolean") delete out[key];
+  };
+
+  clampInto("capApprovalThreshold", 0, 100);
+  // Nunca por debajo de 2: comparar exige dos columnas para tener sentido.
+  clampInto("maxComparador", 2, 10);
+  clampInto("autoRefreshSeconds", 15, 3600);
+
+  oneOf("rankPlacement", ["tarjeta", "fila", "ambos"]);
+  oneOf("comparatorOrder", ["desc", "asc"]);
+  oneOf("defaultPaper", ["Letter", "Legal"]);
+  oneOf("defaultOrientation", ["portrait", "landscape"]);
+  oneOf("threeQuality", ["auto", "alta", "media", "baja"]);
+  oneOf("dockPosition", ["top", "bottom", "left", "right"]);
+  oneOf("dockSize", ["sm", "md", "lg"]);
+
+  for (const key of [
+    "rankingEnabled",
+    "sortByCapDesc",
+    "comparatorNavHelper",
+    "autoRefresh",
+    "showRefreshButton",
+    "enableThree",
+    "reduceMotion",
+    "staticAvatars",
+    "dockCollapsed",
+  ] as const) {
+    bool(key);
+  }
+
+  for (const key of ["orgName", "teamName", "reclutador", "evaluarUrl"] as const) {
+    if (key in out && typeof out[key] !== "string") delete out[key];
+  }
+
+  if ("emailTemplates" in out && !Array.isArray(out.emailTemplates)) {
+    delete out.emailTemplates;
+  }
+
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /* Store plumbing                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -331,13 +427,13 @@ function load(): AppConfig {
   try {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return base;
-    const parsed = JSON.parse(raw) as Partial<AppConfig>;
+    const parsed = sanitizeConfig(JSON.parse(raw) as Partial<AppConfig>);
     // Migration: the comparator cap moved from 5 (old default) → 10. Bump the
-    // untouched default and clamp any explicit choice into the new [2,10] range.
+    // untouched default; any other explicit choice is already clamped to [2,10].
     const maxComparador =
       parsed.maxComparador === undefined || parsed.maxComparador === 5
         ? 10
-        : Math.min(10, Math.max(2, parsed.maxComparador));
+        : parsed.maxComparador;
     return {
       ...base,
       ...parsed,
@@ -374,7 +470,8 @@ function emit() {
 /* ------------------------------------------------------------------ */
 
 export function setConfig(patch: Partial<AppConfig>): void {
-  state = { ...state, ...patch };
+  // Todo entra saneado, venga de la interfaz, de `localStorage` o de la hoja.
+  state = { ...state, ...sanitizeConfig(patch) };
   emit();
 }
 

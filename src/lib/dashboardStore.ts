@@ -157,7 +157,13 @@ export function resetLayout(): void {
 
 /** Replace the whole layout (used when applying a profile's saved config). */
 export function importLayout(widgets: DashWidget[]): void {
-  const valid = Array.isArray(widgets) ? widgets.filter((w) => widgetDef(w.id)) : [];
+  // El paquete puede venir de la hoja (`config_personal_perfil`), así que aquí
+  // no se puede dar por hecho que cada elemento sea un objeto con `id`: leer
+  // `w.id` de un `null` lanzaba, y como esto corre dentro del inicio de sesión,
+  // el perfil afectado se quedaba sin poder entrar a la aplicación.
+  const valid = Array.isArray(widgets)
+    ? widgets.filter((w) => w && typeof w === "object" && widgetDef(w.id))
+    : [];
   state = { widgets: valid.length ? valid : [...DEFAULT_LAYOUT] };
   emit();
 }

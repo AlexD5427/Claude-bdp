@@ -37,36 +37,13 @@ export const ROLE_LEVEL: Record<Role, number> = {
   pasante: 20,
 };
 
-export interface Permisos {
-  /** Ver el módulo de Configuración. */
-  verConfiguracion: boolean;
-  /** Editar la configuración global (no sólo la personal). */
-  editarConfiguracion: boolean;
-  /** Registrar postulantes. */
-  registrarPostulante: boolean;
-  /** Editar / eliminar registros. */
-  editarRegistros: boolean;
-  /** Gestionar la documentación de incorporación. */
-  gestionarDocumentacion: boolean;
-  /** Ver la bitácora de actividad de todos los perfiles. */
-  verBitacora: boolean;
-  /** Administrar perfiles (crear / eliminar / cambiar roles). */
-  gestionarPerfiles: boolean;
-}
-
-/** Compute the permission set for a role. Scalable: tweak here to re-tune. */
-export function permisosDe(role: Role): Permisos {
-  const lvl = ROLE_LEVEL[role];
-  return {
-    verConfiguracion: true,
-    editarConfiguracion: lvl >= 80, // supervisor+
-    registrarPostulante: lvl >= 50, // analista+
-    editarRegistros: lvl >= 50,
-    gestionarDocumentacion: lvl >= 50,
-    verBitacora: lvl >= 80,
-    gestionarPerfiles: lvl >= 100, // admin
-  };
-}
+/**
+ * Los permisos efectivos del sistema viven en
+ * `features/shared/permissions.ts`, que es de donde tiran ProcessOS y
+ * AssessmentOS. Aquí había un segundo modelo (`permisosDe`) que nadie
+ * importaba: dos fuentes de verdad para lo mismo, y la que parecía gobernar el
+ * registro de postulantes no gobernaba nada. Se retira para que quede una sola.
+ */
 
 /* ------------------------------------------------------------------ */
 /* Profiles                                                            */
@@ -343,11 +320,23 @@ export function captureBundle(): ProfileConfigBundle {
   return { theme, appConfig: getConfig(), layout: getLayout() };
 }
 
-/** Apply a profile's saved bundle to the live app (theme handled by the app). */
+/**
+ * Apply a profile's saved bundle to the live app (theme handled by the app).
+ *
+ * El paquete llega de `localStorage` o de la hoja (`config_personal_perfil`),
+ * es decir: de fuera. `setConfig` e `importLayout` ya sanean lo que reciben,
+ * pero esto corre **dentro del inicio de sesión**, así que cualquier sorpresa
+ * aquí dejaría al perfil sin poder entrar. Preferimos entrar con las
+ * preferencias por omisión antes que no entrar.
+ */
 function applyBundle(id: string): void {
-  const bundle = getBundle(id);
-  if (bundle.appConfig) setConfig(bundle.appConfig);
-  if (bundle.layout) importLayout(bundle.layout);
+  try {
+    const bundle = getBundle(id);
+    if (bundle.appConfig) setConfig(bundle.appConfig);
+    if (bundle.layout) importLayout(bundle.layout);
+  } catch {
+    /* preferencias por omisión */
+  }
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
