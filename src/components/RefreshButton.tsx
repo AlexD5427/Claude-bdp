@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { RefreshCcw } from "lucide-react";
+import { RefreshCcw, WifiOff } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { useConfig, type DockPosition } from "../lib/configStore";
 
@@ -15,11 +15,12 @@ import { useConfig, type DockPosition } from "../lib/configStore";
  * itself to stay clear of the floating dock wherever the dock is anchored.
  */
 export function RefreshButton() {
-  const { syncing, refetch, lastSyncedAt, status } = useTalentData();
+  const { syncing, refetch, lastSyncedAt, status, connection } = useTalentData();
   const { showRefreshButton, dockPosition } = useConfig();
 
   if (!showRefreshButton) return null;
 
+  const offline = connection === "sin-conexion";
   const lastLabel = lastSyncedAt
     ? `Última sincronización: ${new Date(lastSyncedAt).toLocaleTimeString("es-BO", {
         hour: "2-digit",
@@ -37,18 +38,27 @@ export function RefreshButton() {
       transition={{ type: "spring", stiffness: 260, damping: 22, delay: 0.3 }}
       whileHover={{ y: -2, scale: 1.03 }}
       whileTap={{ scale: 0.95 }}
-      title={`Actualizar base de datos · ${lastLabel}`}
-      aria-label="Actualizar base de datos"
+      title={
+        offline
+          ? `Sin conexión con la base de datos. ${lastLabel}. Pulse para reintentar; mientras siga en rojo, lo que registre no se guardará en la hoja.`
+          : `Actualizar base de datos · ${lastLabel}`
+      }
+      aria-label={offline ? "Sin conexión: reintentar" : "Actualizar base de datos"}
       className={[
-        "glass-heavy no-print fixed z-[90] inline-flex items-center gap-2 rounded-full px-3.5 py-2.5 text-xs font-bold text-ink shadow-glass ring-1 ring-[color:var(--hairline)] transition-colors hover:text-cyan-400 disabled:cursor-progress",
+        "glass-heavy no-print fixed z-[90] inline-flex items-center gap-2 rounded-full px-3.5 py-2.5 text-xs font-bold shadow-glass ring-1 transition-colors disabled:cursor-progress",
+        offline
+          ? "text-rose-500 ring-rose-400/50"
+          : "text-ink ring-[color:var(--hairline)] hover:text-cyan-400",
         POS[dockPosition],
       ].join(" ")}
     >
-      <RefreshCcw
-        className={`h-4 w-4 text-cyan-400 ${syncing ? "animate-spin" : ""}`}
-      />
+      {offline ? (
+        <WifiOff className="h-4 w-4 text-rose-500" />
+      ) : (
+        <RefreshCcw className={`h-4 w-4 text-cyan-400 ${syncing ? "animate-spin" : ""}`} />
+      )}
       <span className="hidden sm:inline">
-        {syncing ? "Actualizando…" : "Actualizar datos"}
+        {syncing ? "Actualizando…" : offline ? "Sin conexión" : "Actualizar datos"}
       </span>
       {/* Live status dot */}
       <span
@@ -56,8 +66,8 @@ export function RefreshButton() {
           "h-2 w-2 rounded-full",
           syncing
             ? "bg-amber-400 shadow-glow-amber"
-            : status === "error"
-              ? "bg-rose-500"
+            : offline || status === "error"
+              ? "bg-rose-500 shadow-glow-rose"
               : "bg-green-500 shadow-glow-green",
         ].join(" ")}
       />

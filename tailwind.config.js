@@ -38,6 +38,7 @@ export default {
         "glow-cyan": "0 0 24px rgba(0,176,216,0.55)",
         "glow-green": "0 0 15px rgba(34,197,94,1)",
         "glow-amber": "0 0 15px rgba(251,191,36,0.9)",
+        "glow-rose": "0 0 15px rgba(244,63,94,0.95)",
       },
       keyframes: {
         // Slow, fluid drift for the background mesh blobs

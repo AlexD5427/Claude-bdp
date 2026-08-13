@@ -78,11 +78,12 @@ const MAIN_PAD: Record<DockPosition, string> = {
 
 function AppShell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
-  const { status } = useTalentData();
+  const { status, connection } = useTalentData();
   const { reduceMotion, dockPosition } = useConfig();
   const { current } = useProfiles();
   const { setTheme } = useTheme();
   const synced = status === "success";
+  const offline = connection === "sin-conexion";
 
   // Let the "Reducir movimiento" preference dampen animations app-wide.
   useEffect(() => {
@@ -111,7 +112,7 @@ function AppShell() {
       <MeshBackground />
       <ThreeBackground />
       <CursorSpotlight />
-      <FloatingDock active={active} onSelect={setActive} synced={synced} />
+      <FloatingDock active={active} onSelect={setActive} synced={synced} offline={offline} />
       <RefreshButton />
 
       <main className={`mx-auto w-full max-w-[1640px] px-4 sm:px-6 lg:px-8 ${MAIN_PAD[dockPosition]}`}>
