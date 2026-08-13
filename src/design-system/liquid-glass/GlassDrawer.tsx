@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { drawerRight } from "../motion";
 import { Z } from "../tokens";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 interface GlassDrawerProps {
   open: boolean;
@@ -30,18 +31,14 @@ export function GlassDrawer({
   widthClass = "max-w-xl",
   ariaLabel,
 }: GlassDrawerProps) {
+  useBodyScrollLock(open);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   return createPortal(

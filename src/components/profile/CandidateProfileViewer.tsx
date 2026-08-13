@@ -35,6 +35,7 @@ import { CurriculumTab } from "./CurriculumTab";
 import { ReferenciasTab } from "./ReferenciasTab";
 import { DocumentacionTab } from "./DocumentacionTab";
 import { HistorialTab } from "./HistorialTab";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 type TabId =
   | "resumen"
@@ -101,17 +102,15 @@ function Viewer({ candidate }: { candidate: Candidate | null }) {
   }, [candidate]);
 
   // Escape closes; lock the page scroll while open; focus the close button.
+  useBodyScrollLock(true);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeProfile();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const t = window.setTimeout(() => closeRef.current?.focus(), 120);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
       window.clearTimeout(t);
     };
   }, []);

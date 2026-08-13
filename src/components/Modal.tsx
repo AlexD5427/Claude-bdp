@@ -1,7 +1,8 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 
 interface ModalProps {
   open: boolean;
@@ -25,19 +26,24 @@ export function Modal({
   size = "max-w-5xl",
   ariaLabel,
 }: ModalProps) {
+  // El cierre se lee desde una referencia para que este efecto dependa **sólo**
+  // de `open`. Antes dependía de `onRequestClose`, que en el cuestionario cambia
+  // de identidad en cada dibujado: cada pulsación de tecla desmontaba el
+  // escuchador y reescribía `body.style.overflow`, forzando un recálculo de
+  // estilo de todo el documento por letra escrita.
+  const closeRef = useRef(onRequestClose);
+  closeRef.current = onRequestClose;
+
+  useBodyScrollLock(open);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onRequestClose();
+      if (e.key === "Escape") closeRef.current();
     }
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, onRequestClose]);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
 
   return createPortal(
     <AnimatePresence>

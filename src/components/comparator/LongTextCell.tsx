@@ -6,6 +6,7 @@ import { LevelBadge } from "../LevelBadge";
 import { MarqueeText } from "../MarqueeText";
 import { proficiencyTone } from "../../lib/levels";
 import { usePrefersReducedMotion } from "../../shared/hooks";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type { TechnicalKnowledge } from "../../types";
 import "./comparator-motion.css";
 
@@ -271,6 +272,7 @@ function CellViewer({
 
   // Cerrar con Escape y bloquear el desplazamiento del fondo SIN perder la
   // posición: al cerrar, el comparador queda exactamente donde estaba.
+  useBodyScrollLock(open);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -281,12 +283,9 @@ function CellViewer({
     };
     document.addEventListener("keydown", onKey);
     const scrollY = window.scrollY;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const focusTimer = window.setTimeout(() => closeRef.current?.focus(), 220);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
       window.clearTimeout(focusTimer);
       // Algunos navegadores restauran el scroll al liberar `overflow`; lo
       // devolvemos nosotros para que la vuelta sea siempre al mismo sitio.

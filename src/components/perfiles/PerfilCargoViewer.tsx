@@ -18,6 +18,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { PerfilCargo } from "../../lib/perfilCargo";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 /**
  * The read-only, full-screen presentation of a job profile — a large Liquid
@@ -58,17 +59,13 @@ function Viewer({
   onEdit: (p: PerfilCargo) => void;
   onDelete: (p: PerfilCargo) => void;
 }) {
+  useBodyScrollLock(true);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   return (

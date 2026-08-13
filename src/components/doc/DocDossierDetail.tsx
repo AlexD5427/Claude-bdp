@@ -39,6 +39,7 @@ import {
 import { dossierInsights, dossierReport } from "../../lib/docReport";
 import DocSyncIndicator from "./DocSyncIndicator";
 import { CountUp, useDocMotion } from "./DocMotion";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 interface DocDossierDetailProps {
   identificador: string | null;
@@ -124,14 +125,7 @@ export function DocDossierDetail({ identificador, settings, onClose }: DocDossie
   }, [dossier, composerOpen, confirmDelete, onClose]);
 
   // Bloquear el scroll del fondo mientras el panel esta abierto.
-  useEffect(() => {
-    if (!dossier) return;
-    const previo = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previo;
-    };
-  }, [dossier]);
+  useBodyScrollLock(Boolean(dossier));
 
   const report = useMemo(
     () => (dossier ? dossierReport(dossier, settings.intervalDays) : null),

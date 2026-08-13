@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useToolsOpen, closeTools } from "../../lib/toolsStore";
 import { DrawIcon } from "../DrawIcon";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 interface Tool {
   label: string;
@@ -93,17 +94,13 @@ export function HerramientasPanel() {
 function Panel() {
   const reduce = useReducedMotion();
 
+  useBodyScrollLock(true);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeTools();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, []);
 
   return (

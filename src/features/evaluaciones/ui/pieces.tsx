@@ -14,6 +14,7 @@ import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from
 import { Check, Copy, ExternalLink } from "lucide-react";
 import type { EstadoEvaluacion, EstadoIntento } from "../domain/model";
 import { ESTADO_INTENTO_LABEL, ESTADO_LABEL } from "../domain/model";
+import { useBodyScrollLock } from "../../../hooks/useBodyScrollLock";
 
 /* --------------------------------- Píldoras ------------------------------- */
 
@@ -711,18 +712,14 @@ export function GlassOverlay({
   ancho?: string;
   etiqueta: string;
 }) {
+  useBodyScrollLock(abierto);
   useEffect(() => {
     if (!abierto) return;
     const alTeclado = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", alTeclado);
-    const previo = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", alTeclado);
-      document.body.style.overflow = previo;
-    };
+    return () => document.removeEventListener("keydown", alTeclado);
   }, [abierto, onClose]);
 
   return createPortal(

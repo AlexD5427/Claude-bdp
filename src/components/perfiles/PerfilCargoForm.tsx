@@ -31,6 +31,7 @@ import {
   type PerfilCargoForm as FormShape,
 } from "../../lib/perfilCargo";
 import { useTalentData } from "../../context/TalentDataContext";
+import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 
 const DRAFT_KEY = "bdp-perfil-cargo-draft";
 
@@ -88,18 +89,14 @@ function FormBody({ mode, initial, fila, initialVerified, onClose }: PerfilFormP
   );
   const [showRecovery, setShowRecovery] = useState<boolean>(Boolean(recoveredDraft));
 
-  // Escape asks to exit; lock body scroll while open.
+  // Escape asks to exit; the page scroll stays frozen while the form is open.
+  useBodyScrollLock(true);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") attemptExit();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
+    return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
