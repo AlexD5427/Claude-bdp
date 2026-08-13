@@ -174,9 +174,21 @@ npm run build      # typecheck + build de producción
 npm run preview    # previsualizar el build
 npm test           # suite de pruebas (Vitest)
 npm run typecheck  # solo comprobación de tipos
-npm run check      # verificaciones estáticas del módulo Evaluaciones
-npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
+npm run qa         # arnés de QA en navegador real (requiere Playwright)
+npm run backend:check  # verificaciones estáticas del módulo Evaluaciones
+npm run doc:check      # coherencia backend↔frontend del módulo Documentación
 ```
+
+> **Arnés de QA.** `npm run qa` levanta el build de producción con un backend de
+> Apps Script **simulado** (el libro real no se toca) y recorre la aplicación con
+> Chromium: agrega postulantes a la comparativa, llena el cuestionario y provoca
+> fallos del servidor —rechazo, HTTP 500, sin red, hoja rezagada— para comprobar
+> qué dice y qué hace la interfaz. También reproduce estados «de un solo equipo»:
+> sesión con identificadores huérfanos, configuración personal corrupta heredada
+> de la hoja y navegador con el almacenamiento bloqueado. Guía en
+> [`scripts/qa/README.md`](scripts/qa/README.md); auditoría de agosto de 2026 y
+> control de calidad manual paso a paso en
+> [`docs/qa/EXPLICACION.md`](docs/qa/EXPLICACION.md).
 
 > El módulo **Evaluaciones** usa su propio libro de Google Sheets y su propio
 > proyecto de Apps Script, independientes del resto del sistema. En desarrollo
