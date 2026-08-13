@@ -147,6 +147,9 @@ export interface AppConfig {
 
 const KEY = "bdp-config";
 
+/** Tope duro de columnas del comparador (la cuadrícula deja de ser legible). */
+export const MAX_COMPARADOR_LIMIT = 10;
+
 function uid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `t-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -322,6 +325,131 @@ export function defaultConfig(): AppConfig {
 }
 
 /* ------------------------------------------------------------------ */
+/* Saneamiento                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Devuelve una configuración válida a partir de cualquier cosa.
+ *
+ * ## El fallo que esto cierra
+ *
+ * La configuración no sólo vive en `localStorage`: también viaja **por usuario**
+ * en la columna `config_personal_perfil` de la hoja «Perfiles_y_Configuracion»,
+ * y al iniciar sesión se aplica tal cual (ver `lib/profilesStore`). Es decir:
+ * un valor inservible en esa celda —una versión antigua sin el campo, un
+ * `NaN` que `JSON.stringify` convierte en `null`, una edición manual— no
+ * afectaba a «el navegador de alguien», sino a **esa persona en cualquier
+ * equipo**, y a nadie más. Eso es exactamente lo que se veía en soporte:
+ * «a mí me funciona en todos los dispositivos, pero a ese usuario nunca».
+ *
+ * Concretamente, con `maxComparador: null` el comparador quedaba muerto: el
+ * buscador se deshabilitaba con el rótulo «Límite alcanzado (null/null)»,
+ * porque `selectedIds.length >= null` es cierto desde la primera columna. Con
+ * `0` pasaba lo mismo, y con `"8"` (texto) el sistema seguía funcionando por
+ * pura coerción, que es la clase de suerte que no se puede sostener.
+ *
+ * La regla ahora es una sola y está en un solo sitio: **nada entra al estado
+ * sin pasar por aquí** — ni la lectura de `localStorage`, ni `setConfig`, ni el
+ * paquete de preferencias del perfil.
+ */
+function num(value: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function bool(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function str(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function oneOf<T extends string>(value: unknown, options: readonly T[], fallback: T): T {
+  return typeof value === "string" && (options as readonly string[]).includes(value)
+    ? (value as T)
+    : fallback;
+}
+
+const RANK_PLACEMENTS = ["tarjeta", "fila", "ambos"] as const;
+const COMPARATOR_ORDERS = ["desc", "asc"] as const;
+const PAPER_SIZES = ["Letter", "Legal"] as const;
+const ORIENTATIONS = ["portrait", "landscape"] as const;
+const THREE_QUALITIES = ["auto", "alta", "media", "baja"] as const;
+const DOCK_POSITIONS = ["top", "bottom", "left", "right"] as const;
+const DOCK_SIZES = ["sm", "md", "lg"] as const;
+
+/** Sanea una plantilla de correo; descarta las que no tienen forma de plantilla. */
+function sanitizeTemplate(raw: unknown): EmailTemplate | null {
+  if (!raw || typeof raw !== "object") return null;
+  const t = raw as Partial<EmailTemplate>;
+  if (typeof t.id !== "string" || t.id === "") return null;
+  return {
+    id: t.id,
+    name: str(t.name, "Formato sin nombre"),
+    category: oneOf(t.category, EMAIL_CATEGORY_ORDER, "convocatoria"),
+    subject: str(t.subject, ""),
+    body: str(t.body, ""),
+    active: bool(t.active, true),
+    system: bool(t.system, false),
+    updatedAt: str(t.updatedAt, new Date().toISOString()),
+  };
+}
+
+/**
+ * Combina una base válida con un parche de cualquier procedencia y garantiza
+ * que el resultado sigue siendo utilizable por todos los módulos.
+ */
+export function sanitizeConfig(
+  base: AppConfig,
+  patch?: Partial<AppConfig> | null,
+): AppConfig {
+  const p = (patch && typeof patch === "object" ? patch : {}) as Partial<AppConfig>;
+  const pick = <K extends keyof AppConfig>(key: K): unknown =>
+    key in p ? p[key] : base[key];
+
+  const templates = pick("emailTemplates");
+  const sanitizedTemplates = Array.isArray(templates)
+    ? templates.map(sanitizeTemplate).filter((t): t is EmailTemplate => t !== null)
+    : [];
+
+  return {
+    orgName: str(pick("orgName"), base.orgName),
+    teamName: str(pick("teamName"), base.teamName),
+    reclutador: str(pick("reclutador"), base.reclutador),
+
+    capApprovalThreshold: num(pick("capApprovalThreshold"), 80, 40, 100),
+    // El mínimo real es 2: comparar es, por definición, poner a dos personas
+    // lado a lado. Un tope menor deja el módulo sin razón de ser.
+    maxComparador: num(pick("maxComparador"), 10, 2, MAX_COMPARADOR_LIMIT),
+    rankingEnabled: bool(pick("rankingEnabled"), true),
+    rankPlacement: oneOf(pick("rankPlacement"), RANK_PLACEMENTS, "ambos"),
+    sortByCapDesc: bool(pick("sortByCapDesc"), true),
+    comparatorOrder: oneOf(pick("comparatorOrder"), COMPARATOR_ORDERS, "desc"),
+    comparatorNavHelper: bool(pick("comparatorNavHelper"), true),
+    defaultPaper: oneOf(pick("defaultPaper"), PAPER_SIZES, "Letter"),
+    defaultOrientation: oneOf(pick("defaultOrientation"), ORIENTATIONS, "portrait"),
+
+    evaluarUrl: str(pick("evaluarUrl"), base.evaluarUrl),
+    autoRefresh: bool(pick("autoRefresh"), true),
+    autoRefreshSeconds: num(pick("autoRefreshSeconds"), 60, 15, 3600),
+    showRefreshButton: bool(pick("showRefreshButton"), true),
+
+    enableThree: bool(pick("enableThree"), true),
+    threeQuality: oneOf(pick("threeQuality"), THREE_QUALITIES, "auto"),
+    reduceMotion: bool(pick("reduceMotion"), false),
+    staticAvatars: bool(pick("staticAvatars"), false),
+
+    dockPosition: oneOf(pick("dockPosition"), DOCK_POSITIONS, "top"),
+    dockSize: oneOf(pick("dockSize"), DOCK_SIZES, "md"),
+    dockCollapsed: bool(pick("dockCollapsed"), false),
+
+    emailTemplates: sanitizedTemplates.length ? sanitizedTemplates : base.emailTemplates,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Store plumbing                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -332,22 +460,10 @@ function load(): AppConfig {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<AppConfig>;
-    // Migration: the comparator cap moved from 5 (old default) → 10. Bump the
-    // untouched default and clamp any explicit choice into the new [2,10] range.
-    const maxComparador =
-      parsed.maxComparador === undefined || parsed.maxComparador === 5
-        ? 10
-        : Math.min(10, Math.max(2, parsed.maxComparador));
-    return {
-      ...base,
-      ...parsed,
-      maxComparador,
-      // Templates: keep persisted ones if present, else the seeded set.
-      emailTemplates:
-        Array.isArray(parsed.emailTemplates) && parsed.emailTemplates.length
-          ? parsed.emailTemplates
-          : base.emailTemplates,
-    };
+    // Migración: el tope del comparador pasó de 5 (antiguo por omisión) a 10.
+    // El valor 5 exacto se interpreta como «nunca lo tocaron» y se sube.
+    if (parsed && parsed.maxComparador === 5) parsed.maxComparador = 10;
+    return sanitizeConfig(base, parsed);
   } catch {
     return base;
   }
@@ -373,8 +489,14 @@ function emit() {
 /* Mutations                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Aplica un cambio de configuración. Todo pasa por {@link sanitizeConfig}, así
+ * que ningún origen —el módulo de Configuración, el paquete de preferencias del
+ * perfil o una celda editada a mano en la hoja— puede dejar la aplicación en un
+ * estado inservible.
+ */
 export function setConfig(patch: Partial<AppConfig>): void {
-  state = { ...state, ...patch };
+  state = sanitizeConfig(state, patch);
   emit();
 }
 
