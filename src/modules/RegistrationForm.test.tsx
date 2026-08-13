@@ -18,9 +18,14 @@ import type { Candidate, RawCandidate } from "../types";
 const submitCandidate = vi.fn(async (_candidate: RawCandidate) => ({ ok: true, message: "ok" }));
 const updateCandidate = vi.fn(async (_candidate: RawCandidate) => ({ ok: true, message: "ok" }));
 
+/** Base de la hoja vista por el cuestionario (mutable para cada prueba). */
+let candidatosEnHoja: Candidate[] = [];
+
 vi.mock("../context/TalentDataContext", () => ({
   useTalentData: () => ({
-    candidatos: [],
+    get candidatos() {
+      return candidatosEnHoja;
+    },
     competencias: ["Trabajo en Equipo,Sí,Sí,Sí,\"Colabora\""],
     arquetipos: [{ code: "D", label: "Impulsor (D)", description: "Acción" }],
     auxiliares: {
@@ -56,7 +61,9 @@ class ResizeObserverStub {
 
 beforeEach(() => {
   window.localStorage.clear();
+  candidatosEnHoja = [];
   submitCandidate.mockClear();
+  submitCandidate.mockImplementation(async () => ({ ok: true, message: "ok" }));
   updateCandidate.mockClear();
   globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
 });
@@ -229,5 +236,81 @@ describe("RegistrationForm · edición", () => {
       identificador: "5033853-163-2026",
       localidad_residencia: "El Alto",
     });
+  });
+});
+
+/**
+ * Regresión del alta: la aplicación no puede dar por buena una escritura que la
+ * hoja no confirmó, ni crear dos expedientes con la misma clave.
+ */
+describe("RegistrationForm · integridad del alta", () => {
+  it("bloquea un identificador que ya existe en la hoja", async () => {
+    const user = userEvent.setup();
+    candidatosEnHoja = [candidate({ identificador: "8456872-105-2026", nombres: "Jorge" })];
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    await fillIdentificador(user, "8456872-105-2026");
+    // El aviso aparece mientras se escribe, sin esperar al guardado.
+    expect(
+      await screen.findByText(/La hoja ya tiene una fila con este Identificador Único/i),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+    expect(submitCandidate).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText(/ya está registrado/i),
+    ).toBeInTheDocument();
+  });
+
+  it("no bloquea un identificador nuevo aunque la hoja tenga otros", async () => {
+    const user = userEvent.setup();
+    candidatosEnHoja = [candidate({ identificador: "8456872-105-2026", nombres: "Jorge" })];
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    await fillIdentificador(user, "8456872-106-2026");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+    await waitFor(() => expect(submitCandidate).toHaveBeenCalledTimes(1));
+  });
+
+  it("mantiene el cuestionario abierto y muestra el motivo si la hoja rechaza", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    submitCandidate.mockImplementation(async () => ({
+      ok: false,
+      message: "El servidor rechazó la operación.",
+    }));
+    render(<RegistrationForm open onClose={onClose} />);
+
+    await fillIdentificador(user, "1111111-108-2026");
+    const nombres = screen.getByLabelText(/^Nombres$/i);
+    await user.type(nombres, "Ana");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    expect(
+      await screen.findByText(/El servidor rechazó la operación/i),
+    ).toBeInTheDocument();
+    // Ni se cierra ni se pierde lo escrito: el analista puede reintentar.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/^Nombres$/i)).toHaveValue("Ana");
+    expect(screen.getByLabelText(/Identificador Único/i)).toHaveValue("1111111-108-2026");
+  });
+
+  it("no manda a la hoja una edad imposible", async () => {
+    const user = userEvent.setup();
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    await fillIdentificador(user, "2222222-108-2026");
+    await user.type(screen.getByLabelText(/^Edad$/i), "3436");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    expect(submitCandidate).not.toHaveBeenCalled();
+    expect(await screen.findByText(/fuera de lo posible/i)).toBeInTheDocument();
+
+    // Corregida, sí se registra.
+    await user.clear(screen.getByLabelText(/^Edad$/i));
+    await user.type(screen.getByLabelText(/^Edad$/i), "34");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+    await waitFor(() => expect(submitCandidate).toHaveBeenCalledTimes(1));
+    expect(submitCandidate.mock.calls[0][0]).toMatchObject({ edad: 34 });
   });
 });

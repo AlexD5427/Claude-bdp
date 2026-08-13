@@ -352,8 +352,14 @@ function EditHL({ on, children }: { on: boolean; children: React.ReactNode }) {
  * objeto.
  */
 export function RegistrationForm({ open, onClose, onSaved, editing }: RegistrationFormProps) {
-  const { competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
-    useTalentData();
+  const {
+    candidatos,
+    competencias,
+    arquetipos,
+    auxiliares,
+    submitCandidate,
+    updateCandidate,
+  } = useTalentData();
   const isEdit = Boolean(editing);
   const [form, setForm] = useState<FormState>({ ...EMPTY });
   const [baseline, setBaseline] = useState<FormState | null>(null);
@@ -427,7 +433,11 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
       if (!el || el.value !== "") return;
       const active = document.activeElement;
       if (active && active !== document.body && active !== el) return;
-      el.focus();
+      // `preventScroll`: el campo ya está arriba del panel, no hay nada que
+      // acercar. Sin esto el navegador desplazaba también la página de detrás
+      // (el modal es `fixed`) y al cerrar el cuestionario la aplicación quedaba
+      // corrida unos píxeles, con la cabecera metida bajo el dock.
+      el.focus({ preventScroll: true });
     }, 260);
     return () => window.clearTimeout(t);
   }, [open, isEdit]);
@@ -460,6 +470,28 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
   }, [open, dirty]);
 
   const compsCount = form.competencias.length;
+
+  /**
+   * Identificadores que ya existen en la hoja, en minúsculas.
+   *
+   * El identificador es la clave con la que la hoja escribe y con la que el
+   * resto del sistema pide un expediente, pero **la hoja no impide repetirlo**.
+   * Registrar uno repetido dejaba dos filas indistinguibles: el listado avisaba
+   * por consola de claves duplicadas, el comparador resolvía las dos columnas al
+   * mismo expediente y una edición posterior escribía sobre la primera fila. Se
+   * avisa antes de guardar, que es cuando todavía se puede corregir.
+   */
+  const identificadoresUsados = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of candidatos) {
+      const ident = asText(c.identificador).toLowerCase();
+      if (ident) set.add(ident);
+    }
+    return set;
+  }, [candidatos]);
+
+  const identificadorRepetido =
+    !isEdit && identificadoresUsados.has(form.identificador.trim().toLowerCase());
 
   const setField = useCallback(<K extends FormKey>(key: K, value: FormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -547,6 +579,26 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
         message: "El Identificador Único es el único campo obligatorio.",
       });
       identificadorRef.current?.focus();
+      return;
+    }
+    if (identificadorRepetido) {
+      setFeedback({
+        kind: "warn",
+        message:
+          "Ese Identificador Único ya está registrado. Use «Editar» sobre el registro existente o corrija el número de proceso / año.",
+      });
+      identificadorRef.current?.focus();
+      return;
+    }
+    // La edad es un campo numérico libre: un dedo torpe convierte «34» en
+    // «3436» y ese número acaba en la hoja, donde ya nadie lo revisa. Se avisa
+    // sólo ante lo imposible, sin corregir nada por cuenta propia.
+    const edad = parseDecimal(form.edad);
+    if (edad !== null && (edad < 15 || edad > 99)) {
+      setFeedback({
+        kind: "warn",
+        message: `La edad (${form.edad}) está fuera de lo posible. Corrija el campo o déjelo vacío.`,
+      });
       return;
     }
 
@@ -739,6 +791,7 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
               setField={setField}
               cargos={auxiliares.cargos_bdp}
               identificadorRef={identificadorRef}
+              identificadorRepetido={identificadorRepetido}
             />
 
             <ScoresSection
@@ -925,11 +978,14 @@ const PersonalSection = memo(function PersonalSection({
   setField,
   cargos,
   identificadorRef,
+  identificadorRepetido,
 }: SectionProps & {
   form: FormState;
   isEdit: boolean;
   cargos: string[];
   identificadorRef: React.RefObject<HTMLInputElement>;
+  /** El identificador escrito ya existe en la hoja (sólo en modo alta). */
+  identificadorRepetido: boolean;
 }) {
   return (
     <Section
@@ -939,20 +995,36 @@ const PersonalSection = memo(function PersonalSection({
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="sm:col-span-2 lg:col-span-2">
-          <TextField
-            ref={identificadorRef}
-            label="Identificador Único"
-            required
-            hint={
-              isEdit
-                ? "Clave del registro · no editable"
-                : "CI - Nro Proceso - Año · único obligatorio"
-            }
-            value={form.identificador}
-            onChange={(v) => setField("identificador", v)}
-            placeholder="CI - Nro Proceso - Año"
-            readOnly={isEdit}
-          />
+          <div
+            className={`rounded-2xl transition-shadow duration-300 ${
+              identificadorRepetido ? "edit-hl" : ""
+            }`}
+          >
+            <TextField
+              ref={identificadorRef}
+              label="Identificador Único"
+              required
+              hint={
+                isEdit
+                  ? "Clave del registro · no editable"
+                  : identificadorRepetido
+                    ? "⚠ Ya existe un registro con este identificador"
+                    : "CI - Nro Proceso - Año · único obligatorio"
+              }
+              value={form.identificador}
+              onChange={(v) => setField("identificador", v)}
+              placeholder="CI - Nro Proceso - Año"
+              readOnly={isEdit}
+            />
+          </div>
+          {identificadorRepetido && (
+            <p className="mt-1.5 flex items-start gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-[0.7rem] font-semibold text-amber-500 ring-1 ring-amber-400/30">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              La hoja ya tiene una fila con este Identificador Único. Registrarlo
+              otra vez crearía dos expedientes indistinguibles: use «Editar» sobre
+              el registro existente o corrija el número de proceso o el año.
+            </p>
+          )}
         </div>
         <EditHL on={changed.has("edad")}>
           <TextField
@@ -1073,6 +1145,7 @@ const PersonalSection = memo(function PersonalSection({
   prev.isEdit === next.isEdit &&
   prev.cargos === next.cargos &&
   prev.setField === next.setField &&
+  prev.identificadorRepetido === next.identificadorRepetido &&
   PERSONAL_KEYS.every((k) => prev.form[k] === next.form[k]));
 
 const ScoresSection = memo(function ScoresSection({

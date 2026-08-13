@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
+import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer, AlertTriangle } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { Avatar } from "../components/Avatar";
 import { CandidateActions } from "../components/CandidateActions";
@@ -140,6 +140,15 @@ function CandidateCard({
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           Proceso {extractProceso(candidate.identificador)}
         </span>
+        {candidate.identificadorDuplicado && (
+          <span
+            title="La hoja tiene más de una fila con este Identificador Único. Conserve una sola: mientras existan las dos, editar a esta persona escribirá siempre sobre la primera."
+            className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-0.5 font-bold text-amber-500 ring-1 ring-amber-400/40"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            ID duplicado
+          </span>
+        )}
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           {candidate.competenciasList.length} comp.
         </span>

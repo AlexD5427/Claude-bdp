@@ -117,6 +117,55 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
 }
 
 /**
+ * Normalise the whole sheet, guaranteeing **unique `id`s**.
+ *
+ * ## Por qué hace falta más que un `map`
+ *
+ * El `id` de un postulante es su identificador («CI - Nro Proceso - Año»), que
+ * es la clave de negocio con la que la hoja se escribe y con la que el resto de
+ * la aplicación pide un expediente. Pero la hoja **no impide repetirlo**: basta
+ * que alguien registre dos veces a la misma persona para que haya dos filas con
+ * el mismo identificador. Cuando eso pasaba, todo lo que indexa por `id` se
+ * rompía en silencio:
+ *
+ *   · React recibía dos hijos con la misma `key` y avisaba por consola de que
+ *     puede **omitir o duplicar** elementos: tarjetas que no aparecen en el
+ *     listado o que aparecen dos veces.
+ *   · El Comparador resolvía las dos columnas al **mismo** expediente
+ *     (`candidatos.find`), así que agregar al segundo no hacía nada visible.
+ *   · Abrir el perfil de cualquiera de los dos mostraba siempre el primero.
+ *
+ * Aquí las repeticiones reciben un sufijo (`8456872-105-2026#2`) para que cada
+ * fila sea direccionable, y **todas** las filas implicadas quedan marcadas con
+ * `identificadorDuplicado` para que la interfaz pueda avisarlo: el dato sigue
+ * estando mal en la hoja y eso lo tiene que corregir una persona.
+ */
+export function normaliseCandidates(rows: RawCandidate[]): Candidate[] {
+  const list = rows.map((row, i) => normaliseCandidate(row, i));
+  const seen = new Map<string, number>();
+  const repeated = new Set<string>();
+
+  for (const candidate of list) {
+    const key = candidate.id;
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    if (count > 1) {
+      repeated.add(key);
+      candidate.id = `${key}#${count}`;
+    }
+  }
+  if (repeated.size === 0) return list;
+
+  for (const candidate of list) {
+    // El sufijo se compara contra la clave original: así se marca tanto la fila
+    // que se quedó con el identificador limpio como todas sus repeticiones.
+    const base = candidate.id.split("#")[0];
+    if (repeated.has(base)) candidate.identificadorDuplicado = true;
+  }
+  return list;
+}
+
+/**
  * Derive the "Nro Proceso" from an identificador shaped like
  * "CI - Nro Proceso - Año" (e.g. "8456872-105-2026" → "105"). Identificadores
  * that don't follow the convention are bucketed under "Sin proceso".

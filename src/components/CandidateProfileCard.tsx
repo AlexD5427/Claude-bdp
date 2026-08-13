@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { MapPin, HeartHandshake, CalendarDays, X, Building2, UserPlus } from "lucide-react";
+import { MapPin, HeartHandshake, CalendarDays, X, Building2, UserPlus, AlertTriangle } from "lucide-react";
 import type { Candidate } from "../types";
 import {
   academicParts,
@@ -94,6 +94,15 @@ export function CandidateProfileCard({
           </div>
         ) : (
           <p className="mt-0.5 text-xs font-medium text-white/70">Formación no especificada</p>
+        )}
+        {candidate.identificadorDuplicado && (
+          <p
+            title="La hoja tiene más de una fila con este Identificador Único. Compare con cuidado: son dos registros distintos de la misma clave."
+            className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-amber-300/25 px-2 py-0.5 text-[0.6rem] font-black uppercase tracking-wide text-amber-100 ring-1 ring-amber-200/60"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            Identificador duplicado
+          </p>
         )}
       </div>
 

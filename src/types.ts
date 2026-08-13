@@ -70,6 +70,12 @@ export interface Candidate extends RawCandidate {
   conocimientosList: TechnicalKnowledge[];
   /** Parsed tool-handling entries (Manejo de Herramientas u otros). */
   herramientasList: TechnicalKnowledge[];
+  /**
+   * True when the sheet has more than one row with this `identificador`. The
+   * duplicates get a suffixed `id` so each row stays addressable, and the UI
+   * flags them so a person can clean the sheet (see `normaliseCandidates`).
+   */
+  identificadorDuplicado?: boolean;
 }
 
 /**
