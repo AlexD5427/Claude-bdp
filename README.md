@@ -31,6 +31,13 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   explícito** (botón o `Ctrl/⌘+Intro`): pulsar Intro en un campo ya no envía la
   ficha a medio llenar, que era la causa de que el avance «se reiniciara solo»
   (ver [docs/comparador-postulantes/EXPLICACION.md](docs/comparador-postulantes/EXPLICACION.md)).
+  El **Identificador Único se valida contra la base mientras se escribe**: si ya
+  existe, el campo avisa y el guardado se detiene (dos filas con la misma clave
+  dejaban expedientes indistinguibles). Un identificador repetido que ya esté en
+  la hoja se marca con una chapa **«ID duplicado»** en la tarjeta y en el
+  comparador. El alta **sólo se da por buena cuando la hoja lo confirma**: ante
+  un rechazo del servidor o un POST bloqueado, el cuestionario permanece abierto
+  con el motivo y no se pinta ninguna fila fantasma.
 - **Perfil de Postulante (Vista Completa):** panel a pantalla completa que
   **centraliza toda la información de una persona** en un solo lugar, accesible
   desde **cualquier módulo** (comparador, procesos, postulantes, documentación,
@@ -52,7 +59,11 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   guarda por navegador y los datos siguen calculándose en vivo.
 - **Módulo — Comparador:** arranca **vacío** con una pantalla animada Liquid
   Glass que invita a agregar postulantes; la búsqueda *type-ahead* en vivo
-  (nombre + identificador) añade columnas una a una. La comparación (candidatos
+  (nombre + identificador) añade columnas una a una. La lista de sugerencias se
+  abre con **cualquier clic o toque** sobre el campo —no sólo al recibir el
+  foco—, así que agregar a varias personas seguidas funciona igual con ratón,
+  teclado o pantalla táctil (ver
+  [docs/comparador-postulantes/AUDITORIA_2026-08.md](docs/comparador-postulantes/AUDITORIA_2026-08.md)). La comparación (candidatos
   y su orden) y las preferencias de vista **se conservan durante la sesión** al
   cambiar de módulo. Se organiza en tres pestañas:
   - **Comparativa:** informe seccionado con encabezados congelados, orden por
@@ -144,11 +155,12 @@ backend de Google Apps Script. **Toda la interfaz está en español.**
   `correctas ÷ calificables × 100`; las preguntas abiertas dejan el intento
   *pendiente de revisión* en lugar de otorgar cero. La **API pública nunca expone
   respuestas correctas** (verificado con 14 pruebas dedicadas).
-  Backend listo para copiar en [`apps-script/evaluations/`](apps-script/evaluations/)
-  y documentación completa en [`docs/evaluations/`](docs/evaluations/) (estado,
-  arquitectura, contrato de API, modelo de datos, configuración de Sheets y Apps
-  Script, seguridad, revisión de código, pruebas, despliegue, rollback, tipos de
-  pregunta, auditoría visual y entrega al portal de candidatos).
+  Backend listo para copiar en
+  [`apps-script/evaluaciones/`](apps-script/evaluaciones/) —con su propio
+  [`README`](apps-script/evaluaciones/README.md)— y el contrato de la API en
+  [`docs/evaluaciones/CONTRATO_FRONTEND.md`](docs/evaluaciones/CONTRATO_FRONTEND.md)
+  (más la guía de importación y la entrega al portal de candidatos en la misma
+  carpeta).
 - Módulos adicionales: **Tablero**, **Cara a Cara** (1 vs 1).
 
 > Documentación técnica de los módulos ProcessOS + AssessmentOS en
@@ -174,8 +186,8 @@ npm run build      # typecheck + build de producción
 npm run preview    # previsualizar el build
 npm test           # suite de pruebas (Vitest)
 npm run typecheck  # solo comprobación de tipos
-npm run check      # verificaciones estáticas del módulo Evaluaciones
-npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
+npm run backend:check  # verificaciones estáticas del backend de Evaluaciones
+npm run doc:check      # coherencia backend ↔ frontend de Documentación
 ```
 
 > El módulo **Evaluaciones** usa su propio libro de Google Sheets y su propio
@@ -183,27 +195,31 @@ npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
 > arranca con datos de demostración; en producción los tres valores públicos
 > viajan en `.env.production`.
 >
-> Para ponerlo en marcha, corregir su configuración o diagnosticar un fallo, la
-> guía paso a paso —escrita para alguien que no domina Git, Vercel ni Apps
-> Script— es
-> **[`docs/evaluations/GUIA_OPERATIVA_FINAL.md`](docs/evaluations/GUIA_OPERATIVA_FINAL.md)**.
-> Incluye tabla de síntomas, rollback, rotación de secretos y una checklist
-> imprimible. Si el portal dice «Esta evaluación no está disponible», empieza por
-> su §13.
->
-> Contexto del incidente de julio de 2026 en
-> [`REPARACION_2026-07.md`](docs/evaluations/REPARACION_2026-07.md); referencia
-> completa en [`APPS_SCRIPT_SETUP.md`](docs/evaluations/APPS_SCRIPT_SETUP.md) y
-> [`DEPLOYMENT.md`](docs/evaluations/DEPLOYMENT.md).
+> Para ponerlo en marcha o diagnosticar un fallo, el contrato de la API y el
+> despliegue del script están en
+> [`docs/evaluaciones/`](docs/evaluaciones/) y
+> [`apps-script/evaluaciones/README.md`](apps-script/evaluaciones/README.md).
 
 ## 🔌 Backend
 
 El dashboard consume un único endpoint de Google Apps Script (definido en
-`src/constants.ts`):
+`src/constants.ts`). Los módulos **Evaluaciones** y **Documentación** tienen su
+propio libro y su propio script, que se configuran dentro de cada módulo:
 
 ```
-GET  →  { candidatos: [...], competencias: [...], arquetipos_disc: [...] }
+GET  →  { candidatos, competencias, arquetipos_disc, auxiliares,
+          perfiles, perfiles_cargo, espejo_base, espejo_ultimo }
+POST →  { status: "success" | "error", message?: string }
 ```
+
+> [!IMPORTANT]
+> **Toda escritura se confirma.** El frontend sólo da por guardada una ficha
+> cuando la respuesta trae `status: "success"` (o un `200` sin cuerpo, para
+> despliegues antiguos). Si la hoja rechaza la operación, o si el POST no sale
+> del equipo, el cuestionario **permanece abierto** con el motivo a la vista y
+> nada se pinta como guardado. Ver `postToSheet` en
+> `src/context/TalentDataContext.tsx` y
+> [`docs/comparador-postulantes/AUDITORIA_2026-08.md`](docs/comparador-postulantes/AUDITORIA_2026-08.md).
 
 > [!IMPORTANT]
 > **Regla de producción (Vercel):** toda llamada `fetch()` a este endpoint debe
@@ -214,11 +230,10 @@ El hook global `useTalentData` (Context API) obtiene, normaliza y distribuye los
 datos, gestionando estados de carga y error con reintentos de *backoff*.
 
 > El módulo **Documentación** persiste sus expedientes en `localStorage` y los
-> sincroniza *best-effort* con el backend (`type: "documentacion"`). Para el
-> guardado real en Google Sheets, la lectura de `arquetipos_disc`/`carrera` y el
-> **envío automático de correos cada 3 días**, despliegue
-> [`docs/backend/Documentacion.gs`](docs/backend/Documentacion.gs) (ver
-> `docs/backend/README.md`).
+> sincroniza *best-effort* con su propio libro. El backend para copiar a Apps
+> Script vive en [`apps-script/documentacion/`](apps-script/documentacion/) (ver
+> su [`README`](apps-script/documentacion/README.md)) y la guía del módulo en
+> [`docs/modules/DOCUMENTACION.md`](docs/modules/DOCUMENTACION.md).
 
 ## 🎨 Sistema de diseño
 
@@ -248,9 +263,10 @@ src/
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 
 apps-script/
-└── evaluations/     # backend de Evaluaciones listo para copiar a Apps Script
+├── evaluaciones/    # backend de Evaluaciones listo para copiar a Apps Script
+└── documentacion/   # backend del módulo Documentación
 scripts/
-├── check-evaluations.mjs   # verificaciones estáticas (npm run check)
-├── run-apps-script.mjs     # arnés que ejecuta los .gs en Node (pruebas)
-└── visual-qa.mjs           # capturas reproducibles de la matriz visual
+├── evaluaciones-backend.mjs        # arnés que ejecuta los .gs en Node (pruebas)
+├── evaluaciones-backend-check.mjs  # verificaciones estáticas (npm run backend:check)
+└── documentacion-backend-check.mjs # coherencia del libro (npm run doc:check)
 ```
