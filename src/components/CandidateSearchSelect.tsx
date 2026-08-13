@@ -28,6 +28,21 @@ interface CandidateSearchSelectProps {
  *     abierta tapando el comparador, y había que hacer clic fuera para verlo.
  *   · Cada sugerencia y cada ficha entra y sale con su propia animación, con un
  *     escalonado corto, en lugar de aparecer de golpe.
+ *
+ * ## Por qué «el comparador no funciona» para una sola persona
+ *
+ * La lista se abría **únicamente** en `onFocus`. Al agregar a alguien, `choose`
+ * cierra la lista y devuelve el foco al campo (para poder escribir el nombre
+ * siguiente). A partir de ese momento el campo **ya tiene el foco**, así que
+ * volver a hacer clic en él no dispara ningún evento `focus` y la lista no se
+ * abría nunca más: el analista quedaba atrapado con un solo candidato en la
+ * comparación. Quien buscaba escribiendo no lo notaba —teclear sí abre la
+ * lista—; quien navegaba a puro clic (o con el dedo, donde tocar un campo ya
+ * enfocado tampoco emite `focus`) veía un comparador «roto».
+ *
+ * La apertura ahora cuelga del **gesto** (`pointerdown`) y no del cambio de
+ * foco, que es la señal correcta: un clic o un toque sobre el campo siempre
+ * significa «quiero ver la lista», tenga el foco donde lo tenga.
  */
 export function CandidateSearchSelect({
   candidates,
@@ -42,7 +57,8 @@ export function CandidateSearchSelect({
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Al agregar devolvemos el foco al campo para poder escribir el nombre
-  // siguiente, pero ese foco no debe reabrir la lista que acabamos de cerrar.
+  // siguiente, pero ese foco —que nadie pidió— no debe reabrir la lista que
+  // acabamos de cerrar. Sólo se salta el `focus` programático inmediato.
   const skipOpenOnFocus = useRef(false);
   const reduceMotion = usePrefersReducedMotion();
 
@@ -145,6 +161,13 @@ export function CandidateSearchSelect({
               }
               setOpen(true);
             }}
+            // Un clic o un toque sobre el campo SIEMPRE muestra la lista, aunque
+            // el campo ya tuviera el foco (que es lo que ocurre justo después de
+            // agregar a alguien). Sin esto, el buscador se quedaba mudo.
+            onPointerDown={() => {
+              skipOpenOnFocus.current = false;
+              setOpen(true);
+            }}
             onKeyDown={onKeyDown}
             placeholder={
               full
@@ -214,6 +237,14 @@ export function CandidateSearchSelect({
                     <div className="truncate text-xs text-ink-faint">
                       {c.identificador || "Sin ID"} · Proceso{" "}
                       {extractProceso(c.identificador)}
+                      {c.identificadorDuplicado && (
+                        <span
+                          className="ml-1 font-bold text-amber-500"
+                          title="Hay más de una fila en la hoja con este identificador"
+                        >
+                          · repetido
+                        </span>
+                      )}
                     </div>
                   </div>
                   <motion.span
@@ -238,6 +269,21 @@ export function CandidateSearchSelect({
           </div>
         </PortalDropdown>
       </div>
+
+      <AnimatePresence initial={false}>
+        {full && (
+          <motion.p
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            className="mt-2 flex items-center gap-1.5 rounded-xl bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-500 ring-1 ring-amber-400/30"
+          >
+            <Users className="h-3.5 w-3.5 shrink-0" />
+            Se alcanzó el máximo de {max} columnas. Quite a alguien de la lista para
+            agregar a otra persona (el máximo se ajusta en Configuración).
+          </motion.p>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence initial={false}>
         {selected.length > 0 && (
