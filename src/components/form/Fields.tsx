@@ -210,7 +210,9 @@ export function SegmentedField({
           return (
             <button
               key={opt}
-              ref={(el) => (btnRefs.current[i] = el)}
+              ref={(el) => {
+                btnRefs.current[i] = el;
+              }}
               type="button"
               role="radio"
               aria-checked={active}

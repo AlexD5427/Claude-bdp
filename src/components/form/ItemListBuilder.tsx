@@ -108,7 +108,13 @@ export function ItemListBuilder({
               >
                 <div className="flex items-center gap-2">
                   <input
-                    ref={(el) => (nameRefs.current[item.uid] = el)}
+                    ref={(el) => {
+                      // Cuerpo con llaves a propósito: devolver un valor desde
+                      // una `ref` callback es un error en React 19, donde se
+                      // interpreta como función de limpieza.
+                      if (el) nameRefs.current[item.uid] = el;
+                      else delete nameRefs.current[item.uid];
+                    }}
                     value={item.nombre}
                     onChange={(e) => onChange(item.uid, { nombre: e.target.value })}
                     placeholder={namePlaceholder}

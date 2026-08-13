@@ -6,7 +6,16 @@ interface GaugeInputProps {
   hint?: string;
   /** 0..100, or null when unset. */
   value: number | null;
-  onChange: (value: number) => void;
+  /**
+   * Emite `null` cuando el campo se deja vacío.
+   *
+   * No es lo mismo un 0 % que «sin evaluar»: la hoja distingue la celda vacía
+   * del cero, el desempate del comparador renormaliza los pesos sobre las notas
+   * *presentes* y el velocímetro no permitía volver atrás — borrar el número
+   * dejaba el valor anterior intacto, así que una nota puesta por error se
+   * quedaba en el expediente.
+   */
+  onChange: (value: number | null) => void;
 }
 
 const R = 78;
@@ -107,7 +116,13 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
   }, []);
 
   function commitDraft(text: string) {
-    const n = Number.parseInt(text.replace(/[^0-9]/g, ""), 10);
+    const digits = text.replace(/[^0-9]/g, "");
+    if (digits === "") {
+      // Campo vacío ⇒ «sin evaluar», no cero.
+      if (valueRef.current !== null) onChange(null);
+      return;
+    }
+    const n = Number.parseInt(digits, 10);
     if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100, n)));
   }
 
