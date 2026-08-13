@@ -76,16 +76,32 @@ export function ComparatorCharts({ candidates }: { candidates: Candidate[] }) {
     return [...BASE_METRICS, ...compMetrics];
   }, [candidates]);
 
-  const [pickedCandidateIds, setPickedCandidateIds] = useState<string[] | null>(null);
+  /**
+   * Se guardan los **excluidos**, no los elegidos.
+   *
+   * Guardando la lista de elegidos, en cuanto el analista tocaba un chip la
+   * selección quedaba congelada: los postulantes que agregara después a la
+   * comparación no aparecían en el gráfico y no había ninguna pista de por qué
+   * («agregué a alguien y el gráfico lo ignora»). Con el conjunto de excluidos,
+   * todo lo nuevo entra por omisión y lo que se apagó a mano sigue apagado.
+   */
+  const [excluidos, setExcluidos] = useState<Set<string>>(() => new Set());
   const [pickedMetricIds, setPickedMetricIds] = useState<string[] | null>(null);
   const [chartType, setChartType] = useState<ChartType>("barras");
 
-  // Default selections track the comparison until the operator overrides them.
-  const activeCandidateIds = pickedCandidateIds ?? candidates.map((c) => c.id);
+  const activeCandidateIds = candidates.map((c) => c.id).filter((id) => !excluidos.has(id));
   const activeMetricIds = pickedMetricIds ?? BASE_METRICS.map((m) => m.id);
 
-  const pickedCandidates = candidates.filter((c) => activeCandidateIds.includes(c.id));
+  const pickedCandidates = candidates.filter((c) => !excluidos.has(c.id));
   const pickedMetrics = metrics.filter((m) => activeMetricIds.includes(m.id));
+
+  const alternarCandidato = (id: string) =>
+    setExcluidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // Stable, high-contrast colour per candidate (by position in the comparison).
   const colorFor = (id: string) =>
@@ -131,9 +147,7 @@ export function ComparatorCharts({ candidates }: { candidates: Candidate[] }) {
               <button
                 key={c.id}
                 type="button"
-                onClick={() =>
-                  setPickedCandidateIds(toggle(activeCandidateIds, c.id))
-                }
+                onClick={() => alternarCandidato(c.id)}
                 className={[
                   "inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-3 text-xs font-semibold ring-1 transition-all active:scale-95",
                   on

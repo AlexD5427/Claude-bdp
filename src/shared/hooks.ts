@@ -14,20 +14,48 @@ export function useDebouncedValue<T>(value: T, delay = 250): T {
   return debounced;
 }
 
-/** Track a CSS media query with SSR-safe defaults. */
+/**
+ * Track a CSS media query with SSR-safe defaults.
+ *
+ * `MediaQueryList.addEventListener` es relativamente reciente: Safari sólo lo
+ * expone desde la versión 14. En un equipo con Safari 13 —o con cualquier motor
+ * antiguo— la versión anterior de este hook lanzaba un `TypeError` dentro del
+ * efecto, y como lo usan el buscador del Comparador y sus celdas de texto largo,
+ * el módulo entero caía en el `ErrorBoundary`: «a mí el comparador no funciona».
+ * Ahora se prueba la API moderna, se recurre a `addListener` y, si nada existe,
+ * el valor se queda en su lectura inicial en lugar de romper.
+ */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    typeof window !== "undefined" && "matchMedia" in window
-      ? window.matchMedia(query).matches
-      : false,
-  );
+  const [matches, setMatches] = useState(() => {
+    try {
+      return typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia(query).matches
+        : false;
+    } catch {
+      return false;
+    }
+  });
   useEffect(() => {
-    if (typeof window === "undefined" || !("matchMedia" in window)) return;
-    const mql = window.matchMedia(query);
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    let mql: MediaQueryList;
+    try {
+      mql = window.matchMedia(query);
+    } catch {
+      return;
+    }
     const onChange = () => setMatches(mql.matches);
     onChange();
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // Motores antiguos (Safari ≤ 13): API obsoleta pero equivalente.
+    const legacy = mql as MediaQueryList & {
+      addListener?: (cb: () => void) => void;
+      removeListener?: (cb: () => void) => void;
+    };
+    legacy.addListener?.(onChange);
+    return () => legacy.removeListener?.(onChange);
   }, [query]);
   return matches;
 }

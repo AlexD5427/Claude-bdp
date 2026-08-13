@@ -60,7 +60,7 @@ function newUid(): string {
   return `c-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-type Feedback = { kind: "ok" | "warn"; message: string } | null;
+type Feedback = { kind: "ok" | "warn" | "error"; message: string } | null;
 
 interface FormState {
   identificador: string;
@@ -352,7 +352,7 @@ function EditHL({ on, children }: { on: boolean; children: React.ReactNode }) {
  * objeto.
  */
 export function RegistrationForm({ open, onClose, onSaved, editing }: RegistrationFormProps) {
-  const { competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
+  const { candidatos, competencias, arquetipos, auxiliares, submitCandidate, updateCandidate } =
     useTalentData();
   const isEdit = Boolean(editing);
   const [form, setForm] = useState<FormState>({ ...EMPTY });
@@ -541,12 +541,42 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
   async function save() {
     if (submitting) return;
     // Only the identificador is mandatory — every other field is optional.
-    if (!form.identificador.trim()) {
+    const identificador = form.identificador.trim();
+    if (!identificador) {
       setFeedback({
         kind: "warn",
         message: "El Identificador Único es el único campo obligatorio.",
       });
       identificadorRef.current?.focus();
+      return;
+    }
+
+    // El identificador es la clave de la fila en la hoja. Registrar uno que ya
+    // existe no crea una ficha nueva: o la hoja lo rechaza, o queda una segunda
+    // fila con la misma clave (y entonces esa persona deja de poder compararse,
+    // ver `lib/candidates`). Se avisa aquí, antes de enviar nada.
+    if (!isEdit) {
+      const clave = identificador.toLowerCase();
+      const yaExiste = candidatos.find(
+        (c) => asText(c.identificador).toLowerCase() === clave,
+      );
+      if (yaExiste) {
+        setFeedback({
+          kind: "error",
+          message: `Ya hay una ficha con el identificador ${identificador} (${yaExiste.fullName}). Ábrala con «Editar» para modificarla; registrarla de nuevo duplicaría la clave en la hoja.`,
+        });
+        identificadorRef.current?.focus();
+        return;
+      }
+    }
+
+    // Editar con la clave repetida en la hoja es una ruleta: el backend escribe
+    // en la primera fila que coincide, que puede no ser la que se está viendo.
+    if (isEdit && editing?.identificadorDuplicado) {
+      setFeedback({
+        kind: "error",
+        message: `El identificador ${identificador} aparece más de una vez en la hoja. Corrija la duplicación en la hoja antes de editar: el guardado no puede saber a qué fila escribir.`,
+      });
       return;
     }
 
@@ -559,7 +589,7 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
     );
 
     const candidate: RawCandidate = {
-      identificador: form.identificador.trim(),
+      identificador,
       nombres: form.nombres.trim(),
       apellido_paterno: form.apellido_paterno.trim(),
       apellido_materno: form.apellido_materno.trim(),
@@ -604,7 +634,7 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
     if (isEdit) {
       const result = await updateCandidate(candidate);
       setSubmitting(false);
-      setFeedback({ kind: result.ok ? "ok" : "warn", message: result.message });
+      setFeedback({ kind: result.ok ? "ok" : "error", message: result.message });
       if (result.ok) {
         // Record who edited what, and how, in the per-profile activity log.
         const resumen = [...changed]
@@ -623,7 +653,10 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
 
     const result = await submitCandidate(candidate);
     setSubmitting(false);
-    setFeedback({ kind: result.ok ? "ok" : "warn", message: result.message });
+    // Si falló, el cuestionario **se queda abierto con todo lo escrito** y el
+    // borrador local intacto: nada de cerrar el modal y perder media hora de
+    // trabajo por un error de red o un rechazo de la hoja.
+    setFeedback({ kind: result.ok ? "ok" : "error", message: result.message });
     if (result.ok) {
       logActivity({
         modulo: "postulantes",
@@ -786,19 +819,25 @@ export function RegistrationForm({ open, onClose, onSaved, editing }: Registrati
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0 }}
+                  role={feedback.kind === "ok" ? "status" : "alert"}
                   className={[
-                    "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ring-1",
+                    // Los avisos de error ya no son una píldora de una línea: el
+                    // mensaje del servidor explica qué hacer y hay que poder
+                    // leerlo completo.
+                    "flex items-start gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold ring-1",
                     feedback.kind === "ok"
                       ? "bg-emerald-500/15 text-emerald-500 ring-emerald-400/30"
-                      : "bg-amber-500/15 text-amber-500 ring-amber-400/30",
+                      : feedback.kind === "warn"
+                        ? "bg-amber-500/15 text-amber-500 ring-amber-400/30"
+                        : "w-full basis-full bg-rose-500/15 text-rose-500 ring-rose-400/40",
                   ].join(" ")}
                 >
                   {feedback.kind === "ok" ? (
-                    <CheckCircle2 className="h-4 w-4" />
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                   ) : (
-                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   )}
-                  {feedback.message}
+                  <span className="min-w-0">{feedback.message}</span>
                 </motion.div>
               )}
             </AnimatePresence>

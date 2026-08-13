@@ -71,6 +71,25 @@ export function LongCell({
   const [hover, setHover] = useState(false);
   const [origin, setOrigin] = useState<DOMRect | null>(null);
 
+  /**
+   * Firma del contenido.
+   *
+   * `items` y `tags` llegan como arreglos nuevos en cada dibujado (uno se
+   * construye con `observationTags(...)` en el propio JSX del comparador), así
+   * que usarlos como dependencias hacía que el efecto de medición se
+   * desmontara y se volviera a montar **en cada render**: con siete columnas y
+   * tres filas de texto largo, eso son cuarenta y dos `ResizeObserver`
+   * destruidos y recreados por pulsación de tecla o movimiento del ratón. Una
+   * firma de texto sólo cambia cuando cambia el contenido de verdad.
+   */
+  const firmaContenido = useMemo(
+    () =>
+      kind === "items"
+        ? items.map((it) => `${it.nombre}|${it.nivel ?? ""}|${it.detalle ?? ""}`).join("\u00b6")
+        : tags.join("\u00b6"),
+    [kind, items, tags],
+  );
+
   // Medimos el desborde real (no el declarado): sólo así sabemos si hace falta
   // recorrer la celda. Un ResizeObserver en el recorte y en el contenido cubre
   // el cambio de tamaño de ventana, el modo compacto y la llegada de más datos.
@@ -87,7 +106,7 @@ export function LongCell({
     ro.observe(clip);
     ro.observe(inner);
     return () => ro.disconnect();
-  }, [items, tags]);
+  }, [firmaContenido]);
 
   const revealing = hover && overflow > 0 && !reduceMotion;
   // ~26 px/s de lectura cómoda, con un 30 % del ciclo en pausa a cada extremo.

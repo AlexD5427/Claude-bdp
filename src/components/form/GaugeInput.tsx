@@ -13,6 +13,15 @@ const R = 78;
 const CX = 100;
 const CY = 100;
 const STROKE = 16;
+/**
+ * Alto del `viewBox`. Estaba escrito dos veces con dos valores distintos: el SVG
+ * declaraba 116 y el mapeo del puntero dividía por 120. Ese 3,4 % de diferencia
+ * deformaba el ángulo calculado, así que el valor que se fijaba al hacer clic no
+ * era exactamente el del punto donde se había hecho clic (el desvío crecía hacia
+ * los extremos del dial). Una sola constante y desaparece.
+ */
+const VIEW_H = 116;
+const VIEW_W = 200;
 
 /** Describe the SVG arc path from value `a` to value `b` along the dial. */
 function arcPath(a: number, b: number): string {
@@ -75,9 +84,9 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
     const svg = svgRef.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
-    // Map screen point into the 200×120 viewBox coordinate space.
-    const px = ((clientX - rect.left) / rect.width) * 200;
-    const py = ((clientY - rect.top) / rect.height) * 120;
+    // Map screen point into the viewBox coordinate space.
+    const px = ((clientX - rect.left) / rect.width) * VIEW_W;
+    const py = ((clientY - rect.top) / rect.height) * VIEW_H;
     let angle = Math.atan2(CY - py, px - CX); // radians, 0 = right, π = left
     // Below the dial's baseline: snap to the nearest end instead of wrapping.
     if (angle < 0) angle = px < CX ? Math.PI : 0;
@@ -133,7 +142,7 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
       >
         <svg
           ref={svgRef}
-          viewBox="0 0 200 116"
+          viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           className="w-full cursor-pointer touch-none"
           onPointerDown={(e) => {
             dragging.current = true;

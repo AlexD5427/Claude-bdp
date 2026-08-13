@@ -17,10 +17,13 @@ import type { Candidate, RawCandidate } from "../types";
 
 const submitCandidate = vi.fn(async (_candidate: RawCandidate) => ({ ok: true, message: "ok" }));
 const updateCandidate = vi.fn(async (_candidate: RawCandidate) => ({ ok: true, message: "ok" }));
+/** Base visible para el formulario (se rellena en las pruebas que la necesitan). */
+let baseCandidatos: Candidate[] = [];
 
 vi.mock("../context/TalentDataContext", () => ({
   useTalentData: () => ({
-    candidatos: [],
+    candidatos: baseCandidatos,
+    duplicados: [],
     competencias: ["Trabajo en Equipo,Sí,Sí,Sí,\"Colabora\""],
     arquetipos: [{ code: "D", label: "Impulsor (D)", description: "Acción" }],
     auxiliares: {
@@ -56,8 +59,11 @@ class ResizeObserverStub {
 
 beforeEach(() => {
   window.localStorage.clear();
+  baseCandidatos = [];
   submitCandidate.mockClear();
+  submitCandidate.mockResolvedValue({ ok: true, message: "ok" });
   updateCandidate.mockClear();
+  updateCandidate.mockResolvedValue({ ok: true, message: "ok" });
   globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
 });
 
@@ -229,5 +235,72 @@ describe("RegistrationForm · edición", () => {
       identificador: "5033853-163-2026",
       localidad_residencia: "El Alto",
     });
+  });
+});
+
+/**
+ * Guardado honesto.
+ *
+ * Dos caras del mismo fallo: el identificador es la clave de la fila en la hoja,
+ * así que registrar uno existente no crea nada (o crea una fila gemela que rompe
+ * la identidad de la ficha); y cuando el servidor rechaza, el cuestionario tiene
+ * que quedarse abierto con todo lo escrito en lugar de cerrarse cantando éxito.
+ */
+describe("RegistrationForm · guardado honesto", () => {
+  it("no envía nada si el identificador ya está en la base", async () => {
+    baseCandidatos = [
+      candidate({
+        identificador: "5033853-163-2026",
+        nombres: "María Fernanda",
+        apellido_paterno: "Quispe",
+      }),
+    ];
+    const user = userEvent.setup();
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    await fillIdentificador(user, "5033853-163-2026");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    expect(submitCandidate).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Editar/i);
+  });
+
+  it("mantiene el cuestionario abierto y con los datos cuando el servidor rechaza", async () => {
+    submitCandidate.mockResolvedValue({
+      ok: false,
+      message: "El servidor rechazó la operación. El registro no se guardó.",
+    });
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(<RegistrationForm open onClose={onClose} />);
+
+    await fillIdentificador(user, "9120487-163-2026");
+    const nombres = screen.getByLabelText(/^Nombres$/i);
+    await user.type(nombres, "Ana Lucía");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    await waitFor(() => expect(submitCandidate).toHaveBeenCalledTimes(1));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no se guardó/i);
+    // Lo escrito sigue en pantalla: se puede reintentar sin volver a teclear.
+    expect(screen.getByLabelText(/^Nombres$/i)).toHaveValue("Ana Lucía");
+    expect(screen.getByLabelText(/Identificador Único/i)).toHaveValue("9120487-163-2026");
+  });
+
+  it("se niega a editar una ficha cuyo identificador está duplicado en la hoja", async () => {
+    const duplicada = candidate({
+      identificador: "5033853-163-2026",
+      nombres: "María Fernanda",
+      apellido_paterno: "Quispe",
+    });
+    duplicada.identificadorDuplicado = true;
+    const user = userEvent.setup();
+    render(<RegistrationForm open onClose={vi.fn()} editing={duplicada} />);
+
+    await user.type(screen.getByLabelText(/Carrera/i), "Ingeniería Comercial");
+    await user.click(screen.getByRole("button", { name: /Guardar Cambios/i }));
+
+    expect(updateCandidate).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/más de una vez/i);
   });
 });

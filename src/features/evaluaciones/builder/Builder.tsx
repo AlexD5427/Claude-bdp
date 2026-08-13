@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { almacenLocal } from "../../../shared/storage";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -168,7 +169,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
       const copia = JSON.parse(raw) as { contenido: typeof contenido; guardadoEn: string };
       if (!copia?.contenido || !copia.guardadoEn) return;
       if (Date.parse(copia.guardadoEn) <= Date.parse(documento.evaluacion.actualizadoEn)) {
-        window.localStorage.removeItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
+        almacenLocal.remove(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
         return;
       }
       setRecuperable({ titulo: copia.contenido.evaluacion.titulo, guardadoEn: copia.guardadoEn });
@@ -191,7 +192,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
   };
 
   const descartarBorrador = () => {
-    window.localStorage.removeItem(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
+    almacenLocal.remove(`${CLAVE_BORRADOR}:${documento.evaluacion.id}`);
     setRecuperable(null);
   };
 
@@ -225,7 +226,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
       setGuardado("guardado");
       setConflicto(null);
       onDocumento(res.value);
-      window.localStorage.removeItem(`${CLAVE_BORRADOR}:${res.value.evaluacion.id}`);
+      almacenLocal.remove(`${CLAVE_BORRADOR}:${res.value.evaluacion.id}`);
       // Un identificador nuevo para la siguiente intención del usuario.
       solicitudGuardado.current = nuevaSolicitudId();
       if (!opciones.silencioso) toast.success("Borrador guardado.");

@@ -8,9 +8,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { SCRIPT_URL } from "../constants";
 import { getConfig, subscribeConfig } from "../lib/configStore";
-import { normaliseCandidate } from "../lib/candidates";
+import { normaliseCandidates } from "../lib/candidates";
+import { escribirEnHoja, leerDeHoja } from "../lib/appsScript";
+import { leerJson, escribirJson } from "../shared/storage";
 import {
   FALLBACK_DISC,
   parseDiscArchetypes,
@@ -31,6 +32,11 @@ export type DataStatus = "idle" | "loading" | "success" | "error";
 
 export interface TalentDataValue {
   candidatos: Candidate[];
+  /**
+   * Identificadores repetidos en la hoja. La lista de Postulantes los muestra
+   * como aviso: son el origen de que una persona «no se pueda comparar».
+   */
+  duplicados: string[];
   competencias: string[];
   /** DISC archetype catalogue (from the "Auxiliar" sheet, or the fallback). */
   arquetipos: DiscArchetype[];
@@ -51,6 +57,14 @@ export interface TalentDataValue {
   /** ISO timestamp of the last successful sync, or null. */
   lastSyncedAt: string | null;
   error: string | null;
+  /**
+   * Motivo del último refresco fallido **aunque siga habiendo datos en
+   * pantalla**. Antes se descartaba en silencio: el equipo veía la caché local
+   * de hace horas convencido de estar mirando la hoja en vivo.
+   */
+  syncError: string | null;
+  /** Los datos visibles vienen de la caché y el último refresco falló. */
+  stale: boolean;
   /** Re-run the GET request. */
   refetch: () => void;
   /** POST a new candidate, then optimistically add it locally. */
@@ -120,49 +134,29 @@ async function fetchPayload(
   signal: AbortSignal,
   attempt = 0,
 ): Promise<TalentPayload> {
-  try {
-    const res = await fetch(SCRIPT_URL, {
-      method: "GET",
-      // CRITICAL: follow Google's 302 so production (Vercel) doesn't 404.
-      redirect: "follow",
-      headers: { Accept: "application/json" },
-      signal,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as Partial<TalentPayload>;
-    return coercePayload(data);
-  } catch (err) {
-    if (signal.aborted) throw err;
-    if (attempt < 2) {
-      // 600ms, then 1200ms.
-      await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
-      return fetchPayload(signal, attempt + 1);
-    }
-    throw err;
+  // `leerDeHoja` distingue «no hay red» de «Google contestó una página de inicio
+  // de sesión», que es la diferencia entre un problema de conexión y uno de
+  // despliegue. Ese matiz es lo que después se le muestra al equipo.
+  const res = await leerDeHoja<Partial<TalentPayload>>(signal);
+  if (res.ok && res.datos) return coercePayload(res.datos);
+  if (signal.aborted) throw new Error("cancelado");
+  if (attempt < 2) {
+    // 600ms, then 1200ms.
+    await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
+    return fetchPayload(signal, attempt + 1);
   }
+  throw new Error(res.message || "No se pudo conectar con el servidor.");
 }
 
 function readCache(): CachedPayload | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedPayload;
-    if (!parsed || !Array.isArray(parsed.candidatos)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  const parsed = leerJson<CachedPayload | null>(CACHE_KEY, null);
+  if (!parsed || !Array.isArray(parsed.candidatos)) return null;
+  return parsed;
 }
 
 function writeCache(payload: TalentPayload): void {
-  if (typeof window === "undefined") return;
-  try {
-    const cached: CachedPayload = { ...payload, cachedAt: new Date().toISOString() };
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
-  } catch {
-    /* ignore quota / private mode */
-  }
+  const cached: CachedPayload = { ...payload, cachedAt: new Date().toISOString() };
+  escribirJson(CACHE_KEY, cached);
 }
 
 export function TalentDataProvider({ children }: { children: ReactNode }) {
@@ -198,6 +192,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     initial?.cachedAt ?? null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const hasData = useRef<boolean>(Boolean(initial));
 
@@ -223,6 +218,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
         setEspejoUltimo(payload.espejo_ultimo ?? []);
         setStatus("success");
         setSyncing(false);
+        setSyncError(null);
         setLastSyncedAt(new Date().toISOString());
         hasData.current = true;
         writeCache(payload);
@@ -230,13 +226,14 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         setSyncing(false);
-        // Keep cached data visible on a background refresh failure.
+        const mensaje =
+          err instanceof Error ? err.message : "No se pudo conectar con el servidor.";
+        // Con datos en pantalla no se borra nada, pero **sí se avisa**: seguir
+        // mostrando la caché como si fuera la hoja en vivo es lo que hacía creer
+        // que el sistema estaba al día cuando llevaba horas desconectado.
+        setSyncError(mensaje);
         if (hasData.current) return;
-        setError(
-          err instanceof Error
-            ? err.message
-            : "No se pudo conectar con el servidor.",
-        );
+        setError(mensaje);
         setStatus("error");
       });
   }, []);
@@ -297,27 +294,17 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
 
   const submitCandidate = useCallback(
     async (candidate: RawCandidate) => {
-      try {
-        // Apps Script web apps accept a JSON body on POST; text/plain avoids a
-        // CORS preflight that the default Apps Script deployment can't answer.
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(candidate),
-        });
-        // Optimistically reflect the new candidate without waiting for a reload.
-        setRaw((prev) => [candidate, ...prev]);
-        return { ok: true, message: "Postulante registrado correctamente." };
-      } catch {
-        // Still surface it locally so the operator's work isn't lost.
-        setRaw((prev) => [candidate, ...prev]);
-        return {
-          ok: false,
-          message:
-            "Se guardó localmente, pero la sincronización con el servidor falló.",
-        };
-      }
+      // Apps Script web apps accept a JSON body on POST; text/plain avoids a
+      // CORS preflight that the default Apps Script deployment can't answer.
+      // `escribirEnHoja` es quien decide si de verdad se guardó: antes se daba
+      // por bueno cualquier resultado, incluida la página de error de Google.
+      const res = await escribirEnHoja(candidate);
+      if (!res.ok) return { ok: false, message: res.message };
+      // Sólo cuando la hoja aceptó la fila la reflejamos en pantalla. Añadirla
+      // «por si acaso» hacía aparecer fichas fantasma que el siguiente refresco
+      // borraba, y eso se lee como «se perdió lo que registré».
+      setRaw((prev) => [candidate, ...prev]);
+      return { ok: true, message: "Postulante registrado correctamente." };
     },
     [],
   );
@@ -327,32 +314,15 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       const id = String(candidate.identificador ?? "").trim();
       const matches = (c: RawCandidate) =>
         String(c.identificador ?? "").trim() === id;
-      // Optimistically patch the matching row so the UI reflects the edit at
-      // once (fast), then re-sync the whole database (efficient + complete).
-      const applyLocal = () =>
-        setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
-      try {
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          // `action: "update"` routes to the sheet upsert that edits the exact
-          // row (matched by identificador) column by column.
-          body: JSON.stringify({ action: "update", ...candidate }),
-        });
-        applyLocal();
-        // The POST invalidates the backend cache, so a full refetch now returns
-        // fresh data and repaints every module from a single source of truth.
-        load();
-        return { ok: true, message: "Postulante actualizado correctamente." };
-      } catch {
-        applyLocal();
-        return {
-          ok: false,
-          message:
-            "Se actualizó localmente, pero la sincronización con el servidor falló.",
-        };
-      }
+      // `action: "update"` routes to the sheet upsert that edits the exact row
+      // (matched by identificador) column by column.
+      const res = await escribirEnHoja({ action: "update", ...candidate });
+      if (!res.ok) return { ok: false, message: res.message };
+      // Reflejo optimista de la fila editada (rápido) y, acto seguido, un
+      // refresco completo: la hoja sigue siendo la única fuente de verdad.
+      setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
+      load();
+      return { ok: true, message: "Postulante actualizado correctamente." };
     },
     [load],
   );
@@ -365,25 +335,10 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
   // keeps those indices fresh (deletes shift rows up — no blank gaps).
   const postPerfilCargo = useCallback(
     async (body: Record<string, unknown>, okMsg: string) => {
-      try {
-        const res = await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ type: "perfil_cargo", ...body }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
-        if (data.status && data.status !== "success") {
-          return { ok: false, message: data.message || "El servidor rechazó la operación." };
-        }
-        load();
-        return { ok: true, message: okMsg };
-      } catch {
-        return {
-          ok: false,
-          message: "No se pudo sincronizar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
-        };
-      }
+      const res = await escribirEnHoja({ type: "perfil_cargo", ...body });
+      if (!res.ok) return { ok: false, message: res.message };
+      load();
+      return { ok: true, message: okMsg };
     },
     [load],
   );
@@ -404,8 +359,8 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [postPerfilCargo],
   );
 
-  const candidatos = useMemo(
-    () => raw.map((c, i) => normaliseCandidate(c, i)),
+  const { candidatos, duplicados } = useMemo(
+    () => normaliseCandidates(raw),
     [raw],
   );
 
@@ -417,6 +372,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
   const value = useMemo<TalentDataValue>(
     () => ({
       candidatos,
+      duplicados,
       competencias,
       arquetipos,
       auxiliares,
@@ -429,6 +385,8 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       syncing,
       lastSyncedAt,
       error,
+      syncError,
+      stale: syncError !== null && status === "success",
       refetch: load,
       submitCandidate,
       updateCandidate,
@@ -438,6 +396,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     }),
     [
       candidatos,
+      duplicados,
       competencias,
       arquetipos,
       auxiliares,
@@ -449,6 +408,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       syncing,
       lastSyncedAt,
       error,
+      syncError,
       load,
       submitCandidate,
       updateCandidate,

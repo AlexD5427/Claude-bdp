@@ -24,12 +24,21 @@ export function TagInput({
 }: TagInputProps) {
   const [draft, setDraft] = useState("");
 
+  /** Añade uno o varios valores (acepta texto con comas de un pegado). */
   function commit(token: string) {
-    const value = token.trim();
-    if (!value) return;
-    if (!tags.some((t) => t.toLowerCase() === value.toLowerCase())) {
-      onChange([...tags, value]);
+    const nuevos = token
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (nuevos.length === 0) {
+      setDraft("");
+      return;
     }
+    const salida = [...tags];
+    for (const valor of nuevos) {
+      if (!salida.some((t) => t.toLowerCase() === valor.toLowerCase())) salida.push(valor);
+    }
+    if (salida.length !== tags.length) onChange(salida);
     setDraft("");
   }
 
@@ -69,7 +78,20 @@ export function TagInput({
         ))}
         <input
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            // Una coma puede llegar sin `keydown`: pegando texto, o con los
+            // teclados de móvil y los métodos de entrada que insertan directo.
+            // Si el texto trae comas, se convierten en etiquetas igualmente.
+            const valor = e.target.value;
+            if (valor.includes(",")) {
+              const partes = valor.split(",");
+              const cola = partes.pop() ?? "";
+              commit(partes.join(","));
+              setDraft(cola);
+              return;
+            }
+            setDraft(valor);
+          }}
           onKeyDown={onKeyDown}
           onBlur={() => commit(draft)}
           placeholder={tags.length ? "" : placeholder}

@@ -211,9 +211,22 @@ export function CandidateSearchSelect({
                     <div className="truncate text-sm font-semibold text-ink">
                       {c.fullName}
                     </div>
-                    <div className="truncate text-xs text-ink-faint">
-                      {c.identificador || "Sin ID"} · Proceso{" "}
-                      {extractProceso(c.identificador)}
+                    <div className="flex items-center gap-1.5 truncate text-xs text-ink-faint">
+                      <span className="truncate">
+                        {c.identificador || "Sin ID"} · Proceso {extractProceso(c.identificador)}
+                      </span>
+                      {/* Con la clave repetida en la hoja, dos personas distintas
+                          se leen igual en esta lista. Ahora se pueden agregar las
+                          dos (antes la segunda ni aparecía) y se avisa de por qué
+                          se parecen. */}
+                      {c.identificadorDuplicado && (
+                        <span
+                          title="Este identificador aparece más de una vez en la hoja."
+                          className="shrink-0 rounded-full bg-rose-500/15 px-1.5 py-0.5 text-[0.6rem] font-bold text-rose-500 ring-1 ring-rose-400/40"
+                        >
+                          ID duplicado
+                        </span>
+                      )}
                     </div>
                   </div>
                   <motion.span
