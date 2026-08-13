@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { localRead, localWrite } from "../lib/safeStorage";
 
 export type Theme = "dark" | "light";
 
@@ -19,15 +20,25 @@ interface ThemeValue {
 const STORAGE_KEY = "bdp-theme";
 const ThemeContext = createContext<ThemeValue | null>(null);
 
-/** Read the persisted theme, falling back to the OS preference, then dark. */
+/**
+ * Read the persisted theme, falling back to the OS preference, then dark.
+ *
+ * Todo lo que hay aquí puede lanzar en un navegador con los datos del sitio
+ * bloqueados, y esta función es el **estado inicial del proveedor más externo**
+ * de la aplicación: si lanza, React no monta nada y el analista se queda con una
+ * página en blanco. Por eso el acceso pasa por `safeStorage` y `matchMedia` va
+ * dentro de su propio `try`.
+ */
 function readInitialTheme(): Theme {
   if (typeof window === "undefined") return "dark";
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = localRead(STORAGE_KEY);
   if (stored === "light" || stored === "dark") return stored;
-  const prefersLight =
-    window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: light)").matches;
-  return prefersLight ? "light" : "dark";
+  try {
+    if (window.matchMedia?.("(prefers-color-scheme: light)").matches) return "light";
+  } catch {
+    /* matchMedia no disponible: seguimos con el tema oscuro */
+  }
+  return "dark";
 }
 
 /**
@@ -46,11 +57,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.setAttribute("data-theme", theme);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", theme === "dark" ? "#04122a" : "#eaf1fb");
-    try {
-      window.localStorage.setItem(STORAGE_KEY, theme);
-    } catch {
-      /* storage may be unavailable (private mode) — non-fatal. */
-    }
+    localWrite(STORAGE_KEY, theme);
   }, [theme]);
 
   const setTheme = useCallback((t: Theme) => setThemeState(t), []);

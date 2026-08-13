@@ -14,9 +14,12 @@ export function CursorSpotlight() {
     const el = ref.current;
     if (!el) return;
 
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
-    if (reduce || coarse) return;
+    // Guardado igual que el resto del sistema: hay entornos que exponen la
+    // propiedad sin la función y aquí un fallo dejaría sin foco de luz a toda la
+    // página.
+    const mq = (q: string) =>
+      typeof window.matchMedia === "function" ? window.matchMedia(q).matches : false;
+    if (mq("(prefers-reduced-motion: reduce)") || mq("(pointer: coarse)")) return;
 
     let raf = 0;
     let x = window.innerWidth / 2;
