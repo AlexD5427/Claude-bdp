@@ -131,8 +131,38 @@ export function setSelectedIds(ids: string[]): void {
 }
 
 export function addComparator(id: string, max: number): void {
-  if (state.selectedIds.includes(id) || state.selectedIds.length >= max) return;
+  if (!id) return;
+  // `max` llega de la configuración, que puede venir de otra versión o del
+  // perfil guardado en la hoja; si no es un número usable se aplica el tope
+  // por omisión en lugar de bloquear la comparación (ver `sanitiseConfig`).
+  const limit = Number.isFinite(max) && max >= 2 ? Math.floor(max) : 10;
+  if (state.selectedIds.includes(id) || state.selectedIds.length >= limit) return;
   state = { ...state, selectedIds: [...state.selectedIds, id] };
+  emit();
+}
+
+/**
+ * Descarta de la sesión los postulantes que ya no existen en la base.
+ *
+ * La comparación se guarda por identificador y vive en `sessionStorage`, pero la
+ * hoja cambia por debajo: se corrige un identificador mal escrito, se borra una
+ * fila duplicada, se cierra un proceso. Cuando eso pasaba, el identificador
+ * quedaba huérfano y seguía **ocupando una de las columnas**: el buscador
+ * mostraba «Límite alcanzado (10/10)» y se apagaba, mientras la comparativa se
+ * veía vacía. Desde fuera es indistinguible de «el comparador no funciona», y
+ * como sólo vive en la pestaña de esa persona, nadie más podía reproducirlo
+ * (reproducido en el arnés de QA, `comparador-ids-huerfanos`).
+ *
+ * Se llama con la base ya cargada; con la base vacía no hay nada que reconciliar
+ * y se sale sin tocar la sesión, para no vaciar la comparación durante la carga
+ * inicial o un fallo de red.
+ */
+export function reconcileComparator(knownIds: Iterable<string>): void {
+  const known = new Set(knownIds);
+  if (known.size === 0) return;
+  const kept = state.selectedIds.filter((id) => known.has(id));
+  if (kept.length === state.selectedIds.length) return;
+  state = { ...state, selectedIds: kept };
   emit();
 }
 

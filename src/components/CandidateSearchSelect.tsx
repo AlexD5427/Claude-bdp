@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Search, Plus, X, Users } from "lucide-react";
+import { Search, Plus, X, Users, Eraser } from "lucide-react";
 import { Avatar } from "./Avatar";
 import { PortalDropdown } from "./PortalDropdown";
 import { extractProceso } from "../lib/candidates";
@@ -13,6 +13,8 @@ interface CandidateSearchSelectProps {
   selectedIds: string[];
   onAdd: (id: string) => void;
   onRemove: (id: string) => void;
+  /** Vacía la comparación de un golpe (salida de emergencia siempre visible). */
+  onClear?: () => void;
   max: number;
 }
 
@@ -34,6 +36,7 @@ export function CandidateSearchSelect({
   selectedIds,
   onAdd,
   onRemove,
+  onClear,
   max,
 }: CandidateSearchSelectProps) {
   const [query, setQuery] = useState("");
@@ -46,16 +49,19 @@ export function CandidateSearchSelect({
   const skipOpenOnFocus = useRef(false);
   const reduceMotion = usePrefersReducedMotion();
 
-  const full = selectedIds.length >= max;
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
-  const selected = useMemo(
-    () =>
-      selectedIds
-        .map((id) => candidates.find((c) => c.id === id))
-        .filter(Boolean) as Candidate[],
-    [selectedIds, candidates],
-  );
+  const selected = useMemo(() => {
+    const byId = new Map(candidates.map((c) => [c.id, c]));
+    return selectedIds.map((id) => byId.get(id)).filter(Boolean) as Candidate[];
+  }, [selectedIds, candidates]);
+
+  // El tope se mide sobre los postulantes **resueltos**, no sobre los
+  // identificadores guardados: si la hoja perdió una fila, su identificador ya no
+  // debe consumir una columna (era lo que dejaba el buscador apagado en
+  // «Límite alcanzado» con la comparativa vacía).
+  const limit = Number.isFinite(max) && max >= 2 ? Math.floor(max) : 10;
+  const full = selected.length >= limit;
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -117,8 +123,27 @@ export function CandidateSearchSelect({
           transition={{ type: "spring", stiffness: 500, damping: 26 }}
           className="ml-auto text-xs font-semibold text-ink-soft"
         >
-          {selectedIds.length}/{max}
+          {selected.length}/{limit}
         </motion.span>
+        {/* Salida de emergencia: vaciar la comparación sin entrar a Configuración.
+            Quien se queda con el tope lleno necesita el botón a la vista. */}
+        <AnimatePresence initial={false}>
+          {selected.length > 0 && onClear && (
+            <motion.button
+              type="button"
+              onClick={onClear}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 420, damping: 28 }}
+              title="Quitar a todos los postulantes de la comparación"
+              className="inline-flex items-center gap-1.5 rounded-full fill-softer px-2.5 py-1 text-[0.7rem] font-bold text-ink-soft ring-1 ring-[color:var(--hairline)] transition-all hover:fill-soft hover:text-rose-500 active:scale-95"
+            >
+              <Eraser className="h-3.5 w-3.5" />
+              Vaciar
+            </motion.button>
+          )}
+        </AnimatePresence>
       </div>
 
       <div ref={wrapRef} className="relative">
@@ -148,11 +173,15 @@ export function CandidateSearchSelect({
             onKeyDown={onKeyDown}
             placeholder={
               full
-                ? `Límite alcanzado (${max}/${max})`
+                ? `Límite alcanzado (${selected.length}/${limit}) · quite a alguien para seguir`
                 : "Buscar por nombre o identificador… (datos en vivo)"
             }
             className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none disabled:cursor-not-allowed"
             role="combobox"
+            // El nombre accesible no puede depender del placeholder: cuando se
+            // alcanza el tope, el placeholder cambia y el campo se queda sin
+            // nombre para lectores de pantalla (y para las pruebas).
+            aria-label="Buscar postulantes para comparar"
             aria-expanded={open}
             aria-controls="candidate-listbox"
             autoComplete="off"

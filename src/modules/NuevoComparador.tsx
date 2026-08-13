@@ -81,6 +81,7 @@ import {
   addComparator,
   removeComparator,
   clearComparator,
+  reconcileComparator,
   setShowAjusteBrecha,
   setDense,
   toggleSectionVisible,
@@ -133,13 +134,26 @@ export function NuevoComparador() {
   // dock lives on top we must clear it; otherwise a small offset suffices.
   const stickyTop = config.dockPosition === "top" ? 84 : 12;
 
+  // Índice por identificador: resolver la comparación con `find` recorría toda
+  // la base por columna, y la base es de miles de filas.
+  const byId = useMemo(() => {
+    const map = new Map<string, Candidate>();
+    for (const c of candidatos) map.set(c.id, c);
+    return map;
+  }, [candidatos]);
+
   const selected = useMemo(
-    () =>
-      selectedIds
-        .map((id) => candidatos.find((c) => c.id === id))
-        .filter(Boolean) as Candidate[],
-    [selectedIds, candidatos],
+    () => selectedIds.map((id) => byId.get(id)).filter(Boolean) as Candidate[],
+    [selectedIds, byId],
   );
+
+  // La sesión guarda identificadores; la hoja los puede cambiar o borrar. Sin
+  // esta reconciliación un identificador huérfano seguía ocupando columna y el
+  // buscador se apagaba con «Límite alcanzado» sobre una comparativa vacía.
+  useEffect(() => {
+    if (candidatos.length === 0) return;
+    reconcileComparator(byId.keys());
+  }, [byId, candidatos.length]);
 
   // El puesto se calcula SIEMPRE por mérito (Nota CAP y, al empatar, el Índice
   // de Desempate). El interruptor de orden sólo decide cómo se dibujan las
@@ -148,8 +162,10 @@ export function NuevoComparador() {
   const ordered = useMemo(() => {
     if (config.sortByCapDesc) return orderForDisplay(ranked, config.comparatorOrder);
     // Sin ordenamiento por CAP se respeta el orden en que se agregaron.
-    const byId = new Map(ranked.map((r) => [r.candidate.id, r]));
-    return selected.map((c) => byId.get(c.id)!).filter(Boolean);
+    const rankedById = new Map(ranked.map((r) => [r.candidate.id, r]));
+    return selected
+      .map((c) => rankedById.get(c.id))
+      .filter((r): r is RankedCandidate => Boolean(r));
   }, [ranked, selected, config.sortByCapDesc, config.comparatorOrder]);
 
   // Ranking visibility & placement (profile card / dedicated row / both).
@@ -298,6 +314,7 @@ export function NuevoComparador() {
             selectedIds={selectedIds}
             onAdd={add}
             onRemove={remove}
+            onClear={clearComparator}
             max={MAX_COLUMNS}
           />
         </div>
