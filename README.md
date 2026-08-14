@@ -221,6 +221,14 @@ GET  →  { candidatos: [...], competencias: [...], arquetipos_disc: [...] }
 El hook global `useTalentData` (Context API) obtiene, normaliza y distribuye los
 datos, gestionando estados de carga y error con reintentos de *backoff*.
 
+> El módulo **Documentación** tiene su propio backend en
+> [`apps-script/documentacion/`](apps-script/documentacion/): 19 hojas
+> normalizadas como almacén y el libro anual `CONTROL INGRESOS <año>` como vista
+> de presentación. La consola lee y escribe ahí; la vista local sobre
+> `localStorage` se conserva para trabajar sin conexión. Ver
+> [`docs/modules/DOCUMENTACION.md`](docs/modules/DOCUMENTACION.md) y, para
+> ponerlo en marcha,
+> [`docs/modules/DOCUMENTACION_DESPLIEGUE.md`](docs/modules/DOCUMENTACION_DESPLIEGUE.md).
 > [!IMPORTANT]
 > **Toda escritura pasa por `src/lib/backendWrite.ts` y valida la respuesta.**
 > Apps Script **no** devuelve 401 cuando a un despliegue se le caducan los
@@ -274,7 +282,7 @@ src/
 ├── content/locale/  # Catálogo de textos es-MX + formateadores
 ├── context/         # useTalentData + useTheme (Context API)
 ├── design-system/   # Tokens semánticos, motion y primitivas Liquid Glass
-├── features/        # ProcessOS (processes/) y AssessmentOS (assessments/)
+├── features/        # ProcessOS (processes/), AssessmentOS (assessments/) y Documentación (documentacion/)
 ├── infrastructure/  # Proveedores (mock/Apps Script/Supabase), mappers, sync
 ├── hooks/           # usePointerGlow, useFormDraft (autosave/recuperación)
 ├── lib/             # cálculos, normalización, niveles, impresión, DISC y docStore
@@ -284,9 +292,12 @@ src/
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 
 apps-script/
-└── evaluations/     # backend de Evaluaciones listo para copiar a Apps Script
+├── evaluations/     # backend de Evaluaciones listo para copiar a Apps Script
+└── documentacion/   # backend de Documentación: libro anual + modelo normalizado
 scripts/
-├── check-evaluations.mjs   # verificaciones estáticas (npm run check)
-├── run-apps-script.mjs     # arnés que ejecuta los .gs en Node (pruebas)
-└── visual-qa.mjs           # capturas reproducibles de la matriz visual
+├── check-evaluations.mjs        # verificaciones estáticas (npm run check)
+├── documentacion-backend.mjs    # arnés que ejecuta los .gs de Documentación en Node
+├── documentacion-backend-check.mjs  # coherencia backend ↔ frontend (npm run doc:check)
+├── run-apps-script.mjs          # arnés que ejecuta los .gs en Node (pruebas)
+└── visual-qa.mjs                # capturas reproducibles de la matriz visual
 ```

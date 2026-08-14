@@ -22,6 +22,13 @@ function onOpen() {
       .addItem('Diagnosticar', 'docMenuDiagnosticar')
       .addItem('Reparar automaticamente', 'docMenuAutoreparar')
       .addSeparator()
+      .addItem('Instalar o actualizar (modelo normalizado)', 'docMenuInstalarModelo')
+      .addItem('Simular migracion (no escribe nada)', 'docMenuSimularMigracion')
+      .addItem('Migrar al modelo normalizado', 'docMenuMigrar')
+      .addItem('Diagnosticar modelo normalizado', 'docMenuDiagnosticarModelo')
+      .addItem('Reparar modelo normalizado', 'docMenuRepararModelo')
+      .addItem('Ejecutar proceso diario ahora', 'docMenuProcesoDiario')
+      .addSeparator()
       .addItem('Crear pestana del ano en curso', 'docMenuCrearAnio')
       .addItem('Recalcular avances', 'docMenuRecalcular')
       .addItem('Repintar colores', 'docMenuRecolorear')
@@ -43,6 +50,7 @@ function docMenuRun_(titulo, fn) {
   docLogReset_('menu');
   docStoreReset_();
   docYearsReset_();
+  doc2Reset_();
   var ui = null;
   try { ui = SpreadsheetApp.getUi(); } catch (e) { ui = null; }
   try {
@@ -176,6 +184,144 @@ function docMenuPruebas() {
   });
 }
 
+/* -------------------- Menu del modelo normalizado ------------------------- */
+
+/**
+ * Contexto de administracion para el menu.
+ *
+ * Quien abre el menu del libro tiene acceso de edicion al libro: por eso opera
+ * como administrador del modulo. La autorizacion fina la siguen aplicando los
+ * servicios; esto solo evita que el menu falle por no tener rol asignado.
+ */
+function docMenuContexto_() {
+  var actor = docActor_(null);
+  return {
+    requestId: docTraceId_(),
+    accion: 'menu',
+    actor: actor,
+    actorId: actor,
+    actorDisplay: actor,
+    rol: 'admin',
+    capacidades: doc2CapacidadesDe_('admin'),
+    porLlave: true,
+    origen: 'menu',
+    metodo: 'MENU',
+    ahora: docNow_()
+  };
+}
+
+function docMenuInstalarModelo() {
+  return docMenuRun_('Modelo normalizado', function () {
+    var r = doc2Instalar_({ conRespaldo: true }, docMenuContexto_());
+    var lineas = ['Hojas revisadas: ' + r.hojas.length];
+    if (r.respaldo && r.respaldo.ok) lineas.push('Respaldo previo: ' + r.respaldo.respaldoId + ' (' + r.respaldo.expedientes + ' expedientes)');
+    for (var i = 0; i < r.migracion.ejecutadas.length; i++) {
+      var m = r.migracion.ejecutadas[i];
+      lineas.push('- ' + m.version + ': ' + (m.ok ? m.resumen : ('ERROR ' + m.error)));
+    }
+    lineas.push('');
+    lineas.push('Hallazgos criticos: ' + r.diagnostico.conteos.CRITICO);
+    if (r.migracion.estado.pendientes.length) {
+      lineas.push('Migraciones pendientes: ' + r.migracion.estado.pendientes.join(', '));
+      lineas.push('Vuelve a ejecutar esta opcion para continuar donde se quedo.');
+    }
+    return lineas.join('\n');
+  });
+}
+
+function docMenuSimularMigracion() {
+  return docMenuRun_('Simulacion de migracion', function () {
+    var r = doc2Migrar_({ simular: true }, docMenuContexto_());
+    var lineas = ['Nada se escribio en el libro.', ''];
+    for (var i = 0; i < r.ejecutadas.length; i++) {
+      lineas.push('- ' + r.ejecutadas[i].version + ': ' + (r.ejecutadas[i].resumen || r.ejecutadas[i].error));
+    }
+    lineas.push('');
+    lineas.push(r.recomendacionRespaldo);
+    return lineas.join('\n');
+  });
+}
+
+function docMenuMigrar() {
+  return docMenuRun_('Migracion', function () {
+    var r = doc2Migrar_({}, docMenuContexto_());
+    var lineas = [];
+    for (var i = 0; i < r.ejecutadas.length; i++) {
+      var m = r.ejecutadas[i];
+      lineas.push('- ' + m.version + ': ' + (m.ok ? m.resumen : ('ERROR ' + m.error)));
+    }
+    if (!lineas.length) lineas.push('No habia migraciones pendientes.');
+    if (r.estado.pendientes.length) {
+      lineas.push('');
+      lineas.push('Quedan pendientes: ' + r.estado.pendientes.join(', ') + '. Vuelve a ejecutar para continuar.');
+    }
+    return lineas.join('\n');
+  });
+}
+
+function docMenuDiagnosticarModelo() {
+  return docMenuRun_('Diagnostico del modelo', function () {
+    var d = doc2Diagnostico_(docMenuContexto_());
+    var lineas = [
+      'Expedientes: ' + d.resumen.expedientes + '   Requisitos: ' + d.resumen.requisitos,
+      'Hojas normalizadas: ' + d.resumen.hojasNormalizadas + ' de ' + DOC2_SHEET_ORDER.length,
+      'Criticos: ' + d.conteos.CRITICO + '   Importantes: ' + d.conteos.IMPORTANTE +
+        '   Advertencias: ' + d.conteos.ADVERTENCIA + '   Info: ' + d.conteos.INFO,
+      ''
+    ];
+    for (var i = 0; i < Math.min(d.hallazgos.length, 20); i++) {
+      var h = d.hallazgos[i];
+      lineas.push('[' + h.severidad + '] ' + h.titulo);
+      lineas.push('   ' + h.detalle);
+      if (h.accion) lineas.push('   Se corrige con: ' + h.accion + (h.reparable === 'automatica' ? ' (automatico)' : ' (requiere confirmacion)'));
+      lineas.push('');
+    }
+    if (!d.hallazgos.length) lineas.push('Sin hallazgos.');
+    return lineas.join('\n');
+  });
+}
+
+function docMenuRepararModelo() {
+  return docMenuRun_('Reparacion del modelo', function () {
+    var r = doc2Reparar_({}, docMenuContexto_());
+    var lineas = [];
+    for (var i = 0; i < r.aplicadas.length; i++) {
+      lineas.push('- ' + r.aplicadas[i].accion + ': ' + r.aplicadas[i].cambios + ' cambio(s)');
+    }
+    if (!lineas.length) lineas.push('No hizo falta reparar nada de forma automatica.');
+    lineas.push('');
+    lineas.push('Criticos antes: ' + r.antes.conteos.CRITICO + '   despues: ' + r.despues.conteos.CRITICO);
+    if (r.omitidas.length) {
+      lineas.push('');
+      lineas.push('Omitidas (requieren confirmacion desde el modulo):');
+      for (var o = 0; o < r.omitidas.length; o++) lineas.push('- ' + r.omitidas[o].accion + ': ' + r.omitidas[o].motivo);
+    }
+    if (r.pendientesManuales.length) {
+      lineas.push('');
+      lineas.push('Requieren revision manual:');
+      for (var m = 0; m < Math.min(r.pendientesManuales.length, 10); m++) {
+        lineas.push('- ' + r.pendientesManuales[m].titulo);
+      }
+    }
+    return lineas.join('\n');
+  });
+}
+
+function docMenuProcesoDiario() {
+  return docMenuRun_('Proceso diario', function () {
+    var r = doc2ProcesoDiario_(docMenuContexto_());
+    return [
+      'Fecha: ' + r.fecha,
+      'Prorrogas vencidas: ' + r.prorrogasVencidas + '   avisadas: ' + r.prorrogasAvisadas,
+      'Solicitudes vencidas: ' + r.solicitudesVencidas,
+      'Tareas vencidas: ' + r.tareasVencidas,
+      'Aprobaciones vencidas: ' + r.aprobacionesVencidas,
+      r.retencion ? ('Retencion: ' + r.retencion.marcados + ' expediente(s) marcado(s)') : '',
+      r.errores.length ? ('Errores: ' + r.errores.join(' | ')) : 'Sin errores.'
+    ].join('\n');
+  });
+}
+
 /* ------------------------------ Disparadores ------------------------------ */
 
 /** Activa la tarea diaria de madrugada. Quita antes las anteriores. */
@@ -220,6 +366,7 @@ function docTareaDiaria() {
   docLogReset_('tarea.diaria');
   docStoreReset_();
   docYearsReset_();
+  doc2Reset_();
   var pasos = [];
 
   try {
@@ -243,6 +390,20 @@ function docTareaDiaria() {
     var c = docCompact_('tarea programada');
     pasos.push(c.eliminadas + ' linea(s) compactada(s)');
   } catch (e) { pasos.push('compactacion: ' + docClassify_(e).message); }
+
+  // Vencimientos del modelo normalizado: prorrogas, solicitudes, tareas,
+  // aprobaciones y retencion. Es idempotente, asi que dos ejecuciones el mismo
+  // dia no duplican avisos.
+  try {
+    var estadoModelo = doc2Estado_(docMenuContexto_());
+    if (estadoModelo.instalado) {
+      var diario = doc2ProcesoDiario_(docMenuContexto_());
+      pasos.push('modelo normalizado: ' + diario.prorrogasVencidas + ' prorroga(s) vencida(s), ' +
+        diario.solicitudesVencidas + ' solicitud(es) vencida(s), ' + diario.tareasVencidas + ' tarea(s) vencida(s)');
+    } else {
+      pasos.push('modelo normalizado no instalado: se omite su proceso diario');
+    }
+  } catch (e) { pasos.push('proceso diario del modelo: ' + docClassify_(e).message); }
 
   try {
     docAudit_({

@@ -318,7 +318,13 @@ function docPut_(nombre, obj) {
   for (var c = 0; c < columnas.length; c++) guardada[columnas[c].name] = obj[columnas[c].name];
   cargada.rows.push(guardada);
   cargada.byId[id] = guardada;
-  docPendingFor_(nombre).appends.push(valores);
+  // El alta viaja CON su número de fila. Antes se encolaba solo el contenido y al
+  // confirmar se escribía en `getLastRow() + 1`; si la misma petición insertaba y
+  // después actualizaba esa fila —cosa que ocurre en cuanto un servicio recalcula
+  // un resumen recién creado—, la actualización ocupaba el hueco reservado y el
+  // alta se escribía otra vez debajo. Resultado: la fila duplicada. Con la fila
+  // explícita, alta y actualización se resuelven contra la misma posición.
+  docPendingFor_(nombre).appends.push({ row: guardada.__row, values: valores });
   return guardada;
 }
 
@@ -374,29 +380,28 @@ function docCommit_() {
     var cargada = DOC_STORE.loaded[nombre];
     if (!cargada) continue;
 
-    if (pendiente.updates.length > 0) {
-      var porFila = {};
-      for (var u = 0; u < pendiente.updates.length; u++) {
-        porFila[pendiente.updates[u].row] = pendiente.updates[u].values;
-      }
-      var numeros = Object.keys(porFila).map(Number).sort(function (a, b) { return a - b; });
-      var inicio = 0;
-      while (inicio < numeros.length) {
-        var fin = inicio;
-        while (fin + 1 < numeros.length && numeros[fin + 1] === numeros[fin] + 1) fin++;
-        var bloque = [];
-        for (var b = inicio; b <= fin; b++) bloque.push(porFila[numeros[b]]);
-        cargada.sheet.getRange(numeros[inicio], 1, bloque.length, cargada.width).setValues(bloque);
-        escritas += bloque.length;
-        inicio = fin + 1;
-      }
+    // Altas y actualizaciones se resuelven juntas, indexadas por fila: la última
+    // versión de cada fila gana y los tramos contiguos se escriben de una vez.
+    var porFila = {};
+    for (var u = 0; u < pendiente.updates.length; u++) {
+      porFila[pendiente.updates[u].row] = pendiente.updates[u].values;
+    }
+    for (var a = 0; a < pendiente.appends.length; a++) {
+      var alta = pendiente.appends[a];
+      if (porFila[alta.row] === undefined) porFila[alta.row] = alta.values;
     }
 
-    if (pendiente.appends.length > 0) {
-      var desde = cargada.sheet.getLastRow() + 1;
-      cargada.sheet.getRange(desde, 1, pendiente.appends.length, cargada.width)
-        .setValues(pendiente.appends);
-      escritas += pendiente.appends.length;
+    var numeros = Object.keys(porFila).map(Number).sort(function (x, y) { return x - y; });
+    var inicio = 0;
+    while (inicio < numeros.length) {
+      var fin = inicio;
+      while (fin + 1 < numeros.length && numeros[fin + 1] === numeros[fin] + 1) fin++;
+      var bloque = [];
+      for (var b = inicio; b <= fin; b++) bloque.push(porFila[numeros[b]]);
+      docEnsureRows_(cargada.sheet, numeros[fin] + 1);
+      cargada.sheet.getRange(numeros[inicio], 1, bloque.length, cargada.width).setValues(bloque);
+      escritas += bloque.length;
+      inicio = fin + 1;
     }
     DOC_STORE.pending[nombre] = { updates: [], appends: [] };
   }
