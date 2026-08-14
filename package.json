@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "backend:check": "node scripts/evaluaciones-backend-check.mjs",
-    "doc:check": "node scripts/documentacion-backend-check.mjs"
+    "doc:check": "node scripts/documentacion-backend-check.mjs",
+    "doc:qa": "node qa/visual-documentacion.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

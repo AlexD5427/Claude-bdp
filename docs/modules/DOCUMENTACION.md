@@ -148,7 +148,7 @@ el modelo nuevo.
 | `18_Reports.gs` | panel, 14 reportes, exportaciones por lotes, filtros guardados |
 | `19_Governance.gs` | consentimientos, retención, anonimización, diagnóstico, reparación |
 | `20_Migrations.gs` | motor de migraciones con simulación, lotes y reanudación |
-| `21_Api.gs` | registro de ~76 acciones `documentacion.*` |
+| `21_Api.gs` | registro de las 76 acciones `documentacion.*` |
 
 El orden del prefijo numérico importa: Apps Script concatena los archivos en un
 único espacio global y las constantes de nivel superior deben existir antes de
@@ -160,21 +160,26 @@ silencio**, y por eso `npm run doc:check` busca duplicados.
 Todas las acciones nuevas se llaman `documentacion.<recurso>.<verbo>`:
 
 ```
-expediente.crear | actualizar | obtener | operativo | estado | resumen | archivar
-expedientes.listar | requisito.actualizar | requisitos.lote
-prorroga.conceder | revocar | listar
-solicitud.crear | seguimiento | cerrar | solicitudes.masiva | impacto | reanudar
-revision.registrar | listar | aprobacion.solicitar | resolver | aprobaciones.listar
-comentario.crear | listar | tarea.crear | actualizar | tareas.listar
-panel.obtener | reporte.generar | reportes.listar
+expediente.crear | actualizar | obtener | estado | sincronizar | recalcular
+expediente.archivar | restaurar | conservacion | laboral | expedientes.listar
+requisito.actualizar | requisitos.guardar
+prorroga.crear | actualizar | estado | prorrogas.listar
+solicitud.crear | estado | seguimiento
+solicitudes.listar | impacto | masiva
+revision.decidir | cola | aprobacion.solicitar | resolver | aprobaciones.listar
+comentario.crear | editar | resolver | comentarios.listar
+tarea.crear | actualizar | estado | tareas.listar
+panel | reporte | reportes.disponibles
 exportacion.iniciar | lote | cancelar | exportaciones.listar
 filtro.guardar | eliminar | filtros.listar
-consentimiento.registrar | consentimientos.listar | retencion.*
-notificaciones.listar | notificacion.marcar | historial.listar | auditoria.consultar
-catalogo.listar | guardar | auxiliares.listar | agregar | permisos.listar | guardar
-configuracion.obtener | guardar | vocabulario.obtener
+consentimiento.presentar | responder | consentimientos.listar
+retencion.politicas | aplicar | planAnonimizacion | anonimizar
+notificaciones.listar | leerTodas | notificacion.leer
+historial.consultar | auditoria.consultar
+catalogo | catalogo.guardar | auxiliares | auxiliares.agregar
+permisos.obtener | guardar | configuracion.obtener | guardar | vocabulario
 instalar | migraciones.estado | migrar | diagnostico | reparar
-inconsistencias | proceso.diario | respaldo.crear
+inconsistencias | proceso.diario | respaldo
 ```
 
 Las 23 acciones heredadas (`estado`, `expediente.guardar`, `mantenimiento.*`…)
@@ -329,6 +334,28 @@ veces sobre un libro sembrado con datos heredados.
 | `backend.volumen` | 1 000 expedientes: hojas leídas y tamaño de respuesta |
 | `backend.regresion` | 23 acciones heredadas, 39 columnas, colores, menú |
 | `consola` | la interfaz contra el backend real, no contra datos falsos |
+
+### 5.1 Verificación visual
+
+Las pruebas en jsdom no ven lo que ve un ojo, y tampoco detectan un HTML mal
+anidado que el navegador sí denuncia. Para eso está `npm run doc:qa`
+(`qa/visual-documentacion.mjs`): arranca Vite, abre la consola en un Chromium de
+verdad y **desvía todas sus llamadas al backend cargado en memoria**, de modo que
+las pantallas muestran datos que salieron del `doPost` real.
+
+Al terminar informa de las llamadas fallidas y de los errores de la consola del
+navegador, y deja las capturas en `docs/modules/img/documentacion/`. La última
+ejecución: 20 llamadas al backend, ninguna fallida, cero errores de consola.
+
+> **Lo que encontró esta comprobación**
+> En la vista de tarjetas del móvil, la fila era un `<button>` y dentro se
+> pintaban los botones de acción de cada celda: un botón dentro de otro botón, que
+> no es HTML válido y deja los controles internos fuera del alcance del teclado.
+> Ninguna prueba lo había visto; el navegador lo dijo en la primera pasada. Ahora
+> la tarjeta es un contenedor con su botón «Abrir» explícito.
+
+Playwright no está en las dependencias del proyecto para no arrastrar 100 MB de
+navegador en cada instalación; el propio guion explica cómo instalarlo.
 
 ---
 

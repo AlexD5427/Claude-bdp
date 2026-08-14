@@ -578,10 +578,18 @@ export function Tabla<T>({
       <ul className="space-y-2 md:hidden">
         {filas.map((fila) => (
           <li key={claveFila(fila)}>
-            <button
-              type="button"
+            {/*
+              La tarjeta entera responde al toque, igual que la fila de la tabla,
+              pero el contenedor no puede ser un `button`: las celdas traen sus
+              propios controles y un botón dentro de otro botón no es HTML válido
+              ni se puede alcanzar con el teclado. Para el teclado está el botón
+              «Abrir» del final.
+            */}
+            <div
               onClick={onFila ? () => onFila(fila) : undefined}
-              className="w-full rounded-2xl border border-[color:var(--hairline)] bg-[color:var(--fill-1)] p-3 text-left"
+              className={`w-full rounded-2xl border border-[color:var(--hairline)] bg-[color:var(--fill-1)] p-3 text-left ${
+                onFila ? "cursor-pointer" : ""
+              }`}
             >
               <dl className="space-y-1">
                 {columnas.map((columna) => (
@@ -591,7 +599,14 @@ export function Tabla<T>({
                   </div>
                 ))}
               </dl>
-            </button>
+              {onFila && (
+                <div className="mt-2 flex justify-end">
+                  <Boton variante="suave" onClick={() => onFila(fila)}>
+                    Abrir
+                  </Boton>
+                </div>
+              )}
+            </div>
           </li>
         ))}
       </ul>

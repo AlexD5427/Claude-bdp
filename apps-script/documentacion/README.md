@@ -137,21 +137,26 @@ Todas por `POST` con cuerpo JSON enviado como `text/plain` y `redirect: "follow"
 Modelo nuevo, `documentacion.<recurso>.<verbo>`:
 
 ```
-expediente.crear|actualizar|obtener|operativo|estado|resumen|archivar
-expedientes.listar | requisito.actualizar | requisitos.lote
-prorroga.conceder|revocar|listar
-solicitud.crear|seguimiento|cerrar | solicitudes.masiva|impacto|reanudar
-revision.registrar|listar | aprobacion.solicitar|resolver | aprobaciones.listar
-comentario.crear|listar | tarea.crear|actualizar | tareas.listar
-panel.obtener | reporte.generar | reportes.listar
-exportacion.iniciar|lote|cancelar | exportaciones.listar
-filtro.guardar|eliminar | filtros.listar
-consentimiento.registrar | consentimientos.listar | retencion.*
-notificaciones.listar | notificacion.marcar | historial.listar | auditoria.consultar
-catalogo.listar|guardar | auxiliares.listar|agregar | permisos.listar|guardar
-configuracion.obtener|guardar | vocabulario.obtener
+expediente.crear | actualizar | obtener | estado | sincronizar | recalcular
+expediente.archivar | restaurar | conservacion | laboral | expedientes.listar
+requisito.actualizar | requisitos.guardar
+prorroga.crear | actualizar | estado | prorrogas.listar
+solicitud.crear | estado | seguimiento
+solicitudes.listar | impacto | masiva
+revision.decidir | cola | aprobacion.solicitar | resolver | aprobaciones.listar
+comentario.crear | editar | resolver | comentarios.listar
+tarea.crear | actualizar | estado | tareas.listar
+panel | reporte | reportes.disponibles
+exportacion.iniciar | lote | cancelar | exportaciones.listar
+filtro.guardar | eliminar | filtros.listar
+consentimiento.presentar | responder | consentimientos.listar
+retencion.politicas | aplicar | planAnonimizacion | anonimizar
+notificaciones.listar | leerTodas | notificacion.leer
+historial.consultar | auditoria.consultar
+catalogo | catalogo.guardar | auxiliares | auxiliares.agregar
+permisos.obtener | guardar | configuracion.obtener | guardar | vocabulario
 instalar | migraciones.estado | migrar | diagnostico | reparar
-inconsistencias | proceso.diario | respaldo.crear
+inconsistencias | proceso.diario | respaldo
 ```
 
 Heredadas, todas siguen atendidas sin cambio de forma:
