@@ -17,20 +17,20 @@ import {
   Table2,
   X,
 } from "lucide-react";
-import { EmptyState } from "../components/States";
-import { Avatar } from "../components/Avatar";
-import { CandidateActions } from "../components/CandidateActions";
-import { DocIntakeForm } from "../components/doc/DocIntakeForm";
-import { DocSettingsModal } from "../components/doc/DocSettingsModal";
-import { DocDossierDetail } from "../components/doc/DocDossierDetail";
-import { DocEmailComposer } from "../components/doc/DocEmailComposer";
-import DocSyncIndicator, { DocSyncAviso } from "../components/doc/DocSyncIndicator";
-import { CountUp, Skeleton, useDocMotion } from "../components/doc/DocMotion";
-import { printModule } from "../lib/print";
-import { setSettings, useDocStore, type Dossier } from "../lib/docStore";
-import { dossierReport } from "../lib/docReport";
-import { dossierYear, DOC_ORDEN_LABELS, type DocOrden } from "../lib/doc/docSchema";
-import { useConfig, activeTemplateFor } from "../lib/configStore";
+import { EmptyState } from "../../../components/States";
+import { Avatar } from "../../../components/Avatar";
+import { CandidateActions } from "../../../components/CandidateActions";
+import { DocIntakeForm } from "../../../components/doc/DocIntakeForm";
+import { DocSettingsModal } from "../../../components/doc/DocSettingsModal";
+import { DocDossierDetail } from "../../../components/doc/DocDossierDetail";
+import { DocEmailComposer } from "../../../components/doc/DocEmailComposer";
+import DocSyncIndicator, { DocSyncAviso } from "../../../components/doc/DocSyncIndicator";
+import { CountUp, Skeleton, useDocMotion } from "../../../components/doc/DocMotion";
+import { printModule } from "../../../lib/print";
+import { setSettings, useDocStore, type Dossier } from "../../../lib/docStore";
+import { dossierReport } from "../../../lib/docReport";
+import { dossierYear, DOC_ORDEN_LABELS, type DocOrden } from "../../../lib/doc/docSchema";
+import { useConfig, activeTemplateFor } from "../../../lib/configStore";
 
 type EstadoFiltro = "todos" | "completo" | "al_dia" | "en_proceso" | "atrasado";
 
@@ -43,19 +43,30 @@ const ESTADOS: { id: EstadoFiltro; etiqueta: string }[] = [
 ];
 
 /**
- * MÓDULO — Documentación.
+ * VISTA LOCAL — el módulo tal como funcionaba antes del modelo normalizado.
  *
- * Seguimiento de la documentación que debe entregar cada persona que ingresa.
+ * ── Por qué sigue existiendo ─────────────────────────────────────────────────
+ * Esta vista trabaja contra el almacén local (`lib/docStore`), que guarda los
+ * expedientes en el propio equipo y los sincroniza con el libro cuando hay
+ * backend. Sigue siendo la única forma de trabajar cuando el backend de
+ * Documentación NO está desplegado: si la consola nueva fuera la única puerta,
+ * quien todavía no lo tiene publicado se quedaría sin módulo.
  *
- * -- Por qué hay tres vistas -------------------------------------------------
- * La versión anterior era una rejilla plana de tarjetas ordenada por fecha. Con
- * doscientos ingresos al año eso obliga a recorrerla entera para encontrar a
+ * Está intacta a propósito —solo se movió de carpeta— para que la regresión sea
+ * comprobable: las tres vistas, los filtros, el alta, el detalle, los avisos y la
+ * impresión funcionan exactamente como antes. Cuando el libro esté migrado, la
+ * consola cubre todo esto con datos del servidor y esta vista queda como red de
+ * seguridad y como lector de lo que hubiera quedado sin sincronizar.
+ *
+ * ── Por qué hay tres vistas ─────────────────────────────────────────────────
+ * La versión anterior a esta era una rejilla plana de tarjetas ordenada por fecha.
+ * Con doscientos ingresos al año eso obliga a recorrerla entera para encontrar a
  * quien le faltan dos papeles. Las tarjetas siguen siendo la vista por defecto
- * porque muestran el avance de un vistazo, pero ahora conviven con una tabla
- * —que reproduce las columnas del libro, para quien viene de Excel— y un
- * tablero por estado, útil para repartir el trabajo del día.
+ * porque muestran el avance de un vistazo, pero conviven con una tabla —que
+ * reproduce las columnas del libro, para quien viene de Excel— y un tablero por
+ * estado, útil para repartir el trabajo del día.
  */
-export function Documentacion() {
+export function VistaLocal() {
   const { dossiers, settings } = useDocStore();
   const config = useConfig();
   const m = useDocMotion();
