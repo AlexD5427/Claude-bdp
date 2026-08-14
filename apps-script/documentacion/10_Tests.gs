@@ -201,6 +201,61 @@ function docTestAuditoriaPura_() {
   docCheck_('los valores largos se recortan', largo.length <= 1800);
 }
 
+/**
+ * Vocabulario y reglas del modelo normalizado. Tampoco necesitan libro: todo lo
+ * que se comprueba aqui son constantes y funciones puras de `11_Domain.gs`.
+ */
+function docTestModelo_() {
+  var hojas = [];
+  for (var clave in DOC2_SHEET) {
+    if (!DOC2_SHEET.hasOwnProperty(clave)) continue;
+    if (clave === 'AUXILIAR') continue;
+    hojas.push(DOC2_SHEET[clave]);
+  }
+  docCheckEq_('el modelo declara 19 hojas normalizadas', hojas.length, 19);
+  docCheckEq_('mas la hoja Auxiliar', DOC2_SHEET.AUXILIAR, 'Auxiliar');
+
+  var repetidas = {};
+  var duplicadas = 0;
+  for (var h = 0; h < hojas.length; h++) {
+    if (repetidas[hojas[h]]) duplicadas++;
+    repetidas[hojas[h]] = true;
+  }
+  docCheckEq_('ninguna hoja del modelo repite nombre', duplicadas, 0);
+
+  docCheckEq_('el catalogo canonico trae 31 documentos', DOC2_CATALOGO_SEMILLA.length, 31);
+  docCheckEq_('un funcionario general sin garantia exige 18',
+    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 18);
+  docCheckEq_('un comercial con garantia exige 22',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 22);
+  docCheckEq_('cumplimiento exige 20',
+    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 20);
+  docCheckEq_('la garantia sola no anade documentos a un general',
+    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 18);
+
+  docCheck_('de BORRADOR se puede pasar a EN_RECOLECCION',
+    doc2TransicionPermitida_('expediente', DOC2_ESTADO_EXPEDIENTE.BORRADOR, DOC2_ESTADO_EXPEDIENTE.EN_RECOLECCION));
+  docCheck_('de ARCHIVADO no se vuelve a BORRADOR',
+    doc2TransicionPermitida_('expediente', DOC2_ESTADO_EXPEDIENTE.ARCHIVADO, DOC2_ESTADO_EXPEDIENTE.BORRADOR) === false);
+  docCheck_('un estado consigo mismo siempre vale',
+    doc2TransicionPermitida_('expediente', DOC2_ESTADO_EXPEDIENTE.COMPLETO, DOC2_ESTADO_EXPEDIENTE.COMPLETO));
+
+  docCheckEq_('el estado heredado "presentado" se traduce',
+    doc2NormalizarEstadoDocumento_('presentado'), DOC2_ESTADO_DOCUMENTO.ENTREGADO);
+  docCheckEq_('y "NO TIENE" tambien',
+    doc2NormalizarEstadoDocumento_('NO TIENE'), DOC2_ESTADO_DOCUMENTO.NO_ENTREGADO);
+
+  docCheck_('un admin puede migrar', doc2RolPuede_('admin', DOC2_CAPACIDAD.MIGRAR));
+  docCheck_('un auxiliar no puede migrar', doc2RolPuede_('auxiliar', DOC2_CAPACIDAD.MIGRAR) === false);
+  docCheck_('un auxiliar si puede editar', doc2RolPuede_('auxiliar', DOC2_CAPACIDAD.EDITAR));
+  docCheck_('un invitado no edita', doc2RolPuede_('invitado', DOC2_CAPACIDAD.EDITAR) === false);
+  docCheck_('un rol inventado cae en invitado',
+    doc2CapacidadesDe_('duenio-del-banco').length === doc2CapacidadesDe_('invitado').length);
+
+  docCheckEq_('hay cuatro migraciones declaradas', DOC2_MIGRACIONES.length, 4);
+  docCheckEq_('y la primera es la estructural', DOC2_MIGRACIONES[0].version, '4.0.0-estructura');
+}
+
 /* --------------------------- Pruebas con libro real ----------------------- */
 
 /**
@@ -333,6 +388,47 @@ function docTestIntegracion_() {
     docYearsReset_();
     docCheckEq_('reinstalar no duplica expedientes', docListDossiers_({ todos: true }).total, 1);
 
+    // Modelo normalizado sobre este mismo libro, que ya tiene un expediente
+    // heredado: es justo el escenario de la migracion real.
+    docStoreReset_();
+    docYearsReset_();
+    doc2Reset_();
+
+    var simulacion = doc2Migrar_({ simular: true }, doc2CtxActual_('pruebas'));
+    docCheck_('la simulacion no escribe nada', simulacion.simulado === true);
+    docCheck_('y anuncia que hay algo que migrar', simulacion.ejecutadas.length > 0);
+    docCheck_('sin escribir, la hoja Expedientes todavia no existe',
+      docSpreadsheet_().getSheetByName(DOC2_SHEET.EXPEDIENTES) === null);
+
+    doc2Reset_();
+    var instalacion = doc2Instalar_({ conRespaldo: false }, doc2CtxActual_('pruebas'));
+    docCheck_('la instalacion del modelo crea hojas', instalacion.hojas.length > 0);
+
+    doc2Reset_();
+    var expedientes = doc2All_(DOC2_SHEET.EXPEDIENTES, true);
+    docCheckEq_('el expediente heredado se migro', expedientes.length, 1);
+    docCheckEq_('conservando su identificador', expedientes[0].identificador, 'CI-999-2026');
+    var requisitos = doc2By_(DOC2_SHEET.EXPEDIENTE_DOCS, 'expediente_id', expedientes[0].expediente_id, true);
+    docCheck_('con sus requisitos derivados del catalogo', requisitos.length >= 18);
+    docCheckEq_('el catalogo quedo sembrado',
+      doc2All_(DOC2_SHEET.CATALOGO, true).length, DOC2_CATALOGO_SEMILLA.length);
+
+    doc2Reset_();
+    var panel = doc2Panel_({}, doc2CtxActual_('pruebas'));
+    docCheckEq_('el panel cuenta el expediente', panel.expedientes, 1);
+    docCheck_('y el embudo ve los requisitos', panel.embudo.total >= 18);
+
+    // Segunda pasada: la migracion es idempotente.
+    doc2Reset_();
+    var repetida = doc2Migrar_({}, doc2CtxActual_('pruebas'));
+    docCheckEq_('volver a migrar no ejecuta nada', repetida.ejecutadas.length, 0);
+    doc2Reset_();
+    docCheckEq_('ni duplica expedientes', doc2All_(DOC2_SHEET.EXPEDIENTES, true).length, 1);
+
+    doc2Reset_();
+    var diagnosticoModelo = doc2Diagnostico_(doc2CtxActual_('pruebas'));
+    docCheckEq_('el diagnostico del modelo no ve nada critico', diagnosticoModelo.conteos.CRITICO, 0);
+
   } catch (error) {
     docCheck_('la prueba de integracion termina sin excepciones', false, docClassify_(error).message);
   } finally {
@@ -362,6 +458,7 @@ function docEjecutarPruebas(soloRapidas) {
   docTestDerivacion_();
   docTestMapeo_();
   docTestAuditoriaPura_();
+  docTestModelo_();
 
   if (soloRapidas !== true) docTestIntegracion_();
 
