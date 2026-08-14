@@ -250,7 +250,7 @@ function docYearPut_(anio, registro) {
   cargada.byId[id] = guardado;
   var kn = docKey_(guardado.nombre);
   if (kn) cargada.byName[kn] = guardado;
-  cargada.pending.appends.push(valores);
+  cargada.pending.appends.push({ row: guardado.__row, values: valores });
   cargada.pending.colors.push({ row: guardado.__row, registro: guardado });
   return guardado;
 }
@@ -280,27 +280,24 @@ function docYearsCommit_() {
     var pend = cargada.pending;
     if (!pend) continue;
 
-    if (pend.updates.length > 0) {
-      var porFila = {};
-      for (var u = 0; u < pend.updates.length; u++) porFila[pend.updates[u].row] = pend.updates[u].values;
-      var numeros = Object.keys(porFila).map(Number).sort(function (a, b) { return a - b; });
-      var inicio = 0;
-      while (inicio < numeros.length) {
-        var fin = inicio;
-        while (fin + 1 < numeros.length && numeros[fin + 1] === numeros[fin] + 1) fin++;
-        var bloque = [];
-        for (var b = inicio; b <= fin; b++) bloque.push(porFila[numeros[b]]);
-        cargada.sheet.getRange(numeros[inicio], 1, bloque.length, cargada.width).setValues(bloque);
-        escritas += bloque.length;
-        inicio = fin + 1;
-      }
+    // Altas y actualizaciones, indexadas por fila (ver la nota de `docCommit_`).
+    var porFila = {};
+    for (var u = 0; u < pend.updates.length; u++) porFila[pend.updates[u].row] = pend.updates[u].values;
+    for (var a = 0; a < pend.appends.length; a++) {
+      if (porFila[pend.appends[a].row] === undefined) porFila[pend.appends[a].row] = pend.appends[a].values;
     }
 
-    if (pend.appends.length > 0) {
-      var desde = cargada.sheet.getLastRow() + 1;
-      docEnsureRows_(cargada.sheet, desde + pend.appends.length + 20);
-      cargada.sheet.getRange(desde, 1, pend.appends.length, cargada.width).setValues(pend.appends);
-      escritas += pend.appends.length;
+    var numeros = Object.keys(porFila).map(Number).sort(function (x, y) { return x - y; });
+    var inicio = 0;
+    while (inicio < numeros.length) {
+      var fin = inicio;
+      while (fin + 1 < numeros.length && numeros[fin + 1] === numeros[fin] + 1) fin++;
+      var bloque = [];
+      for (var b = inicio; b <= fin; b++) bloque.push(porFila[numeros[b]]);
+      docEnsureRows_(cargada.sheet, numeros[fin] + 20);
+      cargada.sheet.getRange(numeros[inicio], 1, bloque.length, cargada.width).setValues(bloque);
+      escritas += bloque.length;
+      inicio = fin + 1;
     }
 
     for (var cIdx = 0; cIdx < pend.colors.length; cIdx++) {

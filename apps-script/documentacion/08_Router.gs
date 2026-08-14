@@ -84,39 +84,63 @@ function docJsonOut_(objeto) {
 }
 
 function docOk_(accion, solicitudId, datos, avisos) {
+  var valor = datos === undefined ? null : datos;
   return {
     ok: true,
     accion: accion,
     solicitudId: solicitudId || '',
-    datos: datos === undefined ? null : datos,
+    // `datos` es el nombre historico y `data` el del contrato nuevo. Los dos
+    // apuntan al MISMO objeto: no se duplica la carga, solo el nombre, para que
+    // el backend se pueda desplegar sin desplegar el frontend a la vez.
+    datos: valor,
+    data: valor,
+    error: null,
     avisos: avisos || [],
-    meta: docMeta_()
+    meta: docMeta_(solicitudId)
   };
 }
 
 function docFail_(accion, solicitudId, error, avisos) {
   var info = docClassify_(error);
+  var detalle = info.docDetails || {};
+  // `fields` viaja aparte del resto del detalle: es lo que el formulario usa para
+  // marcar el campo que falla, y buscarlo dentro de un detalle libre obligaria a
+  // que el cliente conociera la forma interna de cada error.
+  var campos = detalle && detalle.fields ? detalle.fields : {};
   return {
     ok: false,
     accion: accion,
     solicitudId: solicitudId || '',
+    datos: null,
+    data: null,
     error: {
       codigo: info.docCode,
+      code: info.docCode,
       mensaje: info.message,
+      message: info.message,
       pista: info.docHint,
-      detalle: info.docDetails
+      hint: info.docHint,
+      detalle: detalle,
+      fields: campos
     },
     avisos: avisos || [],
-    meta: docMeta_()
+    meta: docMeta_(solicitudId)
   };
 }
 
-function docMeta_() {
+function docMeta_(solicitudId) {
   var instalado = false;
   try { instalado = docIsInstalled_(); } catch (e) { instalado = false; }
+  var ahora = docNow_();
   return {
+    // Contrato nuevo.
+    requestId: solicitudId || docTraceId_(),
+    timestamp: ahora,
+    version: DOC2_BACKEND.version,
+    esquemaNormalizado: DOC2_SCHEMA_VERSION,
+    // Contrato historico, que el frontend anterior sigue leyendo.
     traza: docTraceId_(),
-    horaServidor: docNow_(),
+    horaServidor: ahora,
     milisegundos: docElapsedMs_(),
     backend: DOC_BACKEND.version,
     esquema: DOC_BACKEND.schemaVersion,
@@ -206,6 +230,7 @@ function docDispatch_(params, metodo) {
   docLogReset_(accion);
   docStoreReset_();
   docYearsReset_();
+  doc2Reset_();
 
   var avisos = [];
   var actor = docActor_(params);
@@ -217,7 +242,9 @@ function docDispatch_(params, metodo) {
       return docJsonOut_(docOk_(accion, solicitudId, repetida, ['Solicitud ya procesada: se devuelve el resultado original.']));
     }
 
-    var escribe = DOC_ACCIONES_ESCRITURA[accion] === true;
+    // El registro del modelo normalizado declara sus propias escrituras: asi no
+    // hay dos listas que puedan desincronizarse.
+    var escribe = DOC_ACCIONES_ESCRITURA[accion] === true || doc2ApiEsEscritura_(accion);
     var resultado;
 
     if (escribe) {
@@ -495,16 +522,28 @@ function docExecute_(accion, params, actor, metodo, avisos) {
     }
 
     default:
+      // Las acciones del modelo normalizado viven en su propio registro
+      // (21_Api.gs). Se resuelven aqui para que el enrutador siga siendo la unica
+      // puerta de entrada: un solo sitio con bloqueo, idempotencia y auditoria.
+      if (doc2ApiExiste_(accion)) {
+        return doc2ApiEjecutar_(accion, params, { metodo: metodo, avisos: avisos });
+      }
       throw docError_(DOC_CODE.UNSUPPORTED_ACTION,
         'La accion "' + accion + '" no existe en este backend.',
         {
-          hint: 'Acciones disponibles: ' + docActionList_().join(', ') + '.',
+          hint: 'Acciones disponibles: ' + docActionList_().concat(doc2ApiAcciones_()).join(', ') + '.',
           details: { accion: accion, metodo: metodo }
         });
   }
 }
 
-/** Lista de acciones, para el mensaje de error y la documentacion. */
+/**
+ * Acciones heredadas.
+ *
+ * Se conservan tal cual: el frontend anterior, el menu del libro y cualquier
+ * integracion existente siguen llamandolas. Las del modelo normalizado se
+ * enumeran con `doc2ApiAcciones_()`.
+ */
 function docActionList_() {
   return [
     'estado', 'diagnostico', 'verificar', 'instalar', 'reparar', 'crear-anio',
