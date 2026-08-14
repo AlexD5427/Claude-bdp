@@ -16,6 +16,8 @@ interface FloatingDockProps {
   onSelect: (id: ModuleId) => void;
   /** DB sync status — drives the glowing status dot. */
   synced: boolean;
+  /** True cuando el último intento de hablar con la hoja falló. */
+  offline: boolean;
 }
 
 /** Per-size scale tokens so the whole dock grows/shrinks coherently. */
@@ -97,8 +99,13 @@ function useViewport() {
  * The active module is marked by a spring "liquid pill" + glowing orb that glide
  * between items via shared `layoutId`s, and the picked icon redraws itself.
  */
-export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
+export function FloatingDock({ active, onSelect, synced, offline }: FloatingDockProps) {
   const { theme, toggle } = useTheme();
+  const syncTitle = offline
+    ? "Sin conexión con la base de datos: lo que ve es una copia local y los cambios no se están guardando."
+    : synced
+      ? "Sincronizado"
+      : "Sincronizando…";
   const { dockPosition, dockSize, dockCollapsed } = useConfig();
   const override = useDockOverride();
   const toolsOpen = useToolsOpen();
@@ -341,16 +348,26 @@ export function FloatingDock({ active, onSelect, synced }: FloatingDockProps) {
             </motion.span>
           </button>
 
-          {/* DB sync status dot */}
-          <div className="grid h-8 w-7 shrink-0 place-items-center" title={synced ? "Sincronizado" : "Sincronizando…"}>
+          {/* Punto de estado de la base.
+
+              Antes sólo distinguía «sincronizado» de «sincronizando». Con datos
+              en caché, un refresco fallido se descartaba en silencio y el punto
+              se quedaba en verde mientras la aplicación llevaba horas sin poder
+              hablar con la hoja: el analista trabajaba sobre una copia vieja y
+              sus altas no llegaban. Ahora hay un tercer estado, rojo, y es el
+              único aviso permanente de que lo que se ve no está en línea. */}
+          <div className="grid h-8 w-7 shrink-0 place-items-center" title={syncTitle}>
             <span
               className={[
                 "h-2.5 w-2.5 rounded-full",
-                synced
-                  ? "bg-green-500 shadow-glow-green animate-[pulse_2s_ease-in-out_infinite]"
-                  : "bg-amber-400 shadow-glow-amber animate-[pulse_1s_ease-in-out_infinite]",
+                offline
+                  ? "bg-rose-500 shadow-glow-rose animate-[pulse_1.4s_ease-in-out_infinite]"
+                  : synced
+                    ? "bg-green-500 shadow-glow-green animate-[pulse_2s_ease-in-out_infinite]"
+                    : "bg-amber-400 shadow-glow-amber animate-[pulse_1s_ease-in-out_infinite]",
               ].join(" ")}
             />
+            <span className="sr-only">{syncTitle}</span>
           </div>
 
           <Divider vertical={vertical} />

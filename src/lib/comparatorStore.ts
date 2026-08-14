@@ -194,11 +194,49 @@ export function showAllRows(): void {
   emit();
 }
 
+/**
+ * Descarta los postulantes de la comparación que ya no existen en la base.
+ *
+ * ## El bloqueo que dejaba el comparador inservible
+ *
+ * La comparación se guarda como una lista de identificadores, y el límite de
+ * columnas se medía contra **esa lista**, no contra los postulantes que de verdad
+ * se encontraban. Basta con que un identificador deje de existir —una fila que se
+ * corrigió en la hoja, un registro borrado, o una sesión que sobrevive a un
+ * cambio de la base— para que aparezcan tantos huecos como ausencias. Con el
+ * máximo en diez y diez identificadores muertos, el buscador se **deshabilitaba**
+ * con «Límite alcanzado (10/10)» mientras la pantalla mostraba «Comienza tu
+ * comparación»: el analista no podía agregar a nadie y no había un solo mensaje
+ * que explicara por qué. Reproducido en `qa/sondas.mjs limite-fantasma`.
+ *
+ * Se llama en cuanto llegan los datos, con los identificadores existentes. Es
+ * idempotente y no emite si no hay nada que limpiar, así que puede vivir dentro
+ * de un efecto sin provocar ciclos.
+ *
+ * @returns cuántos identificadores se descartaron.
+ */
+export function pruneMissing(existing: Iterable<string>): number {
+  if (state.selectedIds.length === 0) return 0;
+  const alive = existing instanceof Set ? existing : new Set(existing);
+  const kept = state.selectedIds.filter((id) => alive.has(id));
+  if (kept.length === state.selectedIds.length) return 0;
+  const removed = state.selectedIds.length - kept.length;
+  state = { ...state, selectedIds: kept };
+  emit();
+  return removed;
+}
+
 /** Restore every view option (sections, chips, density) to defaults — keeps the
  *  currently selected candidates untouched. */
 export function resetComparatorView(): void {
   const base = defaultComparatorState();
   state = { ...base, selectedIds: state.selectedIds };
+  emit();
+}
+
+/** Vuelve a encender todas las secciones (sin tocar filas ni candidatos). */
+export function showAllSections(): void {
+  state = { ...state, sectionVisible: allSections(true), sectionCollapsed: allSections(false) };
   emit();
 }
 
@@ -211,6 +249,11 @@ function subscribe(cb: () => void) {
   return () => listeners.delete(cb);
 }
 function getSnapshot(): ComparatorState {
+  return state;
+}
+
+/** Instantánea imperativa (para pruebas y consumidores fuera de React). */
+export function getComparatorState(): ComparatorState {
   return state;
 }
 

@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Search, UserPlus, ShieldCheck, ShieldAlert, Printer } from "lucide-react";
+import {
+  Search,
+  UserPlus,
+  ShieldCheck,
+  ShieldAlert,
+  Printer,
+  Lock,
+  AlertTriangle,
+} from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { Avatar } from "../components/Avatar";
 import { CandidateActions } from "../components/CandidateActions";
@@ -10,18 +18,30 @@ import { RegistrationForm } from "./RegistrationForm";
 import { usePointerGlow } from "../hooks/usePointerGlow";
 import { printModule } from "../lib/print";
 import { ensureSeen, setStatus, useHiring, HIRING_LABELS, type HiringStatus } from "../lib/hiringStore";
-import { extractProceso } from "../lib/candidates";
+import { duplicatedIdentificadores, extractProceso } from "../lib/candidates";
+import { permisosDe, ROLE_LABEL, useProfiles } from "../lib/profilesStore";
 import type { Candidate } from "../types";
 
 export function ListaPostulantes() {
   const { candidatos, loading, error, refetch } = useTalentData();
+  const { current } = useProfiles();
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
+
+  // El rol decide si esta persona puede dar de alta postulantes. La regla ya
+  // estaba escrita en `permisosDe` («analista o superior») pero **nunca se
+  // consultaba**: un perfil de pasantía veía el botón, llenaba el cuestionario
+  // completo y sólo entonces se topaba con el rechazo. Ahora se dice antes, y con
+  // el motivo, para que «no puedo añadir postulantes» no vuelva a confundirse con
+  // un fallo del sistema.
+  const puedeRegistrar = current ? permisosDe(current.role).registrarPostulante : false;
 
   // Make sure every visible candidate has a first-seen timestamp recorded.
   useEffect(() => {
     if (candidatos.length) ensureSeen(candidatos.map((c) => c.id));
   }, [candidatos]);
+
+  const duplicados = useMemo(() => duplicatedIdentificadores(candidatos), [candidatos]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -57,12 +77,42 @@ export function ListaPostulantes() {
         <button
           type="button"
           onClick={() => setShowForm(true)}
-          className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-500 ease-spring hover:-translate-y-1 hover:scale-[1.03] active:scale-95"
+          disabled={!puedeRegistrar}
+          title={
+            puedeRegistrar
+              ? "Abrir el cuestionario de registro"
+              : `El perfil «${current?.nombre ?? ""}» (${ROLE_LABEL[current?.role ?? "pasante"]}) no tiene permiso para registrar postulantes. Se requiere el rol de Analista o superior.`
+          }
+          className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all duration-500 ease-spring hover:-translate-y-1 hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:scale-100"
         >
           <UserPlus className="h-4 w-4" />
           Nuevo Postulante
         </button>
       </div>
+
+      {!puedeRegistrar && (
+        <p className="no-print flex items-start gap-2 rounded-2xl fill-softer px-4 py-3 text-xs text-ink-soft ring-1 ring-[color:var(--hairline)]">
+          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <span>
+            Su perfil (<strong className="text-ink">{ROLE_LABEL[current?.role ?? "pasante"]}</strong>
+            ) puede consultar la base pero no registrar postulantes. Para habilitarlo, un supervisor
+            debe cambiar el rol del perfil en la hoja de configuración.
+          </span>
+        </p>
+      )}
+
+      {duplicados.length > 0 && (
+        <p className="no-print flex items-start gap-2 rounded-2xl bg-amber-400/10 px-4 py-3 text-xs text-ink ring-1 ring-amber-400/40">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <span>
+            La base tiene <strong>{duplicados.length}</strong> identificador(es) repetido(s):{" "}
+            <span className="font-mono">{duplicados.slice(0, 5).join(", ")}</span>
+            {duplicados.length > 5 ? "…" : ""}. Cada fila se muestra por separado, pero conviene
+            corregirlas en la hoja: un identificador duplicado impide distinguir a las personas en el
+            comparador y en la documentación.
+          </span>
+        </p>
+      )}
 
       {loading ? (
         <LoadingState />
@@ -78,11 +128,10 @@ export function ListaPostulantes() {
         </div>
       )}
 
-      <RegistrationForm
-        open={showForm}
-        onClose={() => setShowForm(false)}
-        onSaved={refetch}
-      />
+      {/* Sin `onSaved`: el propio contexto refresca la base tras un alta
+          aceptada, y hacerlo también desde aquí lanzaba dos peticiones (la
+          segunda cancelaba a la primera). */}
+      <RegistrationForm open={showForm && puedeRegistrar} onClose={() => setShowForm(false)} />
     </div>
   );
 }
@@ -140,6 +189,15 @@ function CandidateCard({
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           Proceso {extractProceso(candidate.identificador)}
         </span>
+        {candidate.duplicadoDe && (
+          <span
+            title={`Otra fila de la hoja usa el mismo identificador (${candidate.duplicadoDe}). Corríjalo en la hoja para no confundir expedientes.`}
+            className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2.5 py-0.5 font-bold text-amber-600 ring-1 ring-amber-400/40"
+          >
+            <AlertTriangle className="h-3 w-3" />
+            ID repetido
+          </span>
+        )}
         <span className="rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
           {candidate.competenciasList.length} comp.
         </span>
