@@ -10,7 +10,9 @@ import {
 } from "react";
 import { SCRIPT_URL } from "../constants";
 import { getConfig, subscribeConfig } from "../lib/configStore";
-import { normaliseCandidate } from "../lib/candidates";
+import { normaliseCandidates } from "../lib/candidates";
+import { postToBackend, type WriteResult } from "../lib/backendWrite";
+import { readJsonItem, writeJsonItem } from "../lib/safeStorage";
 import {
   FALLBACK_DISC,
   parseDiscArchetypes,
@@ -28,6 +30,18 @@ import {
 } from "../types";
 
 export type DataStatus = "idle" | "loading" | "success" | "error";
+
+/**
+ * Salud real de la conexión con el backend.
+ *
+ * Existe porque `status` no la contaba. Con datos en caché, un refresco fallido
+ * se descartaba en silencio (`if (hasData.current) return`) y `status` seguía
+ * valiendo `"success"`: el punto del dock se quedaba en verde «Sincronizado»
+ * mientras la aplicación llevaba horas sin poder hablar con la hoja. El analista
+ * seguía trabajando sobre datos viejos y sus altas no llegaban a ninguna parte.
+ * Reproducido en `qa/sondas.mjs punto-sincronizacion`.
+ */
+export type ConnectionHealth = "desconocida" | "en-linea" | "sin-conexion";
 
 export interface TalentDataValue {
   candidatos: Candidate[];
@@ -51,9 +65,13 @@ export interface TalentDataValue {
   /** ISO timestamp of the last successful sync, or null. */
   lastSyncedAt: string | null;
   error: string | null;
+  /** Estado honesto de la conexión, independiente de si hay datos en pantalla. */
+  connection: ConnectionHealth;
+  /** Detalle del último fallo de red (para el panel de diagnóstico). */
+  connectionDetail: string | null;
   /** Re-run the GET request. */
   refetch: () => void;
-  /** POST a new candidate, then optimistically add it locally. */
+  /** POST a new candidate; only reflects it locally si el servidor lo aceptó. */
   submitCandidate: (
     candidate: RawCandidate,
   ) => Promise<{ ok: boolean; message: string }>;
@@ -115,22 +133,40 @@ function coercePayload(data: Partial<TalentPayload>): TalentPayload {
   };
 }
 
+/** Cuánto se espera el payload completo antes de reintentar. */
+const READ_TIMEOUT_MS = 30_000;
+
 /** Fetch JSON with a timeout + small exponential-backoff retry. */
 async function fetchPayload(
   signal: AbortSignal,
   attempt = 0,
 ): Promise<TalentPayload> {
+  // Un `AbortController` propio por intento: así el tiempo de espera corta la
+  // petición colgada sin cancelar el reintento que viene detrás. Antes no había
+  // ningún límite y una petición que nunca contestaba (un portal cautivo que
+  // acepta la conexión y no responde) dejaba la aplicación cargando para siempre.
+  const local = new AbortController();
+  const onOuterAbort = () => local.abort();
+  signal.addEventListener("abort", onOuterAbort, { once: true });
+  const timer = setTimeout(() => local.abort(), READ_TIMEOUT_MS);
   try {
     const res = await fetch(SCRIPT_URL, {
       method: "GET",
       // CRITICAL: follow Google's 302 so production (Vercel) doesn't 404.
       redirect: "follow",
       headers: { Accept: "application/json" },
-      signal,
+      signal: local.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as Partial<TalentPayload>;
-    return coercePayload(data);
+    const text = await res.text();
+    const head = text.trimStart().slice(0, 120).toLowerCase();
+    if (head.startsWith("<!doctype") || head.startsWith("<html")) {
+      // Apps Script contesta 200 + HTML cuando el despliegue perdió permisos.
+      throw new Error(
+        "El despliegue de Apps Script pide autorización (respondió una página web en lugar de datos).",
+      );
+    }
+    return coercePayload(JSON.parse(text) as Partial<TalentPayload>);
   } catch (err) {
     if (signal.aborted) throw err;
     if (attempt < 2) {
@@ -139,30 +175,107 @@ async function fetchPayload(
       return fetchPayload(signal, attempt + 1);
     }
     throw err;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", onOuterAbort);
   }
 }
 
 function readCache(): CachedPayload | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedPayload;
-    if (!parsed || !Array.isArray(parsed.candidatos)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  const parsed = readJsonItem<CachedPayload | null>("local", CACHE_KEY, null);
+  if (!parsed || !Array.isArray(parsed.candidatos)) return null;
+  return parsed;
 }
 
 function writeCache(payload: TalentPayload): void {
-  if (typeof window === "undefined") return;
-  try {
-    const cached: CachedPayload = { ...payload, cachedAt: new Date().toISOString() };
-    window.localStorage.setItem(CACHE_KEY, JSON.stringify(cached));
-  } catch {
-    /* ignore quota / private mode */
+  const cached: CachedPayload = { ...payload, cachedAt: new Date().toISOString() };
+  writeJsonItem("local", CACHE_KEY, cached);
+}
+
+/* ------------------------------------------------------------------ */
+/* Escrituras pendientes de confirmación                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Una escritura que el servidor **aceptó** pero que el payload todavía no
+ * refleja.
+ *
+ * Apps Script sirve el `doGet` desde su propia caché, así que el `GET` que sigue
+ * a un alta suele devolver el listado *sin* la fila nueva. El código anterior
+ * hacía exactamente eso: al guardar, el cuestionario llamaba a `refetch()`, el
+ * payload viejo reemplazaba el arreglo completo y el postulante recién dado de
+ * alta **desaparecía de la pantalla antes de que el analista lo viera**. Volvía a
+ * registrarlo, y así nacían los duplicados. Reproducido en
+ * `qa/sondas.mjs carrera-optimista`.
+ *
+ * La solución es no tratar el payload como la verdad absoluta durante la ventana
+ * en la que sabemos que va por detrás: cada escritura confirmada se queda
+ * «pendiente» y se superpone al payload hasta que éste la incorpora (o hasta que
+ * caduca, para que un borrado hecho desde la hoja no quede enmascarado para
+ * siempre).
+ */
+interface PendingWrite {
+  kind: "create" | "update";
+  row: RawCandidate;
+  at: number;
+}
+
+/** Ventana máxima en la que se sigue superponiendo una escritura confirmada. */
+const PENDING_TTL_MS = 5 * 60 * 1000;
+
+const identOf = (row: RawCandidate): string =>
+  String(row.identificador ?? "").trim();
+
+/**
+ * Superpone las escrituras confirmadas sobre el payload del servidor.
+ * Devuelve las filas resultantes y las escrituras que siguen pendientes.
+ */
+export function mergePendingWrites(
+  rows: RawCandidate[],
+  pending: Map<string, PendingWrite>,
+  now = Date.now(),
+): { rows: RawCandidate[]; pending: Map<string, PendingWrite> } {
+  if (pending.size === 0) return { rows, pending };
+
+  const survivors = new Map<string, PendingWrite>();
+  const byIdent = new Map<string, number>();
+  rows.forEach((row, index) => {
+    const ident = identOf(row);
+    if (ident && !byIdent.has(ident)) byIdent.set(ident, index);
+  });
+
+  const merged = [...rows];
+  const prepend: RawCandidate[] = [];
+
+  for (const [ident, write] of pending) {
+    const expired = now - write.at > PENDING_TTL_MS;
+    const index = byIdent.get(ident);
+
+    if (index === undefined) {
+      // El servidor todavía no devuelve la fila. Mientras la ventana siga
+      // abierta se mantiene visible; al caducar se deja marchar (pudo borrarse
+      // desde la hoja y no queremos inventar una fila que ya no existe).
+      if (!expired) {
+        prepend.push(write.row);
+        survivors.set(ident, write);
+      }
+      continue;
+    }
+
+    if (write.kind === "update") {
+      const server = merged[index];
+      const stillStale = Object.keys(write.row).some(
+        (key) => String(server[key] ?? "") !== String(write.row[key] ?? ""),
+      );
+      if (stillStale && !expired) {
+        merged[index] = { ...server, ...write.row };
+        survivors.set(ident, write);
+      }
+    }
+    // Un alta cuya fila ya llegó del servidor está confirmada: se descarta.
   }
+
+  return { rows: prepend.length ? [...prepend, ...merged] : merged, pending: survivors };
 }
 
 export function TalentDataProvider({ children }: { children: ReactNode }) {
@@ -198,8 +311,18 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     initial?.cachedAt ?? null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [connection, setConnection] = useState<ConnectionHealth>("desconocida");
+  const [connectionDetail, setConnectionDetail] = useState<string | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const hasData = useRef<boolean>(Boolean(initial));
+  const pendingRef = useRef<Map<string, PendingWrite>>(new Map());
+
+  /** Aplica el payload del servidor respetando las escrituras confirmadas. */
+  const applyServerRows = useCallback((rows: RawCandidate[]) => {
+    const { rows: merged, pending } = mergePendingWrites(rows, pendingRef.current);
+    pendingRef.current = pending;
+    setRaw(merged);
+  }, []);
 
   const load = useCallback(() => {
     controllerRef.current?.abort();
@@ -213,7 +336,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     fetchPayload(controller.signal)
       .then((payload) => {
         if (controller.signal.aborted) return;
-        setRaw(payload.candidatos);
+        applyServerRows(payload.candidatos);
         setCompetencias(payload.competencias);
         setArquetiposRaw(payload.arquetipos_disc ?? []);
         setAuxiliares(normaliseAuxiliares(payload.auxiliares));
@@ -224,12 +347,21 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
         setStatus("success");
         setSyncing(false);
         setLastSyncedAt(new Date().toISOString());
+        setConnection("en-linea");
+        setConnectionDetail(null);
         hasData.current = true;
         writeCache(payload);
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
+        const detail =
+          err instanceof Error ? `${err.name}: ${err.message}` : String(err);
         setSyncing(false);
+        // La conexión se marca caída SIEMPRE, tenga o no datos en pantalla: es
+        // justo el caso en el que el analista necesita saber que lo que ve es
+        // una copia local y que sus escrituras no van a llegar.
+        setConnection("sin-conexion");
+        setConnectionDetail(detail);
         // Keep cached data visible on a background refresh failure.
         if (hasData.current) return;
         setError(
@@ -239,7 +371,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
         );
         setStatus("error");
       });
-  }, []);
+  }, [applyServerRows]);
 
   useEffect(() => {
     load();
@@ -282,9 +414,11 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       if (!document.hidden) loadRef.current();
     };
     const onOnline = () => loadRef.current();
+    const onOffline = () => setConnection("sin-conexion");
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
 
     return () => {
       if (intervalId !== undefined) window.clearInterval(intervalId);
@@ -292,69 +426,64 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
     };
+  }, []);
+
+  /** Traduce el resultado de una escritura al par que consume la interfaz. */
+  const report = useCallback((result: WriteResult, okMessage: string) => {
+    if (result.ok) {
+      setConnection("en-linea");
+      return { ok: true, message: result.message || okMessage };
+    }
+    if (result.cause === "red" || result.cause === "tiempo") {
+      setConnection("sin-conexion");
+      setConnectionDetail(result.detail);
+    }
+    // El detalle técnico va a la consola, no a la cara del analista.
+    console.error("[BDP] escritura rechazada:", result.cause, result.detail);
+    return { ok: false, message: result.message };
   }, []);
 
   const submitCandidate = useCallback(
     async (candidate: RawCandidate) => {
-      try {
-        // Apps Script web apps accept a JSON body on POST; text/plain avoids a
-        // CORS preflight that the default Apps Script deployment can't answer.
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify(candidate),
-        });
-        // Optimistically reflect the new candidate without waiting for a reload.
-        setRaw((prev) => [candidate, ...prev]);
-        return { ok: true, message: "Postulante registrado correctamente." };
-      } catch {
-        // Still surface it locally so the operator's work isn't lost.
-        setRaw((prev) => [candidate, ...prev]);
-        return {
-          ok: false,
-          message:
-            "Se guardó localmente, pero la sincronización con el servidor falló.",
-        };
+      const result = await postToBackend(candidate);
+      if (!result.ok) {
+        // Nada se refleja localmente: mostrar la ficha como si existiera era
+        // precisamente lo que hacía creer que el alta había funcionado.
+        return report(result, "");
       }
+      const ident = identOf(candidate);
+      if (ident) {
+        pendingRef.current.set(ident, { kind: "create", row: candidate, at: Date.now() });
+      }
+      setRaw((prev) => [candidate, ...prev]);
+      // Un refresco en segundo plano confirma el alta en cuanto el backend la
+      // publique; la superposición de `pendingRef` evita el parpadeo mientras.
+      load();
+      return report(result, "Postulante registrado correctamente.");
     },
-    [],
+    [load, report],
   );
 
   const updateCandidate = useCallback(
     async (candidate: RawCandidate) => {
-      const id = String(candidate.identificador ?? "").trim();
-      const matches = (c: RawCandidate) =>
-        String(c.identificador ?? "").trim() === id;
-      // Optimistically patch the matching row so the UI reflects the edit at
-      // once (fast), then re-sync the whole database (efficient + complete).
-      const applyLocal = () =>
-        setRaw((prev) => prev.map((c) => (matches(c) ? { ...c, ...candidate } : c)));
-      try {
-        await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          // `action: "update"` routes to the sheet upsert that edits the exact
-          // row (matched by identificador) column by column.
-          body: JSON.stringify({ action: "update", ...candidate }),
-        });
-        applyLocal();
-        // The POST invalidates the backend cache, so a full refetch now returns
-        // fresh data and repaints every module from a single source of truth.
-        load();
-        return { ok: true, message: "Postulante actualizado correctamente." };
-      } catch {
-        applyLocal();
-        return {
-          ok: false,
-          message:
-            "Se actualizó localmente, pero la sincronización con el servidor falló.",
-        };
+      const ident = identOf(candidate);
+      const result = await postToBackend({ action: "update", ...candidate });
+      if (!result.ok) return report(result, "");
+
+      if (ident) {
+        pendingRef.current.set(ident, { kind: "update", row: candidate, at: Date.now() });
       }
+      setRaw((prev) =>
+        prev.map((c) => (identOf(c) === ident ? { ...c, ...candidate } : c)),
+      );
+      // The POST invalidates the backend cache, so a full refetch now returns
+      // fresh data and repaints every module from a single source of truth.
+      load();
+      return report(result, "Postulante actualizado correctamente.");
     },
-    [load],
+    [load, report],
   );
 
   // ---- Perfiles de Cargo (perfil_cargo_bdp) ------------------------------
@@ -365,27 +494,12 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
   // keeps those indices fresh (deletes shift rows up — no blank gaps).
   const postPerfilCargo = useCallback(
     async (body: Record<string, unknown>, okMsg: string) => {
-      try {
-        const res = await fetch(SCRIPT_URL, {
-          method: "POST",
-          redirect: "follow",
-          headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: JSON.stringify({ type: "perfil_cargo", ...body }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
-        if (data.status && data.status !== "success") {
-          return { ok: false, message: data.message || "El servidor rechazó la operación." };
-        }
-        load();
-        return { ok: true, message: okMsg };
-      } catch {
-        return {
-          ok: false,
-          message: "No se pudo sincronizar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
-        };
-      }
+      const result = await postToBackend({ type: "perfil_cargo", ...body });
+      if (!result.ok) return report(result, "");
+      load();
+      return report(result, okMsg);
     },
-    [load],
+    [load, report],
   );
 
   const submitPerfilCargo = useCallback(
@@ -404,10 +518,7 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
     [postPerfilCargo],
   );
 
-  const candidatos = useMemo(
-    () => raw.map((c, i) => normaliseCandidate(c, i)),
-    [raw],
-  );
+  const candidatos = useMemo(() => normaliseCandidates(raw), [raw]);
 
   const arquetipos = useMemo<DiscArchetype[]>(() => {
     const parsed = parseDiscArchetypes(arquetiposRaw);
@@ -429,6 +540,8 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       syncing,
       lastSyncedAt,
       error,
+      connection,
+      connectionDetail,
       refetch: load,
       submitCandidate,
       updateCandidate,
@@ -449,6 +562,8 @@ export function TalentDataProvider({ children }: { children: ReactNode }) {
       syncing,
       lastSyncedAt,
       error,
+      connection,
+      connectionDetail,
       load,
       submitCandidate,
       updateCandidate,

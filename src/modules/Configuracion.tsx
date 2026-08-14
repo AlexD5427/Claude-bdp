@@ -11,9 +11,6 @@ import {
   Pencil,
   Trash2,
   RefreshCcw,
-  CheckCircle2,
-  XCircle,
-  Loader2,
   RotateCcw,
   Trophy,
   Gauge,
@@ -25,6 +22,7 @@ import { usePointerGlow } from "../hooks/usePointerGlow";
 import { TextField, SegmentedField, SelectField } from "../components/form/Fields";
 import { Toggle, RangeField, StepperField } from "../components/form/Controls";
 import { EmailTemplateEditor } from "../components/config/EmailTemplateEditor";
+import { DiagnosticoConexion } from "../components/config/DiagnosticoConexion";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useTheme } from "../context/ThemeContext";
 import { SCRIPT_URL } from "../constants";
@@ -69,7 +67,6 @@ export function Configuracion() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [filter, setFilter] = useState<EmailCategory | "all">("all");
-  const [conn, setConn] = useState<"idle" | "testing" | "ok" | "fail">("idle");
 
   const templates = config.emailTemplates;
   const visibleTemplates = useMemo(
@@ -85,17 +82,6 @@ export function Configuracion() {
   function addTemplate() {
     const cat: EmailCategory = filter === "all" ? "convocatoria" : filter;
     openEditor(createTemplate(cat));
-  }
-
-  async function testConnection() {
-    setConn("testing");
-    try {
-      const res = await fetch(SCRIPT_URL, { method: "GET", redirect: "follow", headers: { Accept: "application/json" } });
-      const data = await res.json();
-      setConn(res.ok && data && Array.isArray(data.candidatos) ? "ok" : "fail");
-    } catch {
-      setConn("fail");
-    }
   }
 
   return (
@@ -353,26 +339,11 @@ export function Configuracion() {
             <code className="block truncate rounded-lg bg-[color:var(--fill-2)] px-3 py-2 text-xs text-ink" title={SCRIPT_URL}>
               {SCRIPT_URL}
             </code>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={testConnection}
-                disabled={conn === "testing"}
-                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-4 py-2 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-all hover:-translate-y-0.5 active:scale-95 disabled:opacity-60"
-              >
-                {conn === "testing" ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-                Probar conexión
-              </button>
-              {conn === "ok" && (
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-500">
-                  <CheckCircle2 className="h-4 w-4" /> Conexión exitosa
-                </span>
-              )}
-              {conn === "fail" && (
-                <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-500">
-                  <XCircle className="h-4 w-4" /> No se pudo conectar
-                </span>
-              )}
+            <div className="mt-3">
+              {/* El «Probar conexión» de antes sólo decía sí o no, y ese sí o no
+                  no distinguía las tres causas reales (red bloqueada, despliegue
+                  sin permisos, hoja vacía), que tienen remedios distintos. */}
+              <DiagnosticoConexion />
             </div>
           </div>
         </div>

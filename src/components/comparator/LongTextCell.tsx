@@ -6,6 +6,7 @@ import { LevelBadge } from "../LevelBadge";
 import { MarqueeText } from "../MarqueeText";
 import { proficiencyTone } from "../../lib/levels";
 import { usePrefersReducedMotion } from "../../shared/hooks";
+import { observeResize } from "../../lib/observers";
 import type { TechnicalKnowledge } from "../../types";
 import "./comparator-motion.css";
 
@@ -83,10 +84,7 @@ export function LongCell({
       setOverflow(diff > 6 ? diff : 0);
     };
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(clip);
-    ro.observe(inner);
-    return () => ro.disconnect();
+    return observeResize([clip, inner], measure);
   }, [items, tags]);
 
   const revealing = hover && overflow > 0 && !reduceMotion;

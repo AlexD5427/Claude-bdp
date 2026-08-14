@@ -70,6 +70,15 @@ export interface Candidate extends RawCandidate {
   conocimientosList: TechnicalKnowledge[];
   /** Parsed tool-handling entries (Manejo de Herramientas u otros). */
   herramientasList: TechnicalKnowledge[];
+  /**
+   * Identificador compartido con otra fila de la hoja.
+   *
+   * Sólo lo llevan las filas repetidas (la segunda y siguientes). Su `id` sí es
+   * único —lleva un sufijo— para que React, el buscador del comparador y la
+   * edición puedan distinguirlas; este campo es lo que permite avisar de que la
+   * hoja tiene un identificador duplicado que alguien debe corregir.
+   */
+  duplicadoDe?: string;
 }
 
 /**

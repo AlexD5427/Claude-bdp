@@ -99,7 +99,12 @@ const TEXT_FIELDS = [
   "observaciones",
 ] as const;
 
-/** Normalise a raw candidate into the UI-friendly `Candidate` shape. */
+/**
+ * Normalise a raw candidate into the UI-friendly `Candidate` shape.
+ *
+ * Preferir {@link normaliseCandidates} para listas completas: sólo ahí se puede
+ * garantizar que los identificadores repetidos no colisionen.
+ */
 export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
   const text: Record<string, string> = {};
   for (const field of TEXT_FIELDS) text[field] = asText(c[field]);
@@ -108,12 +113,84 @@ export function normaliseCandidate(c: RawCandidate, index: number): Candidate {
   return {
     ...c,
     ...text,
-    id: ident || `cand-${index}`,
+    id: ident || fallbackId(c, index),
     fullName: buildFullName(c),
     competenciasList: parseCompetencias(c.competencias),
     conocimientosList: parseItemList(c.conocimientos_tecnicos),
     herramientasList: parseItemList(c.herramientas),
   };
+}
+
+/**
+ * Identificador de emergencia para las filas de la hoja que llegan sin
+ * `identificador`.
+ *
+ * Antes era `cand-<índice>`, y el índice es la posición en el arreglo. Eso lo
+ * hacía **inestable**: al registrar a alguien nuevo la fila se inserta al
+ * principio, todos los índices se corren uno y cada `cand-N` empieza a apuntar a
+ * otra persona — con lo que una comparación guardada en la sesión pasaba a
+ * mostrar expedientes ajenos sin avisar. Un resumen del contenido de la fila es
+ * estable frente a reordenamientos, que es lo que necesita cualquier cosa que
+ * guarde una referencia.
+ */
+function fallbackId(c: RawCandidate, index: number): string {
+  const seed = [
+    asText(c.nombres),
+    asText(c.apellido_paterno),
+    asText(c.apellido_materno),
+    asText(c.edad),
+    asText(c.cargo_bdp),
+  ].join("|");
+  if (seed.replace(/\|/g, "") === "") return `cand-${index}`;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  return `sin-id-${hash.toString(36)}`;
+}
+
+/**
+ * Normalise the whole sheet in one pass, guaranteeing **unique** `id`s.
+ *
+ * ## Por qué hace falta mirar la lista completa
+ *
+ * El `id` de un postulante es su identificador («CI - Nro Proceso - Año»), y la
+ * hoja no impone que sea único: basta con que dos analistas registren a la misma
+ * persona en el mismo proceso, o que alguien duplique una fila al copiarla. Con
+ * el `id` repetido pasaban tres cosas, todas silenciosas:
+ *
+ *   1. React recibía dos hijos con la misma `key` y advertía por consola que
+ *      «puede duplicar u omitir componentes»; en la lista de Postulantes las
+ *      tarjetas se dibujaban mal.
+ *   2. El buscador del Comparador excluye a los ya elegidos comparando el `id`,
+ *      así que al agregar al primero **el segundo desaparecía de las
+ *      sugerencias**: era imposible compararlo, y desde la silla del analista
+ *      eso es «el comparador no me deja agregarlo».
+ *   3. Cualquier `find(c => c.id === id)` devolvía siempre la primera fila, de
+ *      modo que editar al duplicado editaba al original.
+ *
+ * La solución no es esconder las filas repetidas —son datos reales que alguien
+ * debe corregir en la hoja— sino darles una identidad propia y **marcarlas**:
+ * `duplicadoDe` lleva el identificador compartido y la interfaz lo advierte.
+ */
+export function normaliseCandidates(rows: RawCandidate[]): Candidate[] {
+  const seen = new Map<string, number>();
+  return rows.map((row, index) => {
+    const candidate = normaliseCandidate(row, index);
+    const previous = seen.get(candidate.id) ?? 0;
+    seen.set(candidate.id, previous + 1);
+    if (previous === 0) return candidate;
+    return {
+      ...candidate,
+      id: `${candidate.id}#${previous + 1}`,
+      duplicadoDe: candidate.identificador || candidate.id,
+    };
+  });
+}
+
+/** Identificadores que aparecen más de una vez en la base. */
+export function duplicatedIdentificadores(candidates: Candidate[]): string[] {
+  const set = new Set<string>();
+  for (const c of candidates) if (c.duplicadoDe) set.add(c.duplicadoDe);
+  return [...set];
 }
 
 /**

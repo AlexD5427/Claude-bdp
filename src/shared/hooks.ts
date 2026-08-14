@@ -14,21 +14,46 @@ export function useDebouncedValue<T>(value: T, delay = 250): T {
   return debounced;
 }
 
-/** Track a CSS media query with SSR-safe defaults. */
+/**
+ * Track a CSS media query with SSR-safe defaults.
+ *
+ * Dos detalles de compatibilidad que no son teóricos:
+ *
+ *   · La comprobación era `"matchMedia" in window`, que es cierta en entornos que
+ *     exponen la propiedad **sin la función** (jsdom según la versión, algunos
+ *     WebView incrustados). Ahí el hook lanzaba `matchMedia is not a function` y,
+ *     como lo usan el buscador del comparador y las celdas de texto largo, se
+ *     llevaba por delante el módulo entero. `typeof … === "function"` sí lo cubre.
+ *   · `addEventListener` sobre un `MediaQueryList` no existe antes de Safari 14 ni
+ *     en versiones antiguas de iOS; en esos navegadores hay que usar el
+ *     `addListener` obsoleto, que sigue funcionando.
+ */
 export function useMediaQuery(query: string): boolean {
+  const supported = () =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function";
+
   const [matches, setMatches] = useState(() =>
-    typeof window !== "undefined" && "matchMedia" in window
-      ? window.matchMedia(query).matches
-      : false,
+    supported() ? window.matchMedia(query).matches : false,
   );
+
   useEffect(() => {
-    if (typeof window === "undefined" || !("matchMedia" in window)) return;
+    if (!supported()) return;
     const mql = window.matchMedia(query);
     const onChange = () => setMatches(mql.matches);
     onChange();
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // Safari < 14 / iOS antiguo.
+    const legacy = mql as MediaQueryList & {
+      addListener?: (cb: () => void) => void;
+      removeListener?: (cb: () => void) => void;
+    };
+    legacy.addListener?.(onChange);
+    return () => legacy.removeListener?.(onChange);
   }, [query]);
+
   return matches;
 }
 

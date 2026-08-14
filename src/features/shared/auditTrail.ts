@@ -15,6 +15,7 @@
  * candidatos, ni datos personales.
  */
 
+import { useMemo } from "react";
 import { createStore } from "../../shared/store";
 import { newId } from "../../shared/ids";
 import { sanitizeText } from "../../shared/sanitize";
@@ -82,9 +83,20 @@ export function logAudit(
   });
 }
 
-/** Entradas de una entidad, de la más reciente a la más antigua. */
+/**
+ * Entradas de una entidad, de la más reciente a la más antigua.
+ *
+ * El filtrado ocurre **fuera** del selector del store a propósito.
+ * `useSyncExternalStore` compara la instantánea con `Object.is`, y un selector
+ * que devuelve `all.filter(...)` produce un arreglo nuevo en cada lectura: React
+ * lo interpreta como un cambio, vuelve a dibujar, vuelve a leer, y avisa de que
+ * «el resultado de getSnapshot debería memorizarse para evitar un bucle
+ * infinito». Suscribirse al arreglo completo (estable) y derivar con `useMemo`
+ * mantiene la identidad entre dibujados.
+ */
 export function useAuditTrail(entityId: string): AuditEntry[] {
-  return store.use((all) => all.filter((e) => e.entityId === entityId));
+  const all = store.use();
+  return useMemo(() => all.filter((e) => e.entityId === entityId), [all, entityId]);
 }
 
 export function getAuditTrail(entityId: string): AuditEntry[] {

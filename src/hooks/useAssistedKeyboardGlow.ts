@@ -1,4 +1,5 @@
 import { useEffect, useRef, type RefObject } from "react";
+import { observeResize } from "../lib/observers";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]';
@@ -147,8 +148,7 @@ export function useAssistedKeyboardGlow(
     document.addEventListener("keyup", onKeyUp);
     window.addEventListener("scroll", scheduleReposition, true);
     window.addEventListener("resize", scheduleReposition);
-    const ro = new ResizeObserver(scheduleReposition);
-    ro.observe(root);
+    const stopObserving = observeResize([root], scheduleReposition);
 
     recompute();
     // If a field is already focused when the mode turns on, centre it too.
@@ -159,7 +159,7 @@ export function useAssistedKeyboardGlow(
       document.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("scroll", scheduleReposition, true);
       window.removeEventListener("resize", scheduleReposition);
-      ro.disconnect();
+      stopObserving();
       if (raf) cancelAnimationFrame(raf);
       slots.current.el.remove();
       slots.next.el.remove();

@@ -231,3 +231,60 @@ describe("RegistrationForm · edición", () => {
     });
   });
 });
+
+describe("RegistrationForm · el guardado no puede mentir", () => {
+  it("mantiene el cuestionario abierto y muestra el motivo cuando el servidor rechaza", async () => {
+    // Regresión del fallo central de «no puedo añadir postulantes»: el alta se
+    // daba por buena sin mirar la respuesta, el modal se cerraba y la ficha
+    // aparecía en la lista sin haber llegado nunca a la hoja de cálculo.
+    submitCandidate.mockResolvedValueOnce({
+      ok: false,
+      message:
+        "El servidor respondió con una página de autorización en lugar de datos. El despliegue de Google Apps Script necesita volver a publicarse con acceso «Cualquier persona».",
+    });
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<RegistrationForm open onClose={onClose} />);
+
+    await fillIdentificador(user, "3311220-163-2026");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    await waitFor(() => expect(submitCandidate).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/volver a publicarse/i)).toBeInTheDocument();
+    // Lo importante: nada se cierra ni se limpia, así que el trabajo no se pierde
+    // y el analista sabe que tiene que reintentar.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/Identificador Único/i)).toHaveValue("3311220-163-2026");
+  });
+
+  it("cierra el cuestionario sólo cuando el servidor confirma el alta", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<RegistrationForm open onClose={onClose} />);
+
+    await fillIdentificador(user, "3311221-163-2026");
+    await user.click(screen.getByRole("button", { name: /Registrar Postulante/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+describe("GaugeInput · borrar una nota", () => {
+  it("permite dejar una nota en blanco después de haberla puesto", async () => {
+    // La firma era `(value: number) => void` y el texto vacío se descartaba: al
+    // limpiar el campo, el velocímetro volvía a mostrar el número anterior y no
+    // había forma de deshacer un puntaje introducido por error.
+    const user = userEvent.setup();
+    render(<RegistrationForm open onClose={vi.fn()} />);
+
+    const cap = screen.getByLabelText(/Nota CAP \(porcentaje\)/i);
+    await user.click(cap);
+    await user.type(cap, "77");
+    expect(cap).toHaveValue("77");
+
+    await user.clear(cap);
+    await user.click(screen.getByLabelText(/^Nombres$/i));
+
+    expect(screen.getByLabelText(/Nota CAP \(porcentaje\)/i)).toHaveValue("");
+  });
+});

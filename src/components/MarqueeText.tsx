@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { observeResize } from "../lib/observers";
 
 /**
  * Text that reveals itself when clipped.
@@ -40,10 +41,7 @@ export function MarqueeText({
       setOverflow(diff > 4 ? diff : 0);
     };
     measure();
-    const ro = new ResizeObserver(measure);
-    if (wrapRef.current) ro.observe(wrapRef.current);
-    if (innerRef.current) ro.observe(innerRef.current);
-    return () => ro.disconnect();
+    return observeResize([wrapRef.current, innerRef.current], measure);
   }, [text]);
 
   const travel = overflow + 4;

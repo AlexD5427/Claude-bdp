@@ -12,6 +12,14 @@ import {
   subscribeDashboard,
   type DashWidget,
 } from "./dashboardStore";
+import {
+  deleteCookie,
+  localRead,
+  readCookie,
+  readJsonItem,
+  writeCookie,
+  writeJsonItem,
+} from "./safeStorage";
 import type { RawPerfil } from "../types";
 
 /* ------------------------------------------------------------------ */
@@ -144,38 +152,10 @@ function slug(name: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
-function setCookie(name: string, value: string, days: number): void {
-  if (typeof document === "undefined") return;
-  const maxAge = days * 86400;
-  document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAge}; SameSite=Lax`;
-}
-function getCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return m ? decodeURIComponent(m[1]) : null;
-}
-function delCookie(name: string): void {
-  if (typeof document === "undefined") return;
-  document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
-}
-
-function readJson<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function writeJson(key: string, value: unknown): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* ignore */
-  }
-}
+// Todo el almacenamiento pasa por `safeStorage`: en un navegador con los datos
+// del sitio bloqueados estas funciones degradan a memoria en lugar de lanzar.
+const readJson = <T,>(key: string, fallback: T): T => readJsonItem("local", key, fallback);
+const writeJson = (key: string, value: unknown): void => writeJsonItem("local", key, value);
 
 /* ------------------------------------------------------------------ */
 /* Store                                                               */
@@ -183,7 +163,7 @@ function writeJson(key: string, value: unknown): void {
 
 let state: ProfilesState = {
   profiles: [...SEED],
-  currentId: getCookie(SESSION_COOKIE),
+  currentId: readCookie(SESSION_COOKIE),
 };
 const listeners = new Set<() => void>();
 
@@ -314,7 +294,7 @@ function applyBackendConfig(id: string, configJson?: string): void {
 }
 
 function doLogin(id: string): void {
-  setCookie(SESSION_COOKIE, id, 3650); // ~10 years — indefinite until logout
+  writeCookie(SESSION_COOKIE, id, 3650); // ~10 años — indefinido hasta cerrar sesión
   state = { ...state, currentId: id };
   applyBundle(id);
   emit();
@@ -324,7 +304,7 @@ function doLogin(id: string): void {
 export function logout(): void {
   const prev = state.currentId;
   if (prev) logActivity({ accion: "Cierre de sesión" });
-  delCookie(SESSION_COOKIE);
+  deleteCookie(SESSION_COOKIE);
   state = { ...state, currentId: null };
   emit();
 }
@@ -337,9 +317,8 @@ export function getBundle(id: string): ProfileConfigBundle {
 
 /** Capture the current global preferences as this session's bundle. */
 export function captureBundle(): ProfileConfigBundle {
-  const theme = (typeof window !== "undefined"
-    ? (window.localStorage.getItem("bdp-theme") as "dark" | "light" | null)
-    : null) ?? undefined;
+  const stored = localRead("bdp-theme");
+  const theme = stored === "dark" || stored === "light" ? stored : undefined;
   return { theme, appConfig: getConfig(), layout: getLayout() };
 }
 

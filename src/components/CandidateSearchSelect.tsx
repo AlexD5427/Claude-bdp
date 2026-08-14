@@ -46,7 +46,6 @@ export function CandidateSearchSelect({
   const skipOpenOnFocus = useRef(false);
   const reduceMotion = usePrefersReducedMotion();
 
-  const full = selectedIds.length >= max;
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const selected = useMemo(
@@ -56,6 +55,13 @@ export function CandidateSearchSelect({
         .filter(Boolean) as Candidate[],
     [selectedIds, candidates],
   );
+
+  // El límite se mide contra los postulantes que de verdad se encontraron, no
+  // contra la lista de identificadores guardada. Medirlo contra la lista era lo
+  // que dejaba el buscador deshabilitado en «Límite alcanzado (10/10)» con la
+  // comparativa vacía cuando esos identificadores ya no existían en la base.
+  const count = selected.length;
+  const full = count >= max;
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -111,13 +117,13 @@ export function CandidateSearchSelect({
         <Users className="h-5 w-5 text-cyan-400" />
         <h3 className="text-sm font-bold text-ink">Candidatos a comparar</h3>
         <motion.span
-          key={selectedIds.length}
+          key={count}
           initial={reduceMotion ? undefined : { scale: 0.8, opacity: 0.4 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 500, damping: 26 }}
           className="ml-auto text-xs font-semibold text-ink-soft"
         >
-          {selectedIds.length}/{max}
+          {count}/{max}
         </motion.span>
       </div>
 

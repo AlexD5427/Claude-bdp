@@ -1,0 +1,31 @@
+import { chromium } from "playwright";
+const APP = process.argv[2];
+const MOCK = "http://127.0.0.1:8787";
+const browser = await chromium.launch({ args: ["--no-sandbox"] });
+const ctx = await browser.newContext({ viewport: { width: 1360, height: 900 }, locale: "es-BO" });
+await ctx.addInitScript(() => {
+  delete window.ResizeObserver;
+  delete window.IntersectionObserver;
+  Object.defineProperty(window, "matchMedia", { value: undefined, configurable: true });
+});
+const page = await ctx.newPage();
+const errs = [];
+page.on("pageerror", (e) => errs.push(String(e).slice(0, 160)));
+page.on("console", (m) => { if (m.type() === "error") errs.push(m.text().slice(0, 160)); });
+await page.route("https://script.google.com/**", async (route) => {
+  const r = route.request();
+  const res = await fetch(MOCK + "/exec", { method: r.method(), headers: { "Content-Type": "text/plain" }, body: r.method() === "POST" ? r.postData() ?? "" : undefined });
+  await route.fulfill({ status: res.status, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }, body: await res.text() });
+});
+await page.goto(APP, { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(2000);
+await page.getByText("Mayra Chávez").first().click();
+await page.waitForTimeout(600);
+await page.locator('input[type="password"]').fill("1234");
+await page.getByRole("button", { name: /Iniciar sesión/i }).click();
+await page.waitForTimeout(2500);
+console.log("  hijos de #root:", await page.evaluate(() => document.getElementById("root")?.childElementCount ?? -1));
+console.log("  ¿existe el dock?:", await page.getByRole("button", { name: "Comparador" }).count());
+console.log("  texto visible:", (await page.locator("body").innerText()).slice(0, 160).replace(/\n/g, " | "));
+console.log("  errores:", [...new Set(errs)].slice(0, 4));
+await browser.close();
