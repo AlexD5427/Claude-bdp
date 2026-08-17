@@ -1,0 +1,180 @@
+/* =============================================================
+   DOCUMENTACIÓN — movimiento.
+
+   ── Principio ────────────────────────────────────────────────
+   Cada animación de este archivo explica algo: de dónde vino un
+   panel, qué valor acaba de cambiar, qué fila se está guardando.
+   Nada se mueve por decoración, nada se mueve en bucle y nada se
+   mueve mientras alguien lee un dato crítico.
+
+   Las salidas son más rápidas que las entradas: al cerrar, la
+   persona ya decidió; esperar la animación es fricción.
+
+   El movimiento se apaga entero con `prefers-reduced-motion` y con
+   la clase `reduce-motion` que la aplicación ya conmuta desde
+   Configuración. `index.css` reduce las duraciones a 0.001 ms de
+   forma global; aquí además se desactivan las animaciones que sí
+   tienen sentido cancelar por completo (el resaltado y el marquee).
+   ============================================================= */
+
+/* ---- Entrada de sección ------------------------------------
+   Aparición corta y hacia arriba: dice «esto es nuevo» sin empujar
+   el contenido de sitio.
+   ------------------------------------------------------------ */
+@keyframes doc-entrada {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.doc-anim-entrada {
+  animation: doc-entrada var(--doc-duration-normal) var(--doc-ease-out-expo) both;
+}
+
+/* ---- Resaltado de valor actualizado -------------------------
+   Cuando un contador cambia tras un refetch, el número no se anima
+   (un dígito que gira no se puede leer): se enciende un fondo
+   suave un instante y se apaga. Basta para saber QUÉ cambió.
+   ------------------------------------------------------------ */
+@keyframes doc-destello {
+  0% {
+    background-color: var(--doc-info-bg);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.doc-destello {
+  animation: doc-destello 900ms var(--doc-ease-out-quint) both;
+  border-radius: var(--doc-radius-sm);
+}
+
+/* ---- Guardado en curso -------------------------------------
+   Barra de progreso indeterminada, sobre la zona que se está
+   escribiendo. No bloquea la interfaz: informa de dónde ocurre.
+   ------------------------------------------------------------ */
+@keyframes doc-progreso-indeterminado {
+  0% {
+    transform: translateX(-100%) scaleX(0.4);
+  }
+  50% {
+    transform: translateX(20%) scaleX(0.6);
+  }
+  100% {
+    transform: translateX(100%) scaleX(0.4);
+  }
+}
+
+.doc-progreso-indeterminado {
+  position: relative;
+  overflow: hidden;
+  height: 2px;
+  border-radius: 9999px;
+  background-color: var(--doc-surface-sunken);
+}
+
+.doc-progreso-indeterminado::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform-origin: left;
+  background-color: var(--doc-info);
+  animation: doc-progreso-indeterminado 1.2s var(--doc-ease-in-out) infinite;
+}
+
+/* ---- Latido del indicador de conexión ----------------------
+   Solo mientras está comprobando o sincronizando: un estado
+   transitorio que se anuncia. Nunca en reposo.
+   ------------------------------------------------------------ */
+@keyframes doc-latido {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.doc-latido {
+  animation: doc-latido 1.4s var(--doc-ease-in-out) infinite;
+}
+
+/* ---- Texto que no cabe -------------------------------------
+   El marquee es el último recurso y solo al pasar el puntero: un
+   nombre que se desplaza solo es un nombre que no se puede leer.
+   Fuera del hover, el texto se recorta con su tooltip completo.
+   ------------------------------------------------------------ */
+@keyframes doc-desplazar {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-100% + 100px));
+  }
+}
+
+.doc-marquee {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.doc-marquee > span {
+  display: inline-block;
+  min-width: 100%;
+}
+
+.doc-marquee:hover > span,
+.doc-marquee:focus-within > span {
+  animation: doc-desplazar 6s linear alternate infinite;
+}
+
+/* ---- Transiciones de vista (View Transitions API) ----------
+   Continuidad entre la fila de la tabla y el expediente abierto.
+   Se declara solo el nombre del grupo y una duración corta; si el
+   navegador no soporta la API, no pasa nada: el fallback es el
+   cambio instantáneo de siempre.
+   ------------------------------------------------------------ */
+::view-transition-group(doc-expediente) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(doc-seccion) {
+  animation-duration: 120ms;
+}
+
+::view-transition-new(doc-seccion) {
+  animation-duration: 240ms;
+}
+
+/* ---- Apagado del movimiento -------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .doc-anim-entrada,
+  .doc-destello,
+  .doc-latido,
+  .doc-marquee:hover > span,
+  .doc-progreso-indeterminado::after {
+    animation: none !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+.reduce-motion .doc-anim-entrada,
+.reduce-motion .doc-destello,
+.reduce-motion .doc-latido,
+.reduce-motion .doc-marquee:hover > span,
+.reduce-motion .doc-progreso-indeterminado::after {
+  animation: none !important;
+}

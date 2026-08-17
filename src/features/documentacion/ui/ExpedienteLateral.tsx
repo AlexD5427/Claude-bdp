@@ -19,9 +19,8 @@
  *    botón en lugar de buscar en la lista.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
   CalendarClock,
   CheckCircle2,
   Download,
@@ -45,7 +44,6 @@ import {
   ESTADOS_DOCUMENTO,
   INTENCION_APROBACION,
   INTENCION_DOCUMENTO,
-  INTENCION_EXPEDIENTE,
   INTENCION_PRORROGA,
   INTENCION_REVISION,
   INTENCION_SITUACION,
@@ -63,14 +61,12 @@ import {
   fechaCorta,
   fechaEnDias,
   fechaHora,
-  textoAntiguedad,
   textoPlazo,
   type RequisitoVista,
 } from "../domain/progreso";
 import { useConsola } from "../state/consola";
 import { descargarXlsx, nombreConFecha, unirLotes } from "../export/xlsx";
 import {
-  Aviso,
   BarraAvance,
   Boton,
   Campo,
@@ -81,10 +77,13 @@ import {
   Lateral,
   Panel,
   Selector,
-  Cargando,
-  Vacio,
+  TONO,
   type Notita,
 } from "./piezas";
+import { DocExpedienteHeader } from "./DocExpedienteHeader";
+import { DocError, DocVacio } from "./DocStates";
+import { EsqueletoExpediente } from "./DocSkeletons";
+import type { EstadoEscritura } from "./DocSyncIndicator";
 import { useDatos } from "./useDatos";
 
 type Pestana =
@@ -113,6 +112,14 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
   const [guardando, setGuardando] = useState(false);
   const [dialogo, setDialogo] = useState<null | { tipo: "archivar" | "restaurar" | "aprobar" }>(null);
   const [exportando, setExportando] = useState(false);
+  /** Último resultado de escritura, para el indicador de guardado. */
+  const [ultimaEscritura, setUltimaEscritura] = useState<"ninguna" | "guardado" | "error" | "conflicto">("ninguna");
+  /**
+   * Requisito en foco. Vive aquí y no dentro de la pestaña porque la cabecera
+   * también lo mueve: «ir al requisito» del resumen y el botón «Detalle» de la
+   * fila tienen que apuntar al mismo sitio.
+   */
+  const [foco, setFoco] = useState<string | null>(null);
 
   const expediente = useDatos<ExpedienteOperativo>(
     () => docApi.obtenerExpediente(expedienteId as string, { historial: 80 }),
@@ -123,6 +130,30 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
   const datos = expediente.datos;
   const cabecera = datos?.expediente;
   const cambiosPendientes = Object.keys(borrador).length;
+
+  /* Al abrir un expediente, el foco arranca en lo que el backend señaló como
+     siguiente pendiente: es lo que convierte «revisar» en «pulsar». */
+  useEffect(() => {
+    setFoco(datos?.siguientePendiente?.expedienteDocumentoId ?? null);
+    setUltimaEscritura("ninguna");
+  }, [datos?.expediente.expedienteId, datos?.siguientePendiente?.expedienteDocumentoId]);
+
+  /**
+   * Estado de la escritura, en palabras que distinguen los casos reales: hay
+   * cambios sin escribir, se está escribiendo, el servidor confirmó, o alguien se
+   * adelantó y hay conflicto de versión.
+   */
+  const estadoEscritura: EstadoEscritura = guardando
+    ? "guardando"
+    : cambiosPendientes > 0
+      ? "pendiente"
+      : ultimaEscritura === "conflicto"
+        ? "conflicto"
+        : ultimaEscritura === "error"
+          ? "error"
+          : ultimaEscritura === "guardado"
+            ? "guardado"
+            : "sin_cambios";
 
   function ponerBorrador(id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) {
     setBorrador((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
@@ -143,6 +174,7 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
       });
       const res = await docApi.guardarRequisitos(datos.expediente.expedienteId, cambios);
       setBorrador({});
+      setUltimaEscritura(res.fallidos.length ? "error" : "guardado");
       expediente.recargar();
       onCambio();
       if (res.fallidos.length) {
@@ -154,8 +186,11 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
       const fallo = error as { message?: string; pista?: string; codigo?: string };
       if (fallo.codigo === "CONFLICTO_VERSION") {
         // Alguien más tocó el expediente: se recarga en lugar de pisar su trabajo.
+        setUltimaEscritura("conflicto");
         expediente.recargar();
         setBorrador({});
+      } else {
+        setUltimaEscritura("error");
       }
       avisar("peligro", fallo.message ?? "No se pudo guardar.", fallo.pista);
     } finally {
@@ -204,13 +239,63 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
     }
   }
 
-  const pestanas: { id: Pestana; etiqueta: string; contador?: number; visible: boolean }[] = [
-    { id: "requisitos", etiqueta: "Requisitos", contador: datos?.requisitos.length, visible: true },
-    { id: "solicitudes", etiqueta: "Solicitudes", contador: datos?.solicitudes.length, visible: true },
+  /**
+   * Pestañas del expediente.
+   *
+   * Cada una lleva su total y, cuando hay algo que atender, una marca de aviso con
+   * su explicación en el `title`. La marca es un punto y no un número: el nombre
+   * accesible de la pestaña tiene que ser estable —«Requisitos 18»— y no cambiar
+   * de forma cada vez que alguien resuelve una observación.
+   */
+  const pestanas: {
+    id: Pestana;
+    etiqueta: string;
+    contador?: number;
+    visible: boolean;
+    aviso?: { intencion: "aviso" | "peligro"; detalle: string };
+  }[] = [
+    {
+      id: "requisitos",
+      etiqueta: "Requisitos",
+      contador: datos?.requisitos.length,
+      visible: true,
+      aviso:
+        datos && datos.expediente.totales.pendientes + datos.expediente.totales.noEntregados > 0
+          ? {
+              intencion: datos.expediente.totales.noEntregados > 0 ? "peligro" : "aviso",
+              detalle: `${datos.expediente.totales.pendientes} pendiente(s) y ${datos.expediente.totales.noEntregados} no entregado(s)`,
+            }
+          : undefined,
+    },
+    {
+      id: "solicitudes",
+      etiqueta: "Solicitudes",
+      contador: datos?.solicitudes.length,
+      visible: true,
+      aviso: contarAviso(datos?.solicitudes, (s2) => s2.estado === "VENCIDA", "vencida(s)"),
+    },
     { id: "revisiones", etiqueta: "Revisiones", contador: datos?.revisiones.length, visible: true },
-    { id: "aprobaciones", etiqueta: "Aprobaciones", contador: datos?.aprobaciones.length, visible: true },
-    { id: "prorrogas", etiqueta: "Prórrogas", contador: datos?.prorrogas.length, visible: true },
-    { id: "tareas", etiqueta: "Tareas", contador: datos?.tareas.length, visible: true },
+    {
+      id: "aprobaciones",
+      etiqueta: "Aprobaciones",
+      contador: datos?.aprobaciones.length,
+      visible: true,
+      aviso: contarAviso(datos?.aprobaciones, (a) => a.estado === "PENDIENTE", "esperando firma", "aviso"),
+    },
+    {
+      id: "prorrogas",
+      etiqueta: "Prórrogas",
+      contador: datos?.prorrogas.length,
+      visible: true,
+      aviso: contarAviso(datos?.prorrogas, (pr) => pr.situacion === "vencida", "vencida(s)"),
+    },
+    {
+      id: "tareas",
+      etiqueta: "Tareas",
+      contador: datos?.tareas.length,
+      visible: true,
+      aviso: contarAviso(datos?.tareas, (ta) => ta.estado === "VENCIDA", "fuera de plazo"),
+    },
     { id: "comentarios", etiqueta: "Comentarios", contador: datos?.comentarios.length, visible: true },
     { id: "historial", etiqueta: "Historial", contador: datos?.historial.length, visible: true },
     { id: "auditoria", etiqueta: "Auditoría", contador: datos?.auditoria.length, visible: capacidades.auditoria === true },
@@ -223,10 +308,16 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
       titulo={cabecera ? `${cabecera.nombre}` : "Expediente"}
       subtitulo={cabecera ? `${cabecera.identificador} · ${cabecera.cargo || "Sin cargo"}` : undefined}
       ancho="max-w-5xl"
+      bloqueado={guardando}
+      confirmarCierre={
+        cambiosPendientes
+          ? `Hay ${cambiosPendientes} cambio(s) sin guardar en este expediente. ¿Cerrar y descartarlos?`
+          : undefined
+      }
       pie={
         cambiosPendientes ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-amber-200">
+            <p className="doc-prose text-xs" style={{ color: TONO.aviso.texto }}>
               {cambiosPendientes} cambio(s) sin guardar. Nada se ha escrito todavía en el libro.
             </p>
             <div className="flex gap-2">
@@ -242,129 +333,149 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
       }
     >
       {expediente.error && (
-        <Aviso intencion="peligro" titulo="No se pudo abrir el expediente" accion={<Boton onClick={expediente.recargar}>Reintentar</Boton>}>
-          {expediente.error.mensaje} {expediente.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudo abrir el expediente" error={expediente.error} onReintentar={expediente.recargar} reintentando={expediente.cargando} />
       )}
-      {expediente.cargando && !datos && <Cargando texto="Abriendo expediente…" />}
+      {expediente.cargando && !datos && (
+        <>
+          <span className="sr-only" role="status" aria-live="polite">
+            Abriendo expediente…
+          </span>
+          <EsqueletoExpediente />
+        </>
+      )}
 
       {datos && cabecera && (
         <div className="space-y-4">
-          {/* Cabecera */}
-          <Panel>
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <ChipEstado
-                    estado={cabecera.estado}
-                    etiqueta={ETIQUETA_EXPEDIENTE[cabecera.estado] ?? cabecera.estado}
-                    intencion={INTENCION_EXPEDIENTE[cabecera.estado] ?? "neutral"}
-                  />
-                  <span className="text-xs text-ink-soft">{cabecera.tipoFuncionarioEtiqueta}</span>
-                  {cabecera.tipoGarantia !== "NINGUNA" && <span className="text-xs text-ink-soft">· {cabecera.tipoGarantiaEtiqueta}</span>}
-                </div>
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs sm:grid-cols-3">
-                  <Dato etiqueta="Agencia" valor={cabecera.agencia || "—"} />
-                  <Dato etiqueta="Gerencia" valor={cabecera.gerencia || "—"} />
-                  <Dato etiqueta="Ingreso" valor={fechaCorta(cabecera.fechaIngreso)} />
-                  <Dato etiqueta="Antigüedad" valor={textoAntiguedad(cabecera.diasDesdeIngreso)} />
-                  <Dato etiqueta="Responsable" valor={cabecera.responsableId || "Sin asignar"} />
-                  <Dato
-                    etiqueta="Próxima fecha crítica"
-                    valor={cabecera.proximaFechaCritica ? `${fechaCorta(cabecera.proximaFechaCritica)} · ${textoPlazo(cabecera.proximaFechaCritica)}` : "—"}
-                  />
-                  <Dato etiqueta="Última actualización" valor={`${fechaHora(cabecera.actualizadoEn)} · ${cabecera.actualizadoPor}`} />
-                </dl>
-              </div>
-              <div className="w-full max-w-[220px] space-y-2">
-                <BarraAvance valor={cabecera.porcentaje} etiqueta="Avance del expediente" />
-                <ul className="grid grid-cols-2 gap-1 text-[11px] text-ink-soft">
-                  <li>{cabecera.totales.entregados} entregados</li>
-                  <li>{cabecera.totales.pendientes} pendientes</li>
-                  <li>{cabecera.totales.noEntregados} no entregados</li>
-                  <li>{cabecera.totales.noAplica} no aplica</li>
-                  <li>{cabecera.totales.observados} observados</li>
-                  <li>{cabecera.totales.prorrogas} prórrogas</li>
-                </ul>
-              </div>
-            </div>
-
-            <p className="mt-3 rounded-2xl bg-[color:var(--fill-1)] p-3 text-xs leading-relaxed text-ink-soft">{datos.resumenTextual}</p>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Boton variante="suave" onClick={expediente.recargar} cargando={expediente.cargando}>
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Actualizar
-              </Boton>
-              {capacidades.exportar && (
-                <Boton variante="suave" onClick={exportar} cargando={exportando}>
-                  <Download className="h-3.5 w-3.5" aria-hidden /> Exportar a Excel
+          {/* Cabecera: identidad, situación y trazabilidad. */}
+          <DocExpedienteHeader
+            datos={datos}
+            cambiosPendientes={cambiosPendientes}
+            estadoEscritura={estadoEscritura}
+            onIrAlSiguiente={(id) => {
+              setPestana("requisitos");
+              setFoco(id);
+            }}
+            acciones={
+              <>
+                <Boton variante="suave" onClick={expediente.recargar} cargando={expediente.cargando}>
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Actualizar
                 </Boton>
-              )}
-              {capacidades.aprobar && cabecera.estado === "COMPLETO" && (
-                <Boton variante="primario" onClick={() => setDialogo({ tipo: "aprobar" })}>
-                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Aprobar expediente
-                </Boton>
-              )}
-              {capacidades.archivar && cabecera.estado !== "ARCHIVADO" && (
-                <Boton variante="suave" onClick={() => setDialogo({ tipo: "archivar" })}>
-                  Archivar
-                </Boton>
-              )}
-              {capacidades.restaurar && cabecera.estado === "ARCHIVADO" && (
-                <Boton variante="suave" onClick={() => setDialogo({ tipo: "restaurar" })}>
-                  Restaurar
-                </Boton>
-              )}
-              {capacidades.editar && (
-                <Boton
-                  variante="suave"
-                  onClick={async () => {
-                    try {
-                      const res = await docApi.sincronizarRequisitos(cabecera.expedienteId);
-                      expediente.recargar();
-                      avisar(
-                        "exito",
-                        `Requisitos al día: ${res.creados} añadido(s), ${res.archivados} archivado(s).`,
-                        res.conservados.length ? `${res.conservados.length} se conservaron por tener datos.` : undefined,
-                      );
-                    } catch (error) {
-                      const fallo = error as { message?: string; pista?: string };
-                      avisar("peligro", fallo.message ?? "No se pudo sincronizar.", fallo.pista);
-                    }
-                  }}
-                  titulo="Vuelve a calcular qué requisitos aplican según la rama"
-                >
-                  Recalcular requisitos
-                </Boton>
-              )}
-            </div>
-          </Panel>
+                {capacidades.exportar && (
+                  <Boton variante="suave" onClick={exportar} cargando={exportando}>
+                    <Download className="h-3.5 w-3.5" aria-hidden /> Exportar a Excel
+                  </Boton>
+                )}
+                {capacidades.aprobar && cabecera.estado === "COMPLETO" && (
+                  <Boton variante="primario" onClick={() => setDialogo({ tipo: "aprobar" })}>
+                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Aprobar expediente
+                  </Boton>
+                )}
+                {capacidades.archivar && cabecera.estado !== "ARCHIVADO" && (
+                  <Boton variante="suave" onClick={() => setDialogo({ tipo: "archivar" })}>
+                    Archivar
+                  </Boton>
+                )}
+                {capacidades.restaurar && cabecera.estado === "ARCHIVADO" && (
+                  <Boton variante="suave" onClick={() => setDialogo({ tipo: "restaurar" })}>
+                    Restaurar
+                  </Boton>
+                )}
+                {capacidades.editar && (
+                  <Boton
+                    variante="suave"
+                    onClick={async () => {
+                      try {
+                        const res = await docApi.sincronizarRequisitos(cabecera.expedienteId);
+                        expediente.recargar();
+                        avisar(
+                          "exito",
+                          `Requisitos al día: ${res.creados} añadido(s), ${res.archivados} archivado(s).`,
+                          res.conservados.length ? `${res.conservados.length} se conservaron por tener datos.` : undefined,
+                        );
+                      } catch (error) {
+                        const fallo = error as { message?: string; pista?: string };
+                        avisar("peligro", fallo.message ?? "No se pudo sincronizar.", fallo.pista);
+                      }
+                    }}
+                    titulo="Vuelve a calcular qué requisitos aplican según la rama"
+                  >
+                    Recalcular requisitos
+                  </Boton>
+                )}
+              </>
+            }
+          />
 
           {/* Pestañas */}
-          <div className="flex gap-1 overflow-x-auto border-b border-[color:var(--hairline)] pb-1" role="tablist" aria-label="Secciones del expediente">
+          {/*
+            Pestañas desplazables, pegadas al borde superior del panel: con nueve
+            secciones y un expediente largo, perder la navegación al bajar obliga a
+            volver arriba para cambiar de sección.
+          */}
+          <div
+            className="doc-no-print sticky top-0 z-10 -mx-1 flex gap-1 overflow-x-auto border-b border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-1 pb-1 pt-1 backdrop-blur"
+            role="tablist"
+            aria-label="Secciones del expediente"
+          >
             {pestanas
               .filter((p) => p.visible)
-              .map((p) => (
-                <button
-                  key={p.id}
-                  role="tab"
-                  aria-selected={pestana === p.id}
-                  onClick={() => setPestana(p.id)}
-                  className={`shrink-0 rounded-t-xl px-3 py-2 text-xs font-semibold transition-colors ${
-                    pestana === p.id ? "bg-[color:var(--fill-2)] text-ink" : "text-ink-soft hover:text-ink"
-                  }`}
-                >
-                  {p.etiqueta}
-                  {p.contador !== undefined && <span className="ml-1 text-[10px] text-ink-faint">{p.contador}</span>}
-                </button>
-              ))}
+              .map((p) => {
+                const activa = pestana === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    id={`doc-tab-${p.id}`}
+                    role="tab"
+                    aria-selected={activa}
+                    aria-controls="doc-tabpanel"
+                    tabIndex={activa ? 0 : -1}
+                    onKeyDown={(evento) => {
+                      /* Flechas para moverse entre pestañas, como manda el patrón
+                         de `tablist`: con nueve pestañas, tabular por todas para
+                         llegar a la última es una carrera de obstáculos. */
+                      const visibles = pestanas.filter((x) => x.visible);
+                      const actual = visibles.findIndex((x) => x.id === p.id);
+                      if (evento.key !== "ArrowRight" && evento.key !== "ArrowLeft") return;
+                      evento.preventDefault();
+                      const siguiente =
+                        evento.key === "ArrowRight"
+                          ? visibles[(actual + 1) % visibles.length]
+                          : visibles[(actual - 1 + visibles.length) % visibles.length];
+                      setPestana(siguiente.id);
+                      document.getElementById(`doc-tab-${siguiente.id}`)?.focus();
+                    }}
+                    onClick={() => setPestana(p.id)}
+                    className="doc-tap shrink-0 rounded-t-[var(--doc-radius-sm)] px-3 py-2 text-xs font-semibold transition-colors"
+                    style={
+                      activa
+                        ? { background: "var(--doc-surface-raised)", color: "var(--doc-text)", boxShadow: "inset 0 -2px 0 var(--doc-info)" }
+                        : { color: "var(--doc-text-muted)" }
+                    }
+                  >
+                    {p.etiqueta}
+                    {p.contador !== undefined && (
+                      <span className="doc-metric ml-1 text-[10px] text-[color:var(--doc-text-faint)]">{p.contador}</span>
+                    )}
+                    {p.aviso && (
+                      <span
+                        className="ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle"
+                        style={{ background: TONO[p.aviso.intencion].punto }}
+                        title={p.aviso.detalle}
+                        aria-hidden
+                      />
+                    )}
+                  </button>
+                );
+              })}
           </div>
 
-          <div role="tabpanel">
+          <div role="tabpanel" id="doc-tabpanel" aria-labelledby={`doc-tab-${pestana}`}>
             {pestana === "requisitos" && (
               <Requisitos
                 datos={datos}
                 borrador={borrador}
+                foco={foco}
+                onFoco={setFoco}
                 onBorrador={ponerBorrador}
                 onRecargar={() => {
                   expediente.recargar();
@@ -427,15 +538,21 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
   );
 }
 
-function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-[10px] uppercase tracking-wide text-ink-faint">{etiqueta}</dt>
-      <dd className="truncate text-ink" title={valor}>
-        {valor}
-      </dd>
-    </div>
-  );
+/**
+ * Cuenta cuántos elementos de una colección cumplen algo y devuelve la marca de
+ * aviso de la pestaña. Devuelve `undefined` cuando no hay nada que avisar: una
+ * pestaña sin problemas no debe llevar adorno.
+ */
+function contarAviso<T>(
+  coleccion: T[] | undefined,
+  cumple: (item: T) => boolean,
+  sufijo: string,
+  intencion: "aviso" | "peligro" = "peligro",
+): { intencion: "aviso" | "peligro"; detalle: string } | undefined {
+  if (!coleccion?.length) return undefined;
+  const total = coleccion.filter(cumple).length;
+  if (!total) return undefined;
+  return { intencion, detalle: `${total} ${sufijo}` };
 }
 
 /* ------------------------------------------------------------------ */
@@ -445,18 +562,22 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor: string }) {
 function Requisitos({
   datos,
   borrador,
+  foco,
+  onFoco,
   onBorrador,
   onRecargar,
   avisar,
 }: {
   datos: ExpedienteOperativo;
   borrador: Record<string, { estado?: EstadoDocumento; observaciones?: string }>;
+  foco: string | null;
+  onFoco: (id: string | null) => void;
   onBorrador: (id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) => void;
   onRecargar: () => void;
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }) {
   const { capacidades } = useConsola();
-  const [foco, setFoco] = useState<string | null>(datos.siguientePendiente?.expedienteDocumentoId ?? null);
+  const setFoco = onFoco;
   const [revisando, setRevisando] = useState<RequisitoVista | null>(null);
   const [prorrogando, setProrrogando] = useState<RequisitoVista | null>(null);
   const grupos = useMemo(() => agruparRequisitos(datos.requisitos), [datos.requisitos]);
@@ -467,20 +588,6 @@ function Requisitos({
 
   return (
     <div className="space-y-3">
-      {datos.siguientePendiente && (
-        <Aviso intencion="info" titulo="Siguiente por atender">
-          <div className="flex flex-wrap items-center gap-2">
-            <span>
-              {datos.requisitos.find((r) => r.expedienteDocumentoId === datos.siguientePendiente?.expedienteDocumentoId)?.nombre}
-              {datos.siguientePendiente.motivo === "observado" ? " · tiene una observación abierta" : " · pendiente de entrega"}
-            </span>
-            <Boton variante="suave" onClick={() => setFoco(datos.siguientePendiente!.expedienteDocumentoId)}>
-              <ArrowRight className="h-3.5 w-3.5" aria-hidden /> Ir al requisito
-            </Boton>
-          </div>
-        </Aviso>
-      )}
-
       {grupos.map((grupo) => (
         <Panel
           key={grupo.seccion}
@@ -488,7 +595,7 @@ function Requisitos({
           descripcion={`${grupo.resueltos} de ${grupo.total} resueltos`}
           acciones={<div className="w-32"><BarraAvance valor={grupo.porcentaje} etiqueta={`Avance de ${grupo.etiqueta}`} /></div>}
         >
-          <ul className="divide-y divide-[color:var(--hairline)]/60">
+          <ul className="doc-list-long divide-y divide-[color:var(--doc-border)]">
             {grupo.requisitos.map((requisito) => {
               const estado = estadoDe(requisito);
               const sucio = !!borrador[requisito.expedienteDocumentoId];
@@ -496,16 +603,37 @@ function Requisitos({
               return (
                 <li
                   key={requisito.expedienteDocumentoId}
-                  className={`py-2.5 ${enFoco ? "-mx-2 rounded-xl bg-cyan-500/5 px-2 ring-1 ring-cyan-400/30" : ""}`}
+                  className="doc-print-keep py-2.5"
+                  style={
+                    enFoco
+                      ? {
+                          margin: "0 -0.5rem",
+                          padding: "0.625rem 0.5rem",
+                          borderRadius: "var(--doc-radius-sm)",
+                          background: "var(--doc-info-bg)",
+                          boxShadow: "inset 0 0 0 1px var(--doc-info)",
+                        }
+                      : undefined
+                  }
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-ink">
+                      {/* El nombre del requisito se muestra entero: recortarlo
+                          obliga a pasar el ratón para saber qué documento es. */}
+                      <p className="doc-prose doc-wrap-name text-sm text-[color:var(--doc-text)]">
                         {requisito.nombre}
-                        {requisito.obligatorio && <span className="ml-1 text-[10px] uppercase text-ink-faint">obligatorio</span>}
-                        {sucio && <span className="ml-2 text-[10px] font-semibold uppercase text-amber-300">sin guardar</span>}
+                        {requisito.obligatorio && (
+                          <span className="ml-1.5 text-[10px] uppercase text-[color:var(--doc-text-faint)]">obligatorio</span>
+                        )}
+                        {sucio && (
+                          <span className="ml-2 text-[10px] font-semibold uppercase" style={{ color: TONO.aviso.texto }}>
+                            sin guardar
+                          </span>
+                        )}
                       </p>
-                      {requisito.descripcion && <p className="mt-0.5 text-[11px] text-ink-faint">{requisito.descripcion}</p>}
+                      {requisito.descripcion && (
+                        <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">{requisito.descripcion}</p>
+                      )}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <ChipEstado estado={estado} etiqueta={ETIQUETA_DOCUMENTO[estado]} intencion={INTENCION_DOCUMENTO[estado]} />
                         {requisito.estadoRevision !== "SIN_REVISION" && (
@@ -521,9 +649,12 @@ function Requisitos({
                             <ChipEstado
                               key={prorroga.prorrogaId}
                               estado={prorroga.situacion}
-                              etiqueta={`${ETIQUETA_SITUACION[prorroga.situacion] ?? prorroga.situacion} · ${fechaCorta(prorroga.fechaProrroga)}`}
+                              etiqueta={`Prórroga ${ETIQUETA_SITUACION[prorroga.situacion]?.toLowerCase() ?? prorroga.situacion} · ${fechaCorta(prorroga.fechaProrroga)}`}
                               intencion={INTENCION_SITUACION[prorroga.situacion] ?? "neutral"}
-                              titulo={prorroga.motivo}
+                              /* Vencida sigue siendo roja: ahí el problema no es el
+                                 plazo, es que se agotó. */
+                              prorroga={prorroga.situacion !== "vencida"}
+                              titulo={prorroga.motivo || "Prórroga concedida sobre este requisito"}
                             />
                           ))}
                       </div>
@@ -545,11 +676,16 @@ function Requisitos({
                               setFoco(requisito.expedienteDocumentoId);
                             }}
                             aria-pressed={estado === destino}
-                            className={`rounded-lg px-2 py-1 text-[11px] font-semibold transition-colors ${
+                            className="doc-tap rounded-[var(--doc-radius-sm)] px-2 py-1 text-[11px] font-semibold transition-colors"
+                            style={
                               estado === destino
-                                ? "bg-cyan-500/25 text-cyan-100 ring-1 ring-cyan-400/50"
-                                : "fill-softer text-ink-soft ring-1 ring-[color:var(--hairline)] hover:text-ink"
-                            }`}
+                                ? { background: "var(--doc-info-bg)", color: "var(--doc-info-fg)", boxShadow: "inset 0 0 0 1px var(--doc-info)" }
+                                : {
+                                    background: "var(--doc-surface-raised)",
+                                    color: "var(--doc-text-muted)",
+                                    boxShadow: "inset 0 0 0 1px var(--doc-border)",
+                                  }
+                            }
                           >
                             {ETIQUETA_DOCUMENTO[destino]}
                           </button>
@@ -797,7 +933,7 @@ function Solicitudes({
         </Boton>
       )}
 
-      {!datos.solicitudes.length && <Vacio titulo="Sin solicitudes" detalle="Cuando se pida documentación, aparecerá aquí con su seguimiento." />}
+      {!datos.solicitudes.length && <DocVacio compacto icono="documento" titulo="Sin solicitudes" detalle="Cuando se pida documentación, aparecerá aquí con su seguimiento." siguientePaso="«Solicitar todo lo pendiente» crea una con los requisitos que faltan." />}
 
       {datos.solicitudes.map((solicitud) => (
         <Panel
@@ -817,7 +953,7 @@ function Solicitudes({
             {solicitud.items.map((item) => (
               <li key={item.solicitudDocumentoId} className="flex items-center justify-between gap-2">
                 <span className="truncate text-ink">{item.nombre}</span>
-                <span className={item.estado === "CUMPLIDO" ? "text-emerald-300" : "text-ink-faint"}>
+                <span style={{ color: item.estado === "CUMPLIDO" ? TONO.exito.texto : "var(--doc-text-faint)" }}>
                   {item.estado === "CUMPLIDO" ? `Cumplido ${fechaCorta(item.fechaCumplimiento)}` : "Pendiente"}
                 </span>
               </li>
@@ -881,14 +1017,14 @@ function Solicitudes({
 
 function Revisiones({ datos }: { datos: ExpedienteOperativo }) {
   if (!datos.revisiones.length) {
-    return <Vacio titulo="Sin decisiones de revisión" detalle="Cada aprobación u observación queda registrada aquí con su motivo." />;
+    return <DocVacio compacto icono="historial" titulo="Sin decisiones de revisión" detalle="Cada aprobación u observación queda registrada aquí con su motivo." siguientePaso="Las decisiones se registran desde el botón «Revisar» de cada requisito." />;
   }
   const ordenadas = [...datos.revisiones].sort((a, b) => (a.fecha < b.fecha ? 1 : -1));
   return (
     <Panel titulo="Historial de decisiones" descripcion="Append-only: una decisión no se edita, se sucede.">
       <ol className="space-y-3">
         {ordenadas.map((revision) => (
-          <li key={revision.revisionId} className="border-l-2 border-[color:var(--hairline)] pl-3">
+          <li key={revision.revisionId} className="doc-print-keep border-l-2 border-[color:var(--doc-border)] pl-3">
             <div className="flex flex-wrap items-center gap-2">
               <ChipEstado
                 estado={revision.estado}
@@ -953,7 +1089,7 @@ function Aprobaciones({
         </Panel>
       )}
 
-      {!datos.aprobaciones.length && <Vacio titulo="Sin aprobaciones" detalle="Cuando se pida una firma, aparecerá aquí." />}
+      {!datos.aprobaciones.length && <DocVacio compacto icono="documento" titulo="Sin aprobaciones" detalle="Cuando se pida una firma, aparecerá aquí con su estado y su plazo." />}
 
       {datos.aprobaciones.map((aprobacion) => (
         <Panel
@@ -1030,7 +1166,7 @@ function Prorrogas({
 }) {
   const { capacidades } = useConsola();
   if (!datos.prorrogas.length) {
-    return <Vacio titulo="Sin prórrogas" detalle="Se conceden desde la pestaña de requisitos, en los que la admiten." />;
+    return <DocVacio compacto icono="historial" titulo="Sin prórrogas" detalle="Se conceden desde la pestaña de requisitos, en los que la admiten." />;
   }
   return (
     <div className="space-y-2">
@@ -1154,7 +1290,7 @@ function Tareas({
         </Panel>
       )}
 
-      {!datos.tareas.length && <Vacio titulo="Sin tareas" detalle="Las observaciones abren tareas de corrección automáticamente." />}
+      {!datos.tareas.length && <DocVacio compacto icono="carpeta" titulo="Sin tareas" detalle="Las observaciones abren tareas de corrección automáticamente." />}
 
       {datos.tareas.map((tarea) => (
         <Panel
@@ -1272,11 +1408,11 @@ function Comentarios({
         </Panel>
       )}
 
-      {!datos.comentarios.length && <Vacio titulo="Sin comentarios" detalle="Los seguimientos y las notas del equipo aparecen aquí." />}
+      {!datos.comentarios.length && <DocVacio compacto icono="documento" titulo="Sin comentarios" detalle="Los seguimientos y las notas del equipo aparecen aquí." />}
 
       <ol className="space-y-2">
         {datos.comentarios.map((comentario) => (
-          <li key={comentario.comentarioId} className="glass rounded-2xl p-3">
+          <li key={comentario.comentarioId} className="doc-surface doc-print-keep p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
                 {comentario.visibilidad} · {comentario.tipo}
@@ -1311,12 +1447,12 @@ function Comentarios({
 }
 
 function Historial({ datos }: { datos: ExpedienteOperativo }) {
-  if (!datos.historial.length) return <Vacio titulo="Sin historial" detalle="Cada cambio queda registrado en cuanto ocurra." />;
+  if (!datos.historial.length) return <DocVacio compacto icono="historial" titulo="Sin historial" detalle="Cada cambio queda registrado en cuanto ocurra, con su valor anterior y el nuevo." />;
   return (
     <Panel titulo="Qué ha pasado" descripcion="Historial legible: campo, valor anterior y valor nuevo.">
       <ol className="space-y-2">
         {datos.historial.map((entrada) => (
-          <li key={entrada.historialId} className="border-l-2 border-[color:var(--hairline)] pl-3 text-xs">
+          <li key={entrada.historialId} className="doc-print-keep border-l-2 border-[color:var(--doc-border)] pl-3 text-xs">
             <p className="text-ink">{entrada.texto}</p>
             <p className="text-[11px] text-ink-faint">
               {entrada.actor} · {fechaHora(entrada.fecha)}
@@ -1330,15 +1466,15 @@ function Historial({ datos }: { datos: ExpedienteOperativo }) {
 }
 
 function Auditoria({ datos }: { datos: ExpedienteOperativo }) {
-  if (!datos.auditoria.length) return <Vacio titulo="Sin eventos" detalle="La auditoría técnica registra cada operación con su solicitud." />;
+  if (!datos.auditoria.length) return <DocVacio compacto icono="datos" titulo="Sin eventos" detalle="La auditoría técnica registra cada operación con su identificador de solicitud." />;
   return (
     <Panel titulo="Auditoría técnica" descripcion="Evento, actor, origen y resultado. Con el identificador de solicitud para rastrear.">
       <ol className="space-y-1.5">
         {datos.auditoria.map((evento) => (
-          <li key={evento.eventoId} className="rounded-xl bg-[color:var(--fill-1)] p-2 text-[11px]">
+          <li key={evento.eventoId} className="doc-sunken p-2 text-[11px]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-ink">{evento.tipo}</span>
-              <span className={evento.resultado === "ok" ? "text-emerald-300" : "text-amber-300"}>{evento.resultado}</span>
+              <span style={{ color: evento.resultado === "ok" ? TONO.exito.texto : TONO.aviso.texto }}>{evento.resultado}</span>
             </div>
             <p className="text-ink-soft">
               {evento.actor} · {evento.origen} · {fechaHora(evento.fecha)}

@@ -36,7 +36,6 @@ import {
 import { fechaCorta, fechaHora, textoPlazo } from "../domain/progreso";
 import { useConsola } from "../state/consola";
 import {
-  Aviso,
   Boton,
   Buscador,
   Campo,
@@ -52,6 +51,7 @@ import {
   type ColumnaTabla,
   type Notita,
 } from "./piezas";
+import { DocError } from "./DocStates";
 import { useDatos } from "./useDatos";
 
 interface PropsSeccion {
@@ -183,9 +183,7 @@ export function SeccionSolicitudes({ onAbrirExpediente, avisar }: PropsSeccion) 
       </div>
 
       {lista.error && (
-        <Aviso intencion="peligro" titulo="No se pudieron cargar las solicitudes" accion={<Boton onClick={lista.recargar}>Reintentar</Boton>}>
-          {lista.error.mensaje} {lista.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudieron cargar las solicitudes" error={lista.error} onReintentar={lista.recargar} reintentando={lista.cargando} />
       )}
 
       <Panel descripcion="Las solicitudes se crean desde el expediente o en bloque desde la lista de expedientes.">
@@ -313,9 +311,7 @@ export function SeccionRevision({ onAbrirExpediente, avisar }: PropsSeccion) {
       </div>
 
       {cola.error && (
-        <Aviso intencion="peligro" titulo="No se pudo cargar la cola" accion={<Boton onClick={cola.recargar}>Reintentar</Boton>}>
-          {cola.error.mensaje} {cola.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudo cargar la cola" error={cola.error} onReintentar={cola.recargar} reintentando={cola.cargando} />
       )}
 
       <Panel descripcion="Requisitos entregados pendientes de decisión y requisitos observados esperando corrección.">
@@ -480,9 +476,7 @@ export function SeccionAprobaciones({ onAbrirExpediente, avisar }: PropsSeccion)
       </div>
 
       {lista.error && (
-        <Aviso intencion="peligro" titulo="No se pudieron cargar las aprobaciones" accion={<Boton onClick={lista.recargar}>Reintentar</Boton>}>
-          {lista.error.mensaje} {lista.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudieron cargar las aprobaciones" error={lista.error} onReintentar={lista.recargar} reintentando={lista.cargando} />
       )}
 
       <Panel descripcion="Para rechazar hace falta explicar el motivo: se hace desde el expediente.">
@@ -622,9 +616,7 @@ export function SeccionProrrogas({ onAbrirExpediente, avisar }: PropsSeccion) {
       </div>
 
       {lista.error && (
-        <Aviso intencion="peligro" titulo="No se pudieron cargar las prórrogas" accion={<Boton onClick={lista.recargar}>Reintentar</Boton>}>
-          {lista.error.mensaje} {lista.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudieron cargar las prórrogas" error={lista.error} onReintentar={lista.recargar} reintentando={lista.cargando} />
       )}
 
       <Panel descripcion="Los días restantes se calculan al consultar. El proceso diario marca las vencidas y avisa una vez al día.">
@@ -763,9 +755,7 @@ export function SeccionTareas({ onAbrirExpediente, avisar }: PropsSeccion) {
       </div>
 
       {lista.error && (
-        <Aviso intencion="peligro" titulo="No se pudieron cargar las tareas" accion={<Boton onClick={lista.recargar}>Reintentar</Boton>}>
-          {lista.error.mensaje} {lista.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudieron cargar las tareas" error={lista.error} onReintentar={lista.recargar} reintentando={lista.cargando} />
       )}
 
       <Panel descripcion="Las tareas nacen a mano o de una observación. Al resolverse su causa, se cierran solas.">

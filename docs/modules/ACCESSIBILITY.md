@@ -46,6 +46,30 @@ following provisions.
 - Block-level `accessibility.ariaLabel` / `longDescription` fields let authors
   provide screen-reader text per question.
 
+## Documentación console
+
+- **Navigation**: grouped `nav` with `aria-current="page"` plus a left bar on the
+  active item (never colour alone). Section counters travel as
+  `aria-describedby`, so a tab's accessible name stays stable when the number
+  changes. Section changes are announced in an `aria-live` region.
+- **Tables**: sticky headers, `caption` (sr-only), `th scope="col"`, and an
+  explicit per-row action button — row click is a mouse affordance, the keyboard
+  needs a control. Loading shows `aria-busy` skeletons with the final column
+  count so nothing shifts when data lands.
+- **Drawer**: real focus trap (Tab cycles inside), focus restored on close,
+  cannot be dismissed while a write is in flight, and asks for confirmation when
+  there are unsaved changes.
+- **Tabs** (expediente): `tablist` pattern with ← / → navigation,
+  `aria-controls`/`aria-labelledby`, and roving `tabIndex`.
+- **Errors** use `role="alert"` and carry the backend's code and hint; everything
+  else uses `role="status"`.
+- **Motion** honours `prefers-reduced-motion` *and* the app switch; View
+  Transitions are feature-detected and skipped when motion is reduced.
+- **Touch**: 44 × 44 px minimum targets under `pointer: coarse`, safe-area
+  padding on the drawer and the toast stack.
+- **Print**: glass flattens, chrome disappears, truncated names expand, and rows
+  do not break across pages.
+
 ## Follow-ups
 
 - Full audit with an automated checker (axe) and manual SR testing across the

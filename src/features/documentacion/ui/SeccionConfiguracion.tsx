@@ -63,7 +63,7 @@ export function SeccionConfiguracion({ avisar }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 overflow-x-auto border-b border-[color:var(--hairline)] pb-1" role="tablist" aria-label="Configuración">
+      <div className="doc-no-print flex gap-1 overflow-x-auto border-b border-[color:var(--doc-border)] pb-1" role="tablist" aria-label="Configuración">
         {pestanas
           .filter((p) => p.visible)
           .map((p) => (
@@ -73,7 +73,9 @@ export function SeccionConfiguracion({ avisar }: Props) {
               aria-selected={pestana === p.id}
               onClick={() => setPestana(p.id)}
               className={`shrink-0 rounded-t-xl px-3 py-2 text-xs font-semibold transition-colors ${
-                pestana === p.id ? "bg-[color:var(--fill-2)] text-ink" : "text-ink-soft hover:text-ink"
+                pestana === p.id
+                    ? "bg-[color:var(--doc-surface-raised)] text-[color:var(--doc-text)]"
+                    : "text-[color:var(--doc-text-muted)] hover:text-[color:var(--doc-text)]"
               }`}
             >
               {p.etiqueta}
@@ -103,7 +105,8 @@ export function SeccionConfiguracion({ avisar }: Props) {
                   href={estado.libroUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold text-cyan-200 ring-1 ring-cyan-400/30 hover:bg-cyan-500/10"
+                  className="doc-tap inline-flex items-center gap-1.5 rounded-[var(--doc-radius-sm)] px-3 py-2 text-xs font-semibold"
+                  style={{ color: "var(--doc-info-fg)", boxShadow: "inset 0 0 0 1px var(--doc-info)" }}
                 >
                   <Database className="h-3.5 w-3.5" aria-hidden /> Abrir el libro
                 </a>
@@ -534,7 +537,7 @@ function PestanaPermisos({ avisar }: Props) {
           {!Object.keys(mapa).length && <Vacio titulo="Sin roles asignados" detalle="Quien no esté en la lista recibe el rol por defecto." />}
         </ul>
 
-        <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[color:var(--hairline)] pt-3">
+        <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[color:var(--doc-border)] pt-3">
           <div className="min-w-[200px] flex-1">
             <Campo etiqueta="Perfil o correo">
               <Entrada value={nuevoActor} onChange={(e) => setNuevoActor(e.target.value)} placeholder="nombre@bdp.com" />
@@ -574,7 +577,7 @@ function PestanaPermisos({ avisar }: Props) {
               </thead>
               <tbody>
                 {Object.entries(permisos.datos.matriz).map(([rolFila, capacidades]) => (
-                  <tr key={rolFila} className="border-t border-[color:var(--hairline)]/60">
+                  <tr key={rolFila} className="border-t border-[color:var(--doc-border)]">
                     <th scope="row" className="py-1.5 pr-3 text-left font-medium text-ink">
                       {rolFila}
                     </th>
@@ -611,7 +614,7 @@ function PestanaAutomatizaciones({ avisar }: Props) {
           {(config.datos?.automatizaciones ?? []).map((regla) => {
             const activa = !desactivadas.includes(regla.codigo);
             return (
-              <li key={regla.codigo} className="flex flex-wrap items-start justify-between gap-2 rounded-2xl bg-[color:var(--fill-1)] p-3">
+              <li key={regla.codigo} className="doc-sunken flex flex-wrap items-start justify-between gap-2 p-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-ink">{regla.codigo}</p>
                   <p className="mt-0.5 text-[11px] text-ink-soft">{regla.descripcion}</p>
@@ -760,7 +763,7 @@ function PestanaMantenimiento({ avisar }: Props) {
         </div>
 
         {!!informe.length && (
-          <div className="mt-3 rounded-2xl bg-[color:var(--fill-1)] p-3">
+          <div className="doc-sunken mt-3 p-3">
             <p className="mb-1 text-[11px] uppercase tracking-wide text-ink-faint">Resultado</p>
             <ul className="space-y-1 text-xs text-ink-soft">
               {informe.filter(Boolean).map((linea, i) => (
@@ -779,20 +782,20 @@ function PestanaMantenimiento({ avisar }: Props) {
           {diagnostico.hallazgos.length ? (
             <ul className="space-y-2">
               {diagnostico.hallazgos.map((hallazgo) => (
-                <li key={hallazgo.codigo} className="rounded-2xl bg-[color:var(--fill-1)] p-3">
+                <li key={hallazgo.codigo} className="doc-sunken p-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <ChipEstado estado={hallazgo.severidad} intencion={severidades[hallazgo.severidad] ?? "info"} />
                     <span className="text-xs font-semibold text-ink">{hallazgo.titulo}</span>
                   </div>
                   <p className="mt-1 text-[11px] text-ink-soft">{hallazgo.detalle}</p>
                   {hallazgo.accion && (
-                    <p className="mt-1 text-[11px] text-cyan-200">
+                    <p className="doc-prose mt-1 text-[11px]" style={{ color: "var(--doc-info-fg)" }}>
                       Se corrige con «{hallazgo.accion}»
                       {hallazgo.reparable === "automatica" ? " (automático)" : hallazgo.reparable === "confirmacion" ? " (requiere confirmación)" : ""}
                     </p>
                   )}
                   {!hallazgo.reparable && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-200">
+                    <p className="mt-1 flex items-center gap-1 text-[11px]" style={{ color: "var(--doc-warning-fg)" }}>
                       <AlertTriangle className="h-3 w-3" aria-hidden /> Requiere revisión manual.
                     </p>
                   )}

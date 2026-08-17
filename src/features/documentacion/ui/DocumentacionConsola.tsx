@@ -5,10 +5,11 @@
  * Google Sheets del área.
  *
  * ── Cómo está montada ───────────────────────────────────────────────────────
- * Un armazón con menú lateral y trece secciones. El armazón se ocupa de tres cosas
- * y nada más: resolver la conexión y los permisos al entrar, decidir qué secciones
- * puede ver este rol, y mantener abierto el panel del expediente por encima de la
- * sección que sea. Cada sección se ocupa de sus datos.
+ * Un armazón (`DocShell`) con navegación agrupada y trece secciones. El armazón se
+ * ocupa de cuatro cosas y nada más: resolver la conexión y los permisos al
+ * entrar, decidir qué secciones puede ver este rol, ofrecer la acción principal
+ * del módulo, y mantener abierto el panel del expediente por encima de la sección
+ * que sea. Cada sección se ocupa de sus datos.
  *
  * ── Qué pasa si el backend no está ──────────────────────────────────────────
  * El módulo no finge. Si no hay backend configurado, o está sin instalar, o no
@@ -17,31 +18,26 @@
  * equipo y es lo que había antes. Ninguna pantalla muestra datos inventados.
  *
  * ── Identidad visual ────────────────────────────────────────────────────────
- * Liquid Glass, con las superficies y los tokens que el resto de la aplicación ya
- * usa. Las animaciones se apagan enteras con `prefers-reduced-motion`, las tablas
- * se convierten en tarjetas en el móvil y todo estado lleva etiqueta además de
- * color.
+ * Liquid Glass para el armazón y el panel lateral; dentro, superficies planas con
+ * los tokens del módulo (`--doc-*`), porque el contenido denso se lee mejor sobre
+ * una superficie que sobre un cristal. Las animaciones se apagan enteras con
+ * `prefers-reduced-motion` o con el interruptor de la aplicación, las tablas se
+ * convierten en tarjetas en el móvil y todo estado lleva etiqueta e icono además
+ * de color.
  */
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  Bell,
-  CircleSlash,
-  Cloud,
-  CloudOff,
-  Database,
-  Loader2,
-  Menu,
-  PlugZap,
-  RefreshCw,
-  ShieldAlert,
-  Wrench,
-} from "lucide-react";
+import { CircleSlash, Database, FolderPlus, RefreshCw, Wrench } from "lucide-react";
+import { docApi } from "../api/acciones";
 import { seccionesPermitidas, type SeccionId } from "../domain/vocabulario";
 import { comprobarConexion, irASeccion, refrescarNotificaciones, useConsola } from "../state/consola";
 import { useProfiles } from "../../../lib/profilesStore";
-import { Aviso, Boton, Notitas, useNotitas, usarMovimientoReducido } from "./piezas";
+import { Aviso, Boton, Notitas, useNotitas } from "./piezas";
+import { propsSeccion, useMovimientoReducido } from "./DocMotion";
+import { conTransicionDeVista } from "./DocViewTransitions";
+import { DocShell, type ContadorSeccion } from "./DocShell";
+import { DocModoDegradado } from "./DocStates";
 import { SeccionPanel } from "./SeccionPanel";
 import { SeccionExpedientes } from "./SeccionExpedientes";
 import { ExpedienteLateral } from "./ExpedienteLateral";
@@ -54,9 +50,9 @@ export function DocumentacionConsola() {
   const consola = useConsola();
   const { current } = useProfiles();
   const { notitas, avisar, quitar } = useNotitas();
-  const reducido = usarMovimientoReducido();
-  const [menuAbierto, setMenuAbierto] = useState(false);
+  const reducido = useMovimientoReducido();
   const [expedienteAbierto, setExpedienteAbierto] = useState<string | null>(null);
+  const [altaAbierta, setAltaAbierta] = useState(false);
   const [refresco, setRefresco] = useState(0);
 
   /**
@@ -79,123 +75,113 @@ export function DocumentacionConsola() {
 
   const conectado = consola.conexion === "conectado";
 
+  /**
+   * Contadores de la navegación.
+   *
+   * Solo se pinta el que ya se conoce sin pedir nada más: las notificaciones sin
+   * leer, que el propio `estado` del módulo devuelve. Poner un contador en cada
+   * sección exigiría una consulta agregada por sección en cada carga del módulo,
+   * y un número que cuesta cinco peticiones no vale lo que cuesta.
+   */
+  const contadores: Partial<Record<SeccionId, ContadorSeccion>> = useMemo(() => {
+    if (!conectado || consola.notificacionesNoLeidas <= 0) return {};
+    return {
+      notificaciones: {
+        valor: consola.notificacionesNoLeidas,
+        intencion: "aviso",
+        descripcion: `${consola.notificacionesNoLeidas} sin leer`,
+      },
+    };
+  }, [conectado, consola.notificacionesNoLeidas]);
+
+  /** Cambio de sección con continuidad visual donde el navegador la soporta. */
+  function cambiarSeccion(seccion: SeccionId) {
+    conTransicionDeVista(() => irASeccion(seccion));
+  }
+
   function abrirExpediente(expedienteId: string) {
     setExpedienteAbierto(expedienteId);
   }
 
+  /* Aviso global: el módulo funciona, pero hay algo que conviene saber. */
+  const migracionesPendientes = consola.estado?.migraciones?.pendientes ?? [];
+  const avisoGlobal =
+    conectado && (consola.estado?.problema || migracionesPendientes.length > 0) ? (
+      <DocModoDegradado
+        detalle={
+          consola.estado?.problema
+            ? consola.estado.problema
+            : `Hay ${migracionesPendientes.length} migración(es) pendiente(s) del modelo: ${migracionesPendientes.join(", ")}. Los datos son correctos, pero conviene aplicarlas antes de operar en volumen.`
+        }
+        acciones={
+          consola.capacidades.migrar ? (
+            <Boton variante="suave" onClick={() => cambiarSeccion("configuracion")}>
+              <Wrench className="h-3.5 w-3.5" aria-hidden /> Ir a mantenimiento
+            </Boton>
+          ) : undefined
+        }
+      />
+    ) : undefined;
+
   return (
-    <div className="space-y-4">
-      {/* Cabecera del módulo: estado de la conexión, rol y avisos. */}
-      <header className="glass flex flex-wrap items-center justify-between gap-3 rounded-3xl px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <button
-            type="button"
-            className="rounded-xl p-2 text-ink-soft hover:bg-[color:var(--fill-2)] lg:hidden"
-            onClick={() => setMenuAbierto((v) => !v)}
-            aria-label="Abrir el menú del módulo"
-            aria-expanded={menuAbierto}
-          >
-            <Menu className="h-4 w-4" aria-hidden />
-          </button>
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-semibold text-ink">{definicion?.etiqueta ?? "Documentación"}</h2>
-            <p className="truncate text-[11px] text-ink-soft">{definicion?.descripcion}</p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <IndicadorConexion />
-          {consola.rol && (
-            <span className="rounded-full bg-[color:var(--fill-2)] px-2.5 py-1 text-[11px] text-ink-soft" title="Rol resuelto por el backend">
-              {consola.rol}
-            </span>
-          )}
-          {conectado && consola.notificacionesNoLeidas > 0 && (
-            <button
-              type="button"
-              onClick={() => irASeccion("notificaciones")}
-              className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-semibold text-amber-200 ring-1 ring-amber-400/30"
+    <>
+      <DocShell
+        secciones={secciones}
+        seccionActiva={seccionActiva}
+        definicion={definicion}
+        onSeccion={cambiarSeccion}
+        contadores={contadores}
+        conexion={consola.conexion}
+        libro={consola.estado?.libro}
+        rol={consola.rol}
+        ultimaSincronizacion={consola.ultimaSincronizacion}
+        operaciones={consola.cargando}
+        onReconectar={() => void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "" })}
+        avisoGlobal={avisoGlobal}
+        accionPrincipal={
+          conectado && consola.capacidades.editar ? (
+            <Boton
+              variante="primario"
+              onClick={() => {
+                irASeccion("expedientes");
+                setAltaAbierta(true);
+              }}
+              titulo="Abrir un expediente documental nuevo"
             >
-              <Bell className="h-3 w-3" aria-hidden /> {consola.notificacionesNoLeidas} sin leer
-            </button>
-          )}
-          {consola.cargando > 0 && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint" role="status" aria-live="polite">
-              <Loader2 className="h-3 w-3 animate-spin" aria-hidden /> trabajando
-            </span>
-          )}
-          <Boton variante="suave" onClick={() => void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "" })}>
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Reconectar
-          </Boton>
-        </div>
-      </header>
-
-      <div className="flex gap-4">
-        {/* Menú. En pantallas estrechas es un desplegable. */}
-        <nav
-          className={`${menuAbierto ? "block" : "hidden"} w-full shrink-0 lg:block lg:w-52`}
-          aria-label="Secciones del módulo de Documentación"
-        >
-          <ul className="glass space-y-0.5 rounded-3xl p-2">
-            {secciones.map((seccion) => {
-              const activa = seccion.id === seccionActiva;
-              return (
-                <li key={seccion.id}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      irASeccion(seccion.id);
-                      setMenuAbierto(false);
-                    }}
-                    aria-current={activa ? "page" : undefined}
-                    className={`flex w-full items-center justify-between gap-2 rounded-2xl px-3 py-2 text-left text-xs font-medium transition-colors ${
-                      activa ? "bg-cyan-500/15 text-cyan-100 ring-1 ring-cyan-400/30" : "text-ink-soft hover:bg-[color:var(--fill-1)] hover:text-ink"
-                    }`}
-                  >
-                    <span className="truncate">{seccion.etiqueta}</span>
-                    {seccion.id === "notificaciones" && consola.notificacionesNoLeidas > 0 && (
-                      <span className="shrink-0 rounded-full bg-amber-500/20 px-1.5 text-[10px] text-amber-200">
-                        {consola.notificacionesNoLeidas}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
-
-        {/* Contenido */}
-        <div className={`min-w-0 flex-1 ${menuAbierto ? "hidden lg:block" : "block"}`}>
-          {!conectado && seccionActiva !== "local" && seccionActiva !== "configuracion" ? (
-            <SinConexion onIrALocal={() => irASeccion("local")} onIrAConfiguracion={() => irASeccion("configuracion")} avisar={avisar} />
-          ) : (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={seccionActiva}
-                initial={reducido ? undefined : { opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reducido ? undefined : { opacity: 0, y: -6 }}
-                transition={{ duration: reducido ? 0 : 0.18, ease: [0.22, 1, 0.36, 1] }}
-              >
-                {seccionActiva === "panel" && <SeccionPanel />}
-                {seccionActiva === "expedientes" && <SeccionExpedientes onAbrir={abrirExpediente} avisar={avisar} />}
-                {seccionActiva === "solicitudes" && <SeccionSolicitudes onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-                {seccionActiva === "revision" && <SeccionRevision onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-                {seccionActiva === "aprobaciones" && <SeccionAprobaciones onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-                {seccionActiva === "prorrogas" && <SeccionProrrogas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-                {seccionActiva === "tareas" && <SeccionTareas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-                {seccionActiva === "reportes" && <SeccionReportes avisar={avisar} />}
-                {seccionActiva === "exportaciones" && <SeccionExportaciones avisar={avisar} />}
-                {seccionActiva === "notificaciones" && <SeccionNotificaciones avisar={avisar} onAbrirExpediente={abrirExpediente} />}
-                {seccionActiva === "auditoria" && <SeccionAuditoria avisar={avisar} onAbrirExpediente={abrirExpediente} />}
-                {seccionActiva === "configuracion" && <SeccionConfiguracion avisar={avisar} />}
-                {seccionActiva === "local" && <VistaLocal />}
-              </motion.div>
-            </AnimatePresence>
-          )}
-        </div>
-      </div>
+              <FolderPlus className="h-3.5 w-3.5" aria-hidden /> Nuevo expediente
+            </Boton>
+          ) : undefined
+        }
+      >
+        {!conectado && seccionActiva !== "local" && seccionActiva !== "configuracion" ? (
+          <SinConexion onIrALocal={() => irASeccion("local")} onIrAConfiguracion={() => irASeccion("configuracion")} avisar={avisar} />
+        ) : (
+          <AnimatePresence mode="wait">
+            <motion.div key={seccionActiva} {...propsSeccion(reducido)}>
+              {seccionActiva === "panel" && <SeccionPanel onAbrirExpediente={abrirExpediente} />}
+              {seccionActiva === "expedientes" && (
+                <SeccionExpedientes
+                  onAbrir={abrirExpediente}
+                  avisar={avisar}
+                  altaAbierta={altaAbierta}
+                  onCerrarAlta={() => setAltaAbierta(false)}
+                />
+              )}
+              {seccionActiva === "solicitudes" && <SeccionSolicitudes onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+              {seccionActiva === "revision" && <SeccionRevision onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+              {seccionActiva === "aprobaciones" && <SeccionAprobaciones onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+              {seccionActiva === "prorrogas" && <SeccionProrrogas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+              {seccionActiva === "tareas" && <SeccionTareas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+              {seccionActiva === "reportes" && <SeccionReportes avisar={avisar} />}
+              {seccionActiva === "exportaciones" && <SeccionExportaciones avisar={avisar} />}
+              {seccionActiva === "notificaciones" && <SeccionNotificaciones avisar={avisar} onAbrirExpediente={abrirExpediente} />}
+              {seccionActiva === "auditoria" && <SeccionAuditoria avisar={avisar} onAbrirExpediente={abrirExpediente} />}
+              {seccionActiva === "configuracion" && <SeccionConfiguracion avisar={avisar} />}
+              {seccionActiva === "local" && <VistaLocal />}
+            </motion.div>
+          </AnimatePresence>
+        )}
+      </DocShell>
 
       <ExpedienteLateral
         expedienteId={expedienteAbierto}
@@ -210,51 +196,7 @@ export function DocumentacionConsola() {
           expediente puedan recargarse; se expone como dato oculto para no forzar
           una recarga completa del módulo. */}
       <span className="hidden" data-refresco={refresco} aria-hidden />
-    </div>
-  );
-}
-
-/** Indicador de conexión, con etiqueta además de color. */
-function IndicadorConexion() {
-  const { conexion, estado } = useConsola();
-  const mapa: Record<string, { texto: string; clase: string; icono: JSX.Element }> = {
-    sin_configurar: {
-      texto: "Sin backend",
-      clase: "bg-[color:var(--fill-2)] text-ink-soft",
-      icono: <PlugZap className="h-3 w-3" aria-hidden />,
-    },
-    comprobando: {
-      texto: "Conectando…",
-      clase: "bg-cyan-500/15 text-cyan-200",
-      icono: <Loader2 className="h-3 w-3 animate-spin" aria-hidden />,
-    },
-    conectado: {
-      texto: estado?.libro ? `Conectado · ${estado.libro}` : "Conectado",
-      clase: "bg-emerald-500/15 text-emerald-200",
-      icono: <Cloud className="h-3 w-3" aria-hidden />,
-    },
-    sin_instalar: {
-      texto: "Libro sin instalar",
-      clase: "bg-amber-500/15 text-amber-200",
-      icono: <Wrench className="h-3 w-3" aria-hidden />,
-    },
-    sin_conexion: {
-      texto: "Sin conexión",
-      clase: "bg-rose-500/15 text-rose-200",
-      icono: <CloudOff className="h-3 w-3" aria-hidden />,
-    },
-    error: {
-      texto: "Error de conexión",
-      clase: "bg-rose-500/15 text-rose-200",
-      icono: <ShieldAlert className="h-3 w-3" aria-hidden />,
-    },
-  };
-  const item = mapa[conexion] ?? mapa.error;
-  return (
-    <span className={`inline-flex max-w-[240px] items-center gap-1.5 truncate rounded-full px-2.5 py-1 text-[11px] font-semibold ${item.clase}`}>
-      {item.icono}
-      <span className="truncate">{item.texto}</span>
-    </span>
+    </>
   );
 }
 
@@ -278,18 +220,18 @@ function SinConexion({
 
   return (
     <div className="space-y-3">
-      <div className="glass rounded-3xl p-6">
+      <div className="doc-raised p-5 sm:p-6">
         <div className="flex items-start gap-3">
-          <CircleSlash className="mt-0.5 h-5 w-5 text-amber-300" aria-hidden />
+          <CircleSlash className="mt-0.5 h-5 w-5 shrink-0" style={{ color: "var(--doc-warning)" }} aria-hidden />
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-ink">
+            <h3 className="doc-balance text-sm font-semibold text-[color:var(--doc-text)]">
               {conexion === "sin_configurar"
                 ? "El módulo no tiene un backend configurado"
                 : conexion === "sin_instalar"
                   ? "El libro todavía no tiene el modelo de Documentación"
                   : "No se puede hablar con el backend"}
             </h3>
-            <p className="mt-1 text-xs leading-relaxed text-ink-soft">
+            <p className="doc-prose mt-1 max-w-prose text-xs leading-relaxed text-[color:var(--doc-text-muted)]">
               {conexion === "sin_configurar" &&
                 "La consola trabaja contra el libro de Google Sheets a través de una aplicación web de Apps Script. Pega su URL en los ajustes locales del módulo (Configuración › Ajustes locales › Conexión)."}
               {conexion === "sin_instalar" &&
@@ -298,9 +240,11 @@ function SinConexion({
                 "Puede ser la red, la implementación sin publicar o el acceso de la aplicación web. Mientras tanto puedes trabajar en la vista local: lo que registres se queda en este equipo y se sincroniza cuando vuelva la conexión."}
             </p>
             {ultimoError && (
-              <Aviso intencion="peligro" titulo={ultimoError.codigo}>
-                {ultimoError.mensaje} {ultimoError.pista}
-              </Aviso>
+              <div className="mt-3">
+                <Aviso intencion="peligro" titulo={ultimoError.codigo}>
+                  {ultimoError.mensaje} {ultimoError.pista}
+                </Aviso>
+              </div>
             )}
 
             <div className="mt-3 flex flex-wrap gap-2">
@@ -314,7 +258,10 @@ function SinConexion({
                   onClick={async () => {
                     setInstalando(true);
                     try {
-                      const { docApi } = await import("../api/acciones");
+                      /* Antes esto era un `import()` dinámico para no arrastrar el
+                         cliente al paquete inicial. Ya no hace falta: el módulo
+                         entero se carga aparte, así que la carga diferida aquí solo
+                         partía el mismo trozo en dos. */
                       await docApi.instalar({ conRespaldo: true });
                       await comprobarConexion();
                       avisar("exito", "Modelo instalado. Ya se puede operar.");
