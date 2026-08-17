@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   BellRing,
   CalendarClock,
+  HardDrive,
   ChevronRight,
   FileStack,
   FolderOpen,
@@ -226,6 +227,32 @@ export function VistaLocal() {
       className="space-y-5"
       style={{ scrollBehavior: settings.scrollSuave && m.activo ? "smooth" : "auto" }}
     >
+      {/*
+        Aviso de contingencia.
+
+        Esta vista trabaja contra el almacén de ESTE equipo, no contra el libro del
+        área. Sin decirlo, es indistinguible de la consola conectada: alguien
+        podría registrar aquí media docena de expedientes creyendo que están en el
+        libro. El aviso es la única diferencia visible entre las dos, así que va
+        arriba y no se puede cerrar.
+      */}
+      <div
+        role="status"
+        className="doc-surface no-print flex items-start gap-3 p-3"
+        style={{ borderColor: "var(--doc-offline)", background: "var(--doc-offline-bg)" }}
+      >
+        <HardDrive className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--doc-offline)" }} aria-hidden />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold" style={{ color: "var(--doc-offline-fg)" }}>
+            Vista local de contingencia: estos expedientes están guardados en este equipo
+          </p>
+          <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-muted)]">
+            No se han escrito en el libro del área ni son visibles para el resto del equipo. Cuando el backend vuelva a estar disponible,
+            la consola conectada es la que opera sobre el libro.
+          </p>
+        </div>
+      </div>
+
       {/* Barra de herramientas ---------------------------------------- */}
       <div className="flex flex-wrap items-center justify-between gap-3 no-print">
         <div className="glass flex min-w-[14rem] flex-1 items-center gap-2 rounded-2xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-cyan-400/70">

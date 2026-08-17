@@ -30,11 +30,29 @@ import type { Capacidades, SeccionId } from "../domain/vocabulario";
 
 export type EstadoConexion = "sin_configurar" | "comprobando" | "conectado" | "sin_instalar" | "sin_conexion" | "error";
 
+/** Densidad de las tablas. Preferencia visual, nada más. */
+export type Densidad = "compacta" | "comoda" | "amplia";
+
+/** Cómo se presenta la lista de expedientes: tabla de trabajo o tarjetas. */
+export type VistaLista = "tabla" | "tarjetas";
+
+/**
+ * Dos lecturas de la misma lista.
+ *
+ * `operativo` prioriza lo que hay que hacer —estado, avance, faltantes, plazo—;
+ * `auditoria` prioriza lo que hay que poder demostrar: identificador, versión,
+ * quién tocó qué y cuándo. Son las mismas filas con otras columnas: nadie tiene
+ * que exportar a Excel para ver la versión de un expediente.
+ */
+export type ModoLista = "operativo" | "auditoria";
+
 export interface ConsolaState {
   /* Navegación y preferencias (persistidas). */
   seccion: SeccionId;
   filtros: FiltrosExpedientes;
-  densidad: "comoda" | "compacta";
+  densidad: Densidad;
+  vistaLista: VistaLista;
+  modoLista: ModoLista;
   /* Conexión y permisos (en memoria). */
   conexion: EstadoConexion;
   estado: EstadoModulo | null;
@@ -51,10 +69,14 @@ export interface ConsolaState {
 
 const CLAVE = "bdp-documentacion-consola";
 
+const DENSIDADES: Densidad[] = ["compacta", "comoda", "amplia"];
+
 const INICIAL: ConsolaState = {
   seccion: "panel",
   filtros: { ...FILTROS_VACIOS },
   densidad: "comoda",
+  vistaLista: "tabla",
+  modoLista: "operativo",
   conexion: "sin_configurar",
   estado: null,
   capacidades: { ver: true },
@@ -76,14 +98,24 @@ const INICIAL: ConsolaState = {
 const consola = createStore<ConsolaState>(INICIAL, {
   persistKey: CLAVE,
   serialize: (estado) =>
-    JSON.stringify({ seccion: estado.seccion, filtros: estado.filtros, densidad: estado.densidad }),
+    JSON.stringify({
+      seccion: estado.seccion,
+      filtros: estado.filtros,
+      densidad: estado.densidad,
+      vistaLista: estado.vistaLista,
+      modoLista: estado.modoLista,
+    }),
   deserialize: (raw) => {
     const parseado = JSON.parse(raw) as Partial<ConsolaState>;
     return {
       ...INICIAL,
       seccion: parseado.seccion ?? INICIAL.seccion,
       filtros: { ...FILTROS_VACIOS, ...(parseado.filtros ?? {}) },
-      densidad: parseado.densidad === "compacta" ? "compacta" : "comoda",
+      // Las preferencias visuales se validan al leerlas: un `localStorage`
+      // editado a mano no debe poder dejar la tabla en un estado imposible.
+      densidad: DENSIDADES.includes(parseado.densidad as Densidad) ? (parseado.densidad as Densidad) : "comoda",
+      vistaLista: parseado.vistaLista === "tarjetas" ? "tarjetas" : "tabla",
+      modoLista: parseado.modoLista === "auditoria" ? "auditoria" : "operativo",
     };
   },
 });
@@ -112,8 +144,16 @@ export function limpiarFiltros(): void {
   consola.set((prev) => ({ ...prev, filtros: { ...FILTROS_VACIOS } }));
 }
 
-export function ponerDensidad(densidad: "comoda" | "compacta"): void {
-  consola.set((prev) => ({ ...prev, densidad }));
+export function ponerDensidad(densidad: Densidad): void {
+  consola.set((prev) => (prev.densidad === densidad ? prev : { ...prev, densidad }));
+}
+
+export function ponerVistaLista(vistaLista: VistaLista): void {
+  consola.set((prev) => (prev.vistaLista === vistaLista ? prev : { ...prev, vistaLista }));
+}
+
+export function ponerModoLista(modoLista: ModoLista): void {
+  consola.set((prev) => (prev.modoLista === modoLista ? prev : { ...prev, modoLista }));
 }
 
 /* ------------------------------------------------------------------ */

@@ -32,6 +32,7 @@ import {
   type ColumnaTabla,
   type Notita,
 } from "./piezas";
+import { DocError } from "./DocStates";
 import { useDatos } from "./useDatos";
 
 interface Props {
@@ -93,9 +94,7 @@ export function SeccionReportes({ avisar }: Props) {
       </div>
 
       {reporte.error && (
-        <Aviso intencion="peligro" titulo="No se pudo generar el reporte" accion={<Boton onClick={reporte.recargar}>Reintentar</Boton>}>
-          {reporte.error.mensaje} {reporte.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudo generar el reporte" error={reporte.error} onReintentar={reporte.recargar} reintentando={reporte.cargando} />
       )}
 
       <Panel
@@ -217,7 +216,7 @@ export function SeccionExportaciones({ avisar }: Props) {
             {historial.datos.exportaciones.map((item) => {
               const registro = item as Record<string, string | number | boolean>;
               return (
-                <li key={String(registro.exportacionId)} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[color:var(--fill-1)] p-2 text-xs">
+                <li key={String(registro.exportacionId)} className="doc-sunken flex flex-wrap items-center justify-between gap-2 p-2 text-xs">
                   <span className="text-ink">
                     {String(registro.tipo)} · {String(registro.expedientes)} expediente(s)
                   </span>
@@ -349,9 +348,7 @@ export function SeccionNotificaciones({ avisar, onAbrirExpediente }: Props) {
       </div>
 
       {lista.error && (
-        <Aviso intencion="peligro" titulo="No se pudieron cargar los avisos" accion={<Boton onClick={lista.recargar}>Reintentar</Boton>}>
-          {lista.error.mensaje} {lista.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudieron cargar los avisos" error={lista.error} onReintentar={lista.recargar} reintentando={lista.cargando} />
       )}
 
       <Panel descripcion="Cada aviso sabe a qué entidad pertenece, así que se puede abrir desde aquí. El correo es opcional y viene apagado.">
@@ -465,9 +462,7 @@ export function SeccionAuditoria({ onAbrirExpediente }: Props) {
       </div>
 
       {lista.error && (
-        <Aviso intencion="peligro" titulo="No se pudo consultar la auditoría" accion={<Boton onClick={lista.recargar}>Reintentar</Boton>}>
-          {lista.error.mensaje} {lista.error.pista}
-        </Aviso>
+        <DocError titulo="No se pudo consultar la auditoría" error={lista.error} onReintentar={lista.recargar} reintentando={lista.cargando} />
       )}
 
       <Panel

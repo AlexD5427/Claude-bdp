@@ -29,7 +29,6 @@ import { ToastViewport } from "./design-system/liquid-glass/toast";
 import { LoadingState } from "./components/States";
 import { ListaPostulantes } from "./modules/ListaPostulantes";
 import { Perfiles } from "./modules/Perfiles";
-import { Documentacion } from "./modules/Documentacion";
 import { Configuracion } from "./modules/Configuracion";
 import { HerramientasPanel } from "./components/tools/HerramientasPanel";
 import { DOCK_ITEMS } from "./constants";
@@ -43,6 +42,18 @@ const ProcesosModule = lazy(() =>
 );
 const EvaluacionesModule = lazy(() =>
   import("./features/evaluaciones").then((m) => ({ default: m.EvaluacionesModule })),
+);
+
+/**
+ * Documentación.
+ *
+ * También se carga aparte. La consola documental arrastra el cliente del backend,
+ * el vocabulario del modelo, el exportador a Excel y trece pantallas: es el módulo
+ * más grande de la aplicación y estaba en el paquete inicial, así que alguien que
+ * solo entra a ver el tablero pagaba su descarga sin abrirlo nunca.
+ */
+const Documentacion = lazy(() =>
+  import("./modules/Documentacion").then((m) => ({ default: m.Documentacion })),
 );
 
 /**
@@ -168,15 +179,15 @@ function AppShell() {
             {active === "tablero" && <Tablero />}
             {active === "cara-a-cara" && <CaraACara />}
             {active === "comparador" && <NuevoComparador />}
-            {(active === "procesos" || active === "evaluaciones") && (
+            {(active === "procesos" || active === "evaluaciones" || active === "documentacion") && (
               <Suspense fallback={<LoadingState />}>
                 {active === "procesos" && <ProcesosModule />}
                 {active === "evaluaciones" && <EvaluacionesModule />}
+                {active === "documentacion" && <Documentacion />}
               </Suspense>
             )}
             {active === "postulantes" && <ListaPostulantes />}
             {active === "perfiles" && <Perfiles />}
-            {active === "documentacion" && <Documentacion />}
             {active === "configuracion" && <Configuracion />}
           </motion.section>
         </ErrorBoundary>

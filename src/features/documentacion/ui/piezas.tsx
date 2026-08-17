@@ -1,21 +1,30 @@
 /**
- * Piezas reutilizables de la consola de Documentación.
+ * Piezas de la consola de Documentación.
  *
  * ── Por qué existen ─────────────────────────────────────────────────────────
  * Trece secciones tienen que pintar lo mismo: un chip de estado, una tabla que en
  * el móvil se convierte en tarjetas, una paginación, un estado vacío, un panel
  * lateral. Sin estas piezas cada sección lo resolvería a su manera y el módulo
- * tendría trece variantes del mismo control, que es exactamente lo que la
- * refactorización viene a eliminar.
+ * tendría trece variantes del mismo control.
  *
- * Todo se apoya en el sistema de diseño que ya existe (`design-system/`): esto no
- * es un sistema nuevo, es el vocabulario del módulo expresado con el suyo.
+ * ── Qué cambió en el rediseño ───────────────────────────────────────────────
+ * Los colores ya no se escriben aquí. Cada pieza pide un token del módulo
+ * (`--doc-*`, definidos en `documentacion.css`), y es el token el que sabe qué
+ * valor usar en tema oscuro, en tema claro, en alto contraste y en papel. Antes,
+ * una tabla impresa perdía el significado de sus estados porque el ámbar al 15 %
+ * sobre blanco es blanco.
+ *
+ * Además: la tabla fija su encabezado al hacer scroll, admite tres densidades y
+ * ofrece una acción explícita por fila —el clic en la fila sirve para el ratón,
+ * pero el teclado necesita un botón—; el panel lateral atrapa el foco de verdad
+ * (ciclando con Tab) y no se cierra por accidente mientras se guarda.
  *
  * ── Accesibilidad, de entrada ───────────────────────────────────────────────
- * El estado nunca se comunica solo con color: cada chip lleva etiqueta. Las tablas
- * llevan `scope`, los botones tienen nombre accesible, el panel lateral atrapa el
- * foco y se cierra con Escape, y todas las animaciones se apagan con
- * `prefers-reduced-motion`.
+ * Ningún estado se comunica solo con color: cada chip lleva etiqueta, icono y
+ * `title`. Las tablas llevan `caption` y `scope`, los botones tienen nombre
+ * accesible, los errores se anuncian con `role="alert"` y las animaciones se
+ * apagan enteras con `prefers-reduced-motion` o con el interruptor de la
+ * aplicación.
  */
 
 import {
@@ -25,13 +34,30 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, ChevronLeft, ChevronRight, Info, Loader2, Search, X } from "lucide-react";
-import { StatusPill } from "../../../design-system/liquid-glass/StatusPill";
+import {
+  AlertTriangle,
+  Ban,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsRight,
+  CircleDot,
+  Clock,
+  Info,
+  Loader2,
+  Search,
+  X,
+} from "lucide-react";
 import type { Intent } from "../../../design-system/tokens";
 import type { Intencion } from "../domain/vocabulario";
+import { CURVA, DURACION, resorte, useMovimientoReducido } from "./DocMotion";
+import { nombreDeVista } from "./DocViewTransitions";
+import "./documentacion.css";
+import "./documentacion-motion.css";
 
 /* ------------------------------------------------------------------ */
 /* Utilidades                                                          */
@@ -58,29 +84,16 @@ export function aIntent(intencion: Intencion): Intent {
 /**
  * ¿La persona pidió menos movimiento?
  *
- * Se consulta el ajuste del sistema. Cuando está activo, las animaciones no se
- * «suavizan»: se quitan. Media animación sigue moviendo la pantalla de alguien
- * que ha pedido que no se mueva.
+ * Se mantiene el nombre anterior por compatibilidad; la implementación vive en
+ * `DocMotion` y ahora mira dos fuentes: la preferencia del sistema y el
+ * interruptor «Reducir movimiento» de la aplicación.
  */
-export function usarMovimientoReducido(): boolean {
-  const [reducido, setReducido] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const consulta = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReducido(consulta.matches);
-    const escuchar = (evento: MediaQueryListEvent) => setReducido(evento.matches);
-    consulta.addEventListener("change", escuchar);
-    return () => consulta.removeEventListener("change", escuchar);
-  }, []);
-  return reducido;
-}
+export const usarMovimientoReducido = useMovimientoReducido;
 
 /**
  * Valor que se actualiza con retardo.
  *
- * Es lo que hace que escribir en el buscador no lance una petición por letra. El
- * temporizador se limpia en el retorno del efecto: sin eso, cada pulsación deja un
- * temporizador vivo y al desmontar el componente siguen disparándose.
+ * Es lo que hace que escribir en el buscador no lance una petición por letra.
  */
 export function usarDebounce<T>(valor: T, ms = 350): T {
   const [retrasado, setRetrasado] = useState(valor);
@@ -91,40 +104,134 @@ export function usarDebounce<T>(valor: T, ms = 350): T {
   return retrasado;
 }
 
+/**
+ * Colores de cada intención, en tokens del módulo.
+ *
+ * Un único sitio donde se decide qué es «aviso». Cambiar el durazno del área es
+ * cambiar una línea de CSS, no buscar `amber-500/15` por siete archivos.
+ */
+export const TONO: Record<Intencion, { fondo: string; texto: string; borde: string; punto: string }> = {
+  neutral: {
+    fondo: "var(--doc-surface-raised)",
+    texto: "var(--doc-text-muted)",
+    borde: "var(--doc-border)",
+    punto: "var(--doc-text-faint)",
+  },
+  info: { fondo: "var(--doc-info-bg)", texto: "var(--doc-info-fg)", borde: "var(--doc-info)", punto: "var(--doc-info)" },
+  exito: { fondo: "var(--doc-success-bg)", texto: "var(--doc-success-fg)", borde: "var(--doc-success)", punto: "var(--doc-success)" },
+  aviso: { fondo: "var(--doc-warning-bg)", texto: "var(--doc-warning-fg)", borde: "var(--doc-warning)", punto: "var(--doc-warning)" },
+  peligro: { fondo: "var(--doc-danger-bg)", texto: "var(--doc-danger-fg)", borde: "var(--doc-danger)", punto: "var(--doc-danger)" },
+  acento: { fondo: "var(--doc-accent-bg)", texto: "var(--doc-accent-fg)", borde: "var(--doc-accent)", punto: "var(--doc-accent)" },
+};
+
+/** Icono por intención: el segundo canal, además del color y la etiqueta. */
+function IconoIntencion({ intencion }: { intencion: Intencion }) {
+  const clase = "h-3 w-3 shrink-0";
+  switch (intencion) {
+    case "exito":
+      return <Check className={clase} aria-hidden />;
+    case "aviso":
+      return <Clock className={clase} aria-hidden />;
+    case "peligro":
+      return <AlertTriangle className={clase} aria-hidden />;
+    case "info":
+      return <CircleDot className={clase} aria-hidden />;
+    case "acento":
+      return <ChevronsRight className={clase} aria-hidden />;
+    default:
+      return <Ban className={clase} aria-hidden />;
+  }
+}
+
+/**
+ * ¿Estamos en una pantalla estrecha?
+ *
+ * Se usa para decidir estructura, no tamaño: los filtros avanzados son un panel
+ * en escritorio y un cajón en el móvil, y eso no se puede resolver solo con CSS
+ * porque son dos composiciones distintas. El umbral coincide con `md` de
+ * Tailwind, el mismo punto donde la tabla se convierte en tarjetas.
+ */
+export function usarPantallaEstrecha(consulta = "(max-width: 767px)"): boolean {
+  const [estrecha, setEstrecha] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia(consulta);
+    const actualizar = () => setEstrecha(mq.matches);
+    actualizar();
+    mq.addEventListener?.("change", actualizar);
+    return () => mq.removeEventListener?.("change", actualizar);
+  }, [consulta]);
+
+  return estrecha;
+}
+
 /* ------------------------------------------------------------------ */
 /* Superficies                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Panel de sección.
+ *
+ * El título se asocia a la región con `aria-labelledby`: quien navega por
+ * regiones con lector de pantalla oye «Completitud por agencia, región» en lugar
+ * de «región».
+ */
 export function Panel({
   titulo,
   descripcion,
   acciones,
+  pie,
   children,
   className = "",
+  denso,
 }: {
   titulo?: ReactNode;
   descripcion?: ReactNode;
   acciones?: ReactNode;
+  pie?: ReactNode;
   children: ReactNode;
   className?: string;
+  denso?: boolean;
 }) {
+  const id = useId();
   return (
-    <section className={`glass rounded-3xl p-4 sm:p-5 ${className}`}>
+    <section
+      aria-labelledby={titulo ? id : undefined}
+      className={`doc-raised doc-print-keep ${denso ? "p-3" : "p-3.5 sm:p-4"} ${className}`}
+    >
       {(titulo || acciones) && (
-        <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <header className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            {titulo && <h3 className="text-sm font-semibold text-ink">{titulo}</h3>}
-            {descripcion && <p className="mt-0.5 text-xs text-ink-soft">{descripcion}</p>}
+            {titulo && (
+              <h3 id={id} className="doc-balance text-sm font-semibold text-[color:var(--doc-text)]">
+                {titulo}
+              </h3>
+            )}
+            {descripcion && <p className="doc-prose mt-0.5 text-xs text-[color:var(--doc-text-muted)]">{descripcion}</p>}
           </div>
-          {acciones && <div className="flex flex-wrap items-center gap-2">{acciones}</div>}
+          {acciones && <div className="doc-no-print flex flex-wrap items-center gap-2">{acciones}</div>}
         </header>
       )}
       {children}
+      {pie && <footer className="mt-3 border-t border-[color:var(--doc-border)] pt-3">{pie}</footer>}
     </section>
   );
 }
 
-/** Tarjeta de indicador. El número grande, la etiqueta legible, sin adornos. */
+/**
+ * Tarjeta de indicador.
+ *
+ * ── Qué se corrigió ─────────────────────────────────────────────────────────
+ * Antes eran dieciséis números grandes idénticos: «prórrogas vencidas» y
+ * «expedientes activos» pesaban lo mismo en la pantalla, y una de las dos es una
+ * urgencia. Ahora la severidad se ve en el borde y en el icono, el número lleva
+ * su unidad y su periodo, y la tarjeta dice a dónde lleva.
+ *
+ * El valor NO se anima como un contador que gira: un dígito en movimiento no se
+ * puede leer. Cuando cambia tras un refetch se enciende un fondo un instante
+ * (`doc-destello`), que informa sin estorbar.
+ */
 export function Tarjeta({
   etiqueta,
   valor,
@@ -132,6 +239,9 @@ export function Tarjeta({
   intencion = "neutral",
   onClick,
   activa,
+  periodo,
+  accion,
+  pista,
 }: {
   etiqueta: string;
   valor: number | string;
@@ -139,86 +249,195 @@ export function Tarjeta({
   intencion?: Intencion;
   onClick?: () => void;
   activa?: boolean;
+  /** «hoy», «este mes»: sin periodo, una cifra no se puede interpretar. */
+  periodo?: string;
+  /** Texto de la acción que ofrece la tarjeta: «Ver expedientes». */
+  accion?: string;
+  /** Explicación larga, para el `title`. */
+  pista?: string;
 }) {
-  const tonos: Record<Intencion, string> = {
-    neutral: "text-ink",
-    info: "text-cyan-300",
-    exito: "text-emerald-300",
-    aviso: "text-amber-300",
-    peligro: "text-rose-300",
-    acento: "text-indigo-300",
-  };
+  const tono = TONO[intencion];
+  const critica = intencion === "peligro";
+  const relevante = critica || intencion === "aviso";
+  const destello = useDestello(valor);
+
   const contenido = (
     <>
-      <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">{etiqueta}</span>
-      <span className={`mt-1 block text-2xl font-semibold tabular-nums ${tonos[intencion]}`}>{valor}</span>
-      {detalle && <span className="mt-0.5 block text-[11px] text-ink-soft">{detalle}</span>}
+      <span className="flex items-start justify-between gap-2">
+        <span className="doc-eyebrow doc-prose">{etiqueta}</span>
+        {relevante && (
+          <span className="shrink-0" style={{ color: tono.punto }} aria-hidden>
+            <IconoIntencion intencion={intencion} />
+          </span>
+        )}
+      </span>
+      <span
+        className={`doc-metric mt-1.5 block text-2xl font-semibold leading-none ${destello ? "doc-destello" : ""}`}
+        style={{ color: relevante ? tono.texto : "var(--doc-text)" }}
+      >
+        {valor}
+      </span>
+      {(detalle || periodo) && (
+        <span className="doc-prose mt-1 block text-[11px] text-[color:var(--doc-text-muted)]">
+          {detalle}
+          {detalle && periodo ? " · " : ""}
+          {periodo}
+        </span>
+      )}
+      {accion && onClick && (
+        <span className="mt-2 flex items-center gap-1 text-[11px] font-semibold" style={{ color: "var(--doc-info-fg)" }}>
+          {accion}
+          <ChevronRight className="h-3 w-3" aria-hidden />
+        </span>
+      )}
     </>
   );
 
+  const estilo: CSSProperties = {
+    borderLeftWidth: relevante ? 3 : 1,
+    borderLeftColor: relevante ? tono.borde : "var(--doc-border)",
+  };
+
   if (!onClick) {
-    return <div className="glass rounded-2xl p-3 sm:p-4">{contenido}</div>;
+    return (
+      <div className="doc-surface p-3.5" style={estilo} title={pista}>
+        {contenido}
+      </div>
+    );
   }
+
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={activa}
-      className={`glass rounded-2xl p-3 text-left transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400 sm:p-4 ${
-        activa ? "ring-2 ring-cyan-400/60" : ""
+      title={pista}
+      className={`doc-surface doc-tap p-3.5 text-left transition-[transform,background-color] duration-150 hover:-translate-y-0.5 hover:bg-[color:var(--doc-surface-raised)] ${
+        activa ? "ring-2" : ""
       }`}
+      style={{ ...estilo, ...(activa ? { boxShadow: `0 0 0 2px ${tono.borde}` } : null) }}
     >
       {contenido}
     </button>
   );
 }
 
+/**
+ * Enciende un destello cuando el valor cambia.
+ *
+ * En el primer render no destella: si lo hiciera, al abrir el panel parpadearían
+ * las dieciséis tarjetas a la vez.
+ */
+function useDestello(valor: unknown): boolean {
+  const anterior = useRef(valor);
+  const [activo, setActivo] = useState(false);
+
+  useEffect(() => {
+    if (anterior.current === valor) return;
+    anterior.current = valor;
+    setActivo(true);
+    const t = setTimeout(() => setActivo(false), 900);
+    return () => clearTimeout(t);
+  }, [valor]);
+
+  return activo;
+}
+
 /* ------------------------------------------------------------------ */
 /* Estado                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Chip de estado.
+ *
+ * Cuatro canales para el mismo dato: fondo, texto, icono y etiqueta. El `title`
+ * añade la explicación cuando la hay. En papel el fondo desaparece pero la
+ * etiqueta y el icono siguen ahí.
+ */
 export function ChipEstado({
   estado,
   etiqueta,
   intencion,
   titulo,
+  compacto,
+  prorroga,
 }: {
   estado: string;
   etiqueta?: string;
   intencion: Intencion;
   titulo?: string;
+  compacto?: boolean;
+  /**
+   * Estado de prórroga.
+   *
+   * La semántica del área distingue el durazno de la observación del ámbar de la
+   * prórroga: son dos cosas distintas —«hay algo mal» y «hay más plazo»— y con el
+   * mismo color se confunden. La intención del dominio no cambia (sigue siendo
+   * `aviso`, que es lo que el backend dice); lo que cambia es el tono con el que
+   * se pinta.
+   */
+  prorroga?: boolean;
 }) {
+  const tono = prorroga
+    ? {
+        fondo: "var(--doc-extension-bg)",
+        texto: "var(--doc-extension-fg)",
+        borde: "var(--doc-extension)",
+        punto: "var(--doc-extension)",
+      }
+    : TONO[intencion];
+  const texto = etiqueta ?? estado;
   return (
-    <StatusPill intent={aIntent(intencion)} title={titulo ?? estado}>
-      {etiqueta ?? estado}
-    </StatusPill>
+    <span
+      title={titulo ?? texto}
+      className={`inline-flex max-w-full items-center gap-1.5 rounded-full font-semibold ${
+        compacto ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-0.5 text-[11px]"
+      }`}
+      style={{ background: tono.fondo, color: tono.texto, boxShadow: `inset 0 0 0 1px ${tono.borde}` }}
+    >
+      <IconoIntencion intencion={intencion} />
+      <span className="truncate">{texto}</span>
+    </span>
   );
 }
 
-/** Barra de avance con su número al lado: el color solo acompaña. */
+/**
+ * Barra de avance con su número al lado.
+ *
+ * El color solo acompaña: el porcentaje se lee en cifras, y `aria-valuetext` dice
+ * lo mismo para un lector de pantalla.
+ */
 export function BarraAvance({ valor, etiqueta }: { valor: number; etiqueta?: string }) {
   const acotado = Math.max(0, Math.min(100, Math.round(valor)));
-  const tono = acotado >= 100 ? "bg-emerald-400" : acotado >= 60 ? "bg-cyan-400" : acotado > 0 ? "bg-amber-400" : "bg-rose-400";
+  const color =
+    acotado >= 100
+      ? "var(--doc-success)"
+      : acotado >= 60
+        ? "var(--doc-info)"
+        : acotado > 0
+          ? "var(--doc-warning)"
+          : "var(--doc-danger)";
   return (
     <div className="flex items-center gap-2">
       <div
-        className="h-1.5 w-full min-w-[64px] overflow-hidden rounded-full bg-[color:var(--fill-2)]"
+        className="doc-medidor min-w-[64px]"
         role="progressbar"
         aria-valuenow={acotado}
         aria-valuemin={0}
         aria-valuemax={100}
+        aria-valuetext={`${acotado} por ciento`}
         aria-label={etiqueta ?? "Avance"}
       >
-        <div className={`h-full rounded-full ${tono} transition-[width] duration-500`} style={{ width: `${acotado}%` }} />
+        <span style={{ width: `${acotado}%`, background: color }} />
       </div>
-      <span className="shrink-0 text-xs font-semibold tabular-nums text-ink-soft">{acotado}%</span>
+      <span className="doc-metric shrink-0 text-xs font-semibold text-[color:var(--doc-text-muted)]">{acotado}%</span>
     </div>
   );
 }
 
 export function Cargando({ texto = "Cargando…" }: { texto?: string }) {
   return (
-    <div className="flex items-center gap-2 py-8 text-sm text-ink-soft" role="status" aria-live="polite">
+    <div className="flex items-center gap-2 py-6 text-sm text-[color:var(--doc-text-muted)]" role="status" aria-live="polite">
       <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
       {texto}
     </div>
@@ -230,25 +449,20 @@ export function Esqueleto({ filas = 4 }: { filas?: number }) {
   return (
     <div className="space-y-2" aria-hidden>
       {Array.from({ length: filas }).map((_, i) => (
-        <div key={i} className="h-10 animate-pulse rounded-xl bg-[color:var(--fill-2)]" />
+        <div key={i} className="doc-skeleton h-10" />
       ))}
     </div>
   );
 }
 
-export function Vacio({
-  titulo,
-  detalle,
-  accion,
-}: {
-  titulo: string;
-  detalle?: string;
-  accion?: ReactNode;
-}) {
+export function Vacio({ titulo, detalle, accion }: { titulo: string; detalle?: string; accion?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[color:var(--hairline)] px-4 py-10 text-center">
-      <p className="text-sm font-semibold text-ink">{titulo}</p>
-      {detalle && <p className="max-w-md text-xs text-ink-soft">{detalle}</p>}
+    <div
+      role="status"
+      className="doc-surface doc-muted flex flex-col items-center gap-2 border-dashed px-4 py-8 text-center"
+    >
+      <p className="doc-balance text-sm font-semibold text-[color:var(--doc-text)]">{titulo}</p>
+      {detalle && <p className="doc-prose max-w-md text-xs text-[color:var(--doc-text-muted)]">{detalle}</p>}
       {accion}
     </div>
   );
@@ -258,8 +472,9 @@ export function Vacio({
  * Aviso con intención.
  *
  * Los errores del backend llegan con una pista de qué hacer; el aviso la muestra
- * como parte del mensaje. Un error sin salida obliga a abrir un ticket para
- * enterarse de algo que el sistema ya sabe.
+ * como parte del mensaje. Lo importante del cambio: un aviso de peligro se
+ * anuncia con `role="alert"` —interrumpe, porque algo se rompió— y el resto con
+ * `role="status"`, que espera su turno.
  */
 export function Aviso({
   intencion = "info",
@@ -274,25 +489,27 @@ export function Aviso({
   accion?: ReactNode;
   onCerrar?: () => void;
 }) {
-  const estilos: Record<Intencion, string> = {
-    neutral: "border-[color:var(--hairline)] bg-[color:var(--fill-2)] text-ink-soft",
-    info: "border-cyan-400/30 bg-cyan-500/10 text-cyan-100",
-    exito: "border-emerald-400/30 bg-emerald-500/10 text-emerald-100",
-    aviso: "border-amber-400/30 bg-amber-500/10 text-amber-100",
-    peligro: "border-rose-400/30 bg-rose-500/10 text-rose-100",
-    acento: "border-indigo-400/30 bg-indigo-500/10 text-indigo-100",
-  };
+  const tono = TONO[intencion];
   const Icono = intencion === "peligro" || intencion === "aviso" ? AlertTriangle : Info;
   return (
-    <div className={`flex items-start gap-3 rounded-2xl border px-3 py-2.5 text-xs ${estilos[intencion]}`} role="status">
+    <div
+      className="flex items-start gap-3 rounded-[var(--doc-radius-sm)] border px-3 py-2.5 text-xs"
+      style={{ background: tono.fondo, color: tono.texto, borderColor: tono.borde }}
+      role={intencion === "peligro" ? "alert" : "status"}
+    >
       <Icono className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
       <div className="min-w-0 flex-1">
         {titulo && <p className="font-semibold">{titulo}</p>}
-        {children && <div className="mt-0.5 leading-relaxed">{children}</div>}
+        {children && <div className="doc-prose mt-0.5 leading-relaxed">{children}</div>}
         {accion && <div className="mt-2 flex flex-wrap gap-2">{accion}</div>}
       </div>
       {onCerrar && (
-        <button type="button" onClick={onCerrar} aria-label="Cerrar aviso" className="rounded-lg p-1 hover:bg-white/10">
+        <button
+          type="button"
+          onClick={onCerrar}
+          aria-label="Cerrar aviso"
+          className="doc-tap rounded-lg p-1 transition-colors hover:bg-[color:var(--doc-surface-raised)]"
+        >
           <X className="h-3.5 w-3.5" aria-hidden />
         </button>
       )}
@@ -326,20 +543,26 @@ export function Boton({
   ancho?: boolean;
 }) {
   const base =
-    "inline-flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400";
-  const variantes = {
-    primario: "bg-cyan-500/90 text-slate-950 hover:bg-cyan-400",
-    suave: "fill-softer text-ink ring-1 ring-[color:var(--hairline)] hover:bg-[color:var(--fill-2)]",
-    peligro: "bg-rose-500/85 text-white hover:bg-rose-500",
-    fantasma: "text-ink-soft hover:text-ink",
+    "doc-tap doc-no-print inline-flex items-center justify-center gap-1.5 rounded-[var(--doc-radius-sm)] px-3 py-2 text-xs font-semibold transition-[background-color,color,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-50";
+
+  const estilos: Record<string, CSSProperties> = {
+    primario: { background: "var(--doc-info)", color: "#04121f" },
+    suave: { background: "var(--doc-surface-raised)", color: "var(--doc-text)", boxShadow: "inset 0 0 0 1px var(--doc-border)" },
+    peligro: { background: "var(--doc-danger)", color: "#1b0710" },
+    fantasma: { color: "var(--doc-text-muted)" },
   };
+
   return (
     <button
       type={tipo}
       onClick={onClick}
       disabled={disabled || cargando}
       title={titulo}
-      className={`${base} ${variantes[variante]} ${ancho ? "w-full" : ""} ${className}`}
+      aria-busy={cargando || undefined}
+      className={`${base} ${variante === "fantasma" ? "hover:text-[color:var(--doc-text)]" : "hover:brightness-110"} ${
+        ancho ? "w-full" : ""
+      } ${className}`}
+      style={estilos[variante]}
     >
       {cargando && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
       {children}
@@ -362,26 +585,33 @@ export function Campo({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-medium text-ink-soft">
+      <span className="mb-1 block text-xs font-medium text-[color:var(--doc-text-muted)]">
         {etiqueta}
-        {requerido && <span className="ml-0.5 text-rose-300">*</span>}
+        {requerido && (
+          <>
+            <span aria-hidden className="ml-0.5" style={{ color: "var(--doc-danger)" }}>
+              *
+            </span>
+            <span className="sr-only"> (obligatorio)</span>
+          </>
+        )}
       </span>
       {children}
-      {/* El mensaje va asociado al campo y con `aria-live`: quien usa lector de
-          pantalla se entera del error sin tener que recorrer el formulario. */}
+      {/* El mensaje va con `aria-live`: quien usa lector de pantalla se entera del
+          error sin tener que recorrer el formulario otra vez. */}
       {error ? (
-        <span className="mt-1 block text-[11px] font-medium text-rose-300" aria-live="polite">
+        <span className="mt-1 block text-[11px] font-medium" style={{ color: "var(--doc-danger-fg)" }} aria-live="polite">
           {error}
         </span>
       ) : (
-        ayuda && <span className="mt-1 block text-[11px] text-ink-faint">{ayuda}</span>
+        ayuda && <span className="doc-prose mt-1 block text-[11px] text-[color:var(--doc-text-faint)]">{ayuda}</span>
       )}
     </label>
   );
 }
 
 const CLASE_ENTRADA =
-  "w-full rounded-xl border border-[color:var(--hairline)] bg-[color:var(--fill-1)] px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-cyan-400/60 focus:ring-2 focus:ring-cyan-400/25";
+  "w-full rounded-[var(--doc-radius-sm)] border border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-3 py-2 text-sm text-[color:var(--doc-text)] outline-none transition-colors placeholder:text-[color:var(--doc-text-faint)] focus:border-[color:var(--doc-focus)]";
 
 export function Entrada(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={`${CLASE_ENTRADA} ${props.className ?? ""}`} />;
@@ -439,13 +669,16 @@ export function Interruptor({
       role="switch"
       aria-checked={activo}
       onClick={() => onChange(!activo)}
-      className="inline-flex items-center gap-2 text-xs text-ink-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
+      className="doc-tap inline-flex items-center gap-2 text-xs text-[color:var(--doc-text-muted)]"
     >
       <span
-        className={`relative h-4 w-8 rounded-full transition-colors ${activo ? "bg-cyan-500/80" : "bg-[color:var(--fill-2)]"}`}
+        className="relative h-4 w-8 rounded-full transition-colors duration-150"
+        style={{ background: activo ? "var(--doc-info)" : "var(--doc-surface-sunken)" }}
+        aria-hidden
       >
         <span
-          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-[left] ${activo ? "left-4" : "left-0.5"}`}
+          className="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-[left] duration-150"
+          style={{ left: activo ? "1rem" : "0.125rem" }}
         />
       </span>
       {etiqueta}
@@ -467,25 +700,130 @@ export function Buscador({
   const id = useId();
   return (
     <div className="relative min-w-[180px] flex-1">
-      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" aria-hidden />
+      <Search
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--doc-text-faint)]"
+        aria-hidden
+      />
       <label className="sr-only" htmlFor={id}>
         {etiqueta}
       </label>
-      <input
-        id={id}
-        type="search"
-        value={valor}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className={`${CLASE_ENTRADA} pl-9`}
-      />
+      <input id={id} type="search" value={valor} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className={`${CLASE_ENTRADA} pl-9`} />
     </div>
+  );
+}
+
+/**
+ * Chip de filtro aplicado.
+ *
+ * Los filtros estaban escondidos detrás de un panel plegable con un contador:
+ * «Filtros (3)» no dice cuáles. Cada filtro activo se muestra como un chip con
+ * su valor y su aspa, y quitarlo es un clic.
+ */
+export function ChipFiltro({
+  etiqueta,
+  valor,
+  onQuitar,
+}: {
+  etiqueta: string;
+  valor: string;
+  onQuitar: () => void;
+}) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full py-1 pl-2.5 pr-1 text-[11px]"
+      style={{ background: "var(--doc-surface-raised)", boxShadow: "inset 0 0 0 1px var(--doc-border)" }}
+    >
+      <span className="text-[color:var(--doc-text-faint)]">{etiqueta}:</span>
+      <span className="truncate font-semibold text-[color:var(--doc-text)]">{valor}</span>
+      <button
+        type="button"
+        onClick={onQuitar}
+        aria-label={`Quitar el filtro ${etiqueta}: ${valor}`}
+        className="doc-tap rounded-full p-1 text-[color:var(--doc-text-faint)] transition-colors hover:text-[color:var(--doc-danger-fg)]"
+      >
+        <X className="h-3 w-3" aria-hidden />
+      </button>
+    </span>
+  );
+}
+
+/**
+ * Conmutador segmentado accesible (densidad, vista, modo).
+ *
+ * Es un `radiogroup` de verdad: se recorre con las flechas y anuncia la opción
+ * marcada. La píldora activa se desliza con Framer Motion y se queda quieta
+ * cuando se pide menos movimiento.
+ */
+export function Segmento<T extends string>({
+  valor,
+  opciones,
+  onChange,
+  etiqueta,
+}: {
+  valor: T;
+  opciones: { valor: T; etiqueta: string; icono?: ReactNode; titulo?: string }[];
+  onChange: (valor: T) => void;
+  etiqueta: string;
+}) {
+  const grupo = useId();
+  const reducido = useMovimientoReducido();
+  return (
+    <div
+      role="radiogroup"
+      aria-label={etiqueta}
+      className="doc-no-print inline-flex items-center gap-0.5 rounded-full p-0.5"
+      style={{ background: "var(--doc-surface)", boxShadow: "inset 0 0 0 1px var(--doc-border)" }}
+    >
+      {opciones.map((opcion) => {
+        const activa = opcion.valor === valor;
+        return (
+          <button
+            key={opcion.valor}
+            type="button"
+            role="radio"
+            aria-checked={activa}
+            title={opcion.titulo ?? opcion.etiqueta}
+            onClick={() => onChange(opcion.valor)}
+            className="relative inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors duration-150"
+            style={{ color: activa ? "var(--doc-info-fg)" : "var(--doc-text-muted)" }}
+          >
+            {activa && (
+              <motion.span
+                layoutId={reducido ? undefined : `doc-seg-${grupo}`}
+                className="absolute inset-0 -z-10 rounded-full"
+                style={{ background: "var(--doc-info-bg)", boxShadow: "inset 0 0 0 1px var(--doc-info)" }}
+                transition={resorte(reducido)}
+              />
+            )}
+            {opcion.icono}
+            {opcion.etiqueta}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Texto que puede no caber.
+ *
+ * Se recorta con puntos suspensivos y conserva el texto completo en el `title`;
+ * al pasar el puntero (o al recibir el foco) se desplaza. Nunca se pierde el
+ * nombre completo, que en una lista de personas es el dato que identifica.
+ */
+export function TextoCompleto({ texto, className = "" }: { texto: string; className?: string }) {
+  return (
+    <span className={`doc-marquee block ${className}`} title={texto} tabIndex={0}>
+      <span>{texto}</span>
+    </span>
   );
 }
 
 /* ------------------------------------------------------------------ */
 /* Tabla adaptable                                                     */
 /* ------------------------------------------------------------------ */
+
+export type Densidad = "compacta" | "comoda" | "amplia";
 
 export interface ColumnaTabla<T> {
   clave: string;
@@ -495,6 +833,8 @@ export interface ColumnaTabla<T> {
   secundaria?: boolean;
   /** Alineación numérica a la derecha. */
   numerica?: boolean;
+  /** No se muestra en la tarjeta de móvil (controles de selección, por ejemplo). */
+  soloTabla?: boolean;
 }
 
 /**
@@ -503,6 +843,14 @@ export interface ColumnaTabla<T> {
  * No es una tabla con scroll horizontal: es la misma información en dos
  * disposiciones. Una tabla de once columnas en un teléfono se lee arrastrando, y
  * arrastrando no se compara nada.
+ *
+ * ── Tres cosas que el rediseño arregla ──────────────────────────────────────
+ * 1. **Encabezado pegajoso.** Al bajar por doscientas filas, la columna
+ *    «Pendientes» seguía ahí pero su título ya no.
+ * 2. **Teclado.** El clic en la fila es del ratón. Ahora hay una acción explícita
+ *    por fila —«Abrir»— también en escritorio, alcanzable con Tab.
+ * 3. **Sin salto de layout.** Mientras carga se pinta un esqueleto con el mismo
+ *    número de columnas, así la tabla no cambia de ancho al llegar los datos.
  */
 export function Tabla<T>({
   columnas,
@@ -513,6 +861,9 @@ export function Tabla<T>({
   cargando,
   densidad = "comoda",
   titulo,
+  etiquetaAbrir = () => "Abrir",
+  nombreVista,
+  estadoFila,
 }: {
   columnas: ColumnaTabla<T>[];
   filas: T[];
@@ -520,97 +871,154 @@ export function Tabla<T>({
   onFila?: (fila: T) => void;
   vacio?: ReactNode;
   cargando?: boolean;
-  densidad?: "comoda" | "compacta";
+  densidad?: Densidad;
   titulo?: string;
+  /** Nombre accesible del botón de fila: «Abrir el expediente de Ana Quiroga». */
+  etiquetaAbrir?: (fila: T) => string;
+  /** Nombre de transición de vista, para la continuidad fila → detalle. */
+  nombreVista?: (fila: T) => string | undefined;
+  /** Marca visual de la fila: pendiente de sincronización, por ejemplo. */
+  estadoFila?: (fila: T) => { sincronizacion?: "pendiente" } | undefined;
 }) {
-  if (cargando) return <Esqueleto filas={5} />;
+  if (cargando) {
+    return (
+      <div role="status" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Cargando datos…</span>
+        <EsqueletoDeTabla columnas={columnas.length} />
+      </div>
+    );
+  }
   if (!filas.length) return <>{vacio ?? <Vacio titulo="Sin resultados" detalle="Prueba con otros filtros." />}</>;
 
-  const alto = densidad === "compacta" ? "py-1.5" : "py-2.5";
+  const visiblesEnTarjeta = columnas.filter((c) => !c.soloTabla);
 
   return (
     <>
       {/* Escritorio y tablet */}
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full border-collapse text-sm">
+      <div className="doc-table-wrap hidden max-h-[70vh] overflow-y-auto md:block">
+        <table className="doc-table" data-densidad={densidad}>
           {titulo && <caption className="sr-only">{titulo}</caption>}
           <thead>
-            <tr className="border-b border-[color:var(--hairline)] text-left">
+            <tr>
               {columnas.map((columna) => (
                 <th
                   key={columna.clave}
                   scope="col"
-                  className={`px-2 pb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint ${
-                    columna.numerica ? "text-right" : ""
-                  } ${columna.secundaria ? "hidden lg:table-cell" : ""}`}
+                  className={`${columna.numerica ? "text-right" : ""} ${columna.secundaria ? "hidden lg:table-cell" : ""}`}
                 >
                   {columna.encabezado}
                 </th>
               ))}
+              {onFila && (
+                <th scope="col" className="w-16 text-right">
+                  <span className="sr-only">Acciones</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
-            {filas.map((fila) => (
-              <tr
-                key={claveFila(fila)}
-                onClick={onFila ? () => onFila(fila) : undefined}
-                className={`border-b border-[color:var(--hairline)]/60 transition-colors ${
-                  onFila ? "cursor-pointer hover:bg-[color:var(--fill-1)]" : ""
-                }`}
-              >
-                {columnas.map((columna) => (
-                  <td
-                    key={columna.clave}
-                    className={`px-2 ${alto} align-middle text-ink ${columna.numerica ? "text-right tabular-nums" : ""} ${
-                      columna.secundaria ? "hidden lg:table-cell" : ""
-                    }`}
-                  >
-                    {columna.render(fila)}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {filas.map((fila) => {
+              const estado = estadoFila?.(fila);
+              return (
+                <tr
+                  key={claveFila(fila)}
+                  onClick={onFila ? () => onFila(fila) : undefined}
+                  data-interactiva={onFila ? "si" : undefined}
+                  data-sincronizacion={estado?.sincronizacion}
+                  style={nombreDeVista(nombreVista?.(fila))}
+                >
+                  {columnas.map((columna) => (
+                    <td
+                      key={columna.clave}
+                      className={`${columna.numerica ? "doc-num" : ""} ${columna.secundaria ? "hidden lg:table-cell" : ""}`}
+                    >
+                      {columna.render(fila)}
+                    </td>
+                  ))}
+                  {onFila && (
+                    <td className="text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onFila(fila);
+                        }}
+                        aria-label={etiquetaAbrir(fila)}
+                        title={etiquetaAbrir(fila)}
+                        className="doc-tap rounded-[var(--doc-radius-sm)] p-1.5 text-[color:var(--doc-text-faint)] transition-colors hover:bg-[color:var(--doc-surface-raised)] hover:text-[color:var(--doc-text)]"
+                      >
+                        <ChevronRight className="h-4 w-4" aria-hidden />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {/* Móvil: la misma información en tarjetas */}
-      <ul className="space-y-2 md:hidden">
-        {filas.map((fila) => (
-          <li key={claveFila(fila)}>
-            {/*
-              La tarjeta entera responde al toque, igual que la fila de la tabla,
-              pero el contenedor no puede ser un `button`: las celdas traen sus
-              propios controles y un botón dentro de otro botón no es HTML válido
-              ni se puede alcanzar con el teclado. Para el teclado está el botón
-              «Abrir» del final.
-            */}
-            <div
-              onClick={onFila ? () => onFila(fila) : undefined}
-              className={`w-full rounded-2xl border border-[color:var(--hairline)] bg-[color:var(--fill-1)] p-3 text-left ${
-                onFila ? "cursor-pointer" : ""
-              }`}
-            >
-              <dl className="space-y-1">
-                {columnas.map((columna) => (
-                  <div key={columna.clave} className="flex items-baseline justify-between gap-3">
-                    <dt className="shrink-0 text-[11px] uppercase tracking-wide text-ink-faint">{columna.encabezado}</dt>
-                    <dd className="min-w-0 flex-1 text-right text-xs text-ink">{columna.render(fila)}</dd>
+      {/* Móvil: la misma información en tarjetas estructuradas */}
+      <ul className="doc-list-long space-y-2 md:hidden">
+        {filas.map((fila) => {
+          const estado = estadoFila?.(fila);
+          return (
+            <li key={claveFila(fila)}>
+              {/*
+                La tarjeta entera responde al toque, igual que la fila de la tabla,
+                pero el contenedor no puede ser un `button`: las celdas traen sus
+                propios controles y un botón dentro de otro botón no es HTML válido
+                ni se puede alcanzar con el teclado. Para el teclado está el botón
+                «Abrir» del final.
+              */}
+              <div
+                onClick={onFila ? () => onFila(fila) : undefined}
+                className={`doc-surface p-3 text-left ${onFila ? "cursor-pointer" : ""}`}
+                style={estado?.sincronizacion === "pendiente" ? { borderLeftWidth: 3, borderLeftColor: "var(--doc-offline)" } : undefined}
+              >
+                <dl className="space-y-1.5">
+                  {visiblesEnTarjeta.map((columna) => (
+                    <div key={columna.clave} className="flex items-baseline justify-between gap-3">
+                      <dt className="doc-eyebrow shrink-0">{columna.encabezado}</dt>
+                      <dd className="min-w-0 flex-1 text-right text-xs text-[color:var(--doc-text)]">{columna.render(fila)}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {onFila && (
+                  <div className="mt-2.5 flex justify-end">
+                    <Boton variante="suave" onClick={() => onFila(fila)} titulo={etiquetaAbrir(fila)}>
+                      Abrir
+                    </Boton>
                   </div>
-                ))}
-              </dl>
-              {onFila && (
-                <div className="mt-2 flex justify-end">
-                  <Boton variante="suave" onClick={() => onFila(fila)}>
-                    Abrir
-                  </Boton>
-                </div>
-              )}
-            </div>
-          </li>
-        ))}
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </>
+  );
+}
+
+/** Esqueleto interno de la tabla: mismas columnas, sin datos. */
+function EsqueletoDeTabla({ columnas, filas = 6 }: { columnas: number; filas?: number }) {
+  return (
+    <div aria-hidden>
+      <div className="hidden gap-3 border-b border-[color:var(--doc-border)] pb-2 md:flex">
+        {Array.from({ length: columnas }).map((_, i) => (
+          <div key={i} className="doc-skeleton h-3 flex-1" />
+        ))}
+      </div>
+      <div className="space-y-0 md:block">
+        {Array.from({ length: filas }).map((_, f) => (
+          <div key={f} className="flex items-center gap-3 border-b border-[color:var(--doc-border)] py-3">
+            {Array.from({ length: columnas }).map((_, c) => (
+              <div key={c} className="doc-skeleton h-4 flex-1" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -632,8 +1040,8 @@ export function Paginacion({
   const desde = (pagina - 1) * porPagina + 1;
   const hasta = Math.min(total, pagina * porPagina);
   return (
-    <nav className="mt-3 flex items-center justify-between gap-2" aria-label="Paginación">
-      <p className="text-xs text-ink-soft">
+    <nav className="doc-no-print mt-3 flex items-center justify-between gap-2" aria-label="Paginación">
+      <p className="doc-metric text-xs text-[color:var(--doc-text-muted)]" aria-live="polite">
         {desde}–{hasta} de {total}
       </p>
       <div className="flex items-center gap-1">
@@ -641,15 +1049,10 @@ export function Paginacion({
           <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
           <span className="sr-only">Anterior</span>
         </Boton>
-        <span className="px-2 text-xs tabular-nums text-ink-soft">
+        <span className="doc-metric px-2 text-xs text-[color:var(--doc-text-muted)]">
           {pagina} / {paginas}
         </span>
-        <Boton
-          variante="suave"
-          onClick={() => onPagina(Math.min(paginas, pagina + 1))}
-          disabled={pagina >= paginas}
-          titulo="Página siguiente"
-        >
+        <Boton variante="suave" onClick={() => onPagina(Math.min(paginas, pagina + 1))} disabled={pagina >= paginas} titulo="Página siguiente">
           <ChevronRight className="h-3.5 w-3.5" aria-hidden />
           <span className="sr-only">Siguiente</span>
         </Boton>
@@ -665,9 +1068,15 @@ export function Paginacion({
 /**
  * Panel lateral.
  *
- * Se cierra con Escape, atrapa el foco mientras está abierto y devuelve el foco al
- * elemento que lo abrió. Sin eso, quien navega con teclado sigue tabulando por
- * detrás del panel y no entiende dónde está.
+ * ── Qué hace bien ──────────────────────────────────────────────────────────
+ * Se cierra con Escape, **atrapa el foco de verdad** —Tab cicla dentro del panel,
+ * no se escapa al contenido de detrás— y devuelve el foco al elemento que lo
+ * abrió. Cuando hay una escritura en curso (`bloqueado`) no se cierra ni con
+ * Escape ni con un clic fuera: cerrar a media escritura deja a la persona sin
+ * saber si se guardó.
+ *
+ * Cuando hay cambios sin guardar (`confirmarCierre`), el clic fuera y el Escape
+ * piden confirmación en lugar de perder el trabajo.
  */
 export function Lateral({
   abierto,
@@ -677,6 +1086,9 @@ export function Lateral({
   children,
   pie,
   ancho = "max-w-3xl",
+  bloqueado,
+  confirmarCierre,
+  encabezadoExtra,
 }: {
   abierto: boolean;
   onCerrar: () => void;
@@ -685,27 +1097,62 @@ export function Lateral({
   children: ReactNode;
   pie?: ReactNode;
   ancho?: string;
+  /** Hay una escritura en curso: no se puede cerrar. */
+  bloqueado?: boolean;
+  /** Texto de confirmación si hay cambios sin guardar. */
+  confirmarCierre?: string;
+  encabezadoExtra?: ReactNode;
 }) {
-  const reducido = usarMovimientoReducido();
+  const reducido = useMovimientoReducido();
   const contenedor = useRef<HTMLDivElement | null>(null);
   const anterior = useRef<HTMLElement | null>(null);
+
+  const intentarCerrar = useCallback(() => {
+    if (bloqueado) return;
+    if (confirmarCierre && typeof window !== "undefined" && !window.confirm(confirmarCierre)) return;
+    onCerrar();
+  }, [bloqueado, confirmarCierre, onCerrar]);
 
   useEffect(() => {
     if (!abierto) return;
     anterior.current = document.activeElement as HTMLElement | null;
-    const cerrarConEscape = (evento: KeyboardEvent) => {
-      if (evento.key === "Escape") onCerrar();
+
+    const alPulsar = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") {
+        evento.stopPropagation();
+        intentarCerrar();
+        return;
+      }
+      // Trampa de foco: con Tab en el último elemento se vuelve al primero, y con
+      // Shift+Tab en el primero se va al último. Sin esto, el foco sigue por
+      // detrás del panel y nadie sabe dónde está.
+      if (evento.key !== "Tab" || !contenedor.current) return;
+      const enfocables = contenedor.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!enfocables.length) return;
+      const primero = enfocables[0];
+      const ultimo = enfocables[enfocables.length - 1];
+      if (!evento.shiftKey && document.activeElement === ultimo) {
+        evento.preventDefault();
+        primero.focus();
+      } else if (evento.shiftKey && document.activeElement === primero) {
+        evento.preventDefault();
+        ultimo.focus();
+      }
     };
-    document.addEventListener("keydown", cerrarConEscape);
+
+    document.addEventListener("keydown", alPulsar);
     const t = setTimeout(() => {
       contenedor.current?.querySelector<HTMLElement>("[data-foco-inicial], button, [href], input, select, textarea")?.focus();
     }, 50);
+
     return () => {
-      document.removeEventListener("keydown", cerrarConEscape);
+      document.removeEventListener("keydown", alPulsar);
       clearTimeout(t);
       anterior.current?.focus?.();
     };
-  }, [abierto, onCerrar]);
+  }, [abierto, intentarCerrar]);
 
   return (
     <AnimatePresence>
@@ -716,7 +1163,8 @@ export function Lateral({
             initial={reducido ? undefined : { opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={reducido ? undefined : { opacity: 0 }}
-            onClick={onCerrar}
+            transition={{ duration: reducido ? 0 : DURACION.rapida }}
+            onClick={intentarCerrar}
             aria-hidden
           />
           <motion.div
@@ -724,28 +1172,33 @@ export function Lateral({
             role="dialog"
             aria-modal="true"
             aria-label={typeof titulo === "string" ? titulo : "Detalle"}
-            className={`fixed right-0 top-0 z-[95] flex h-full w-full ${ancho} flex-col glass-heavy border-l border-[color:var(--hairline)]`}
-            initial={reducido ? undefined : { x: 40, opacity: 0 }}
+            className={`doc-console fixed right-0 top-0 z-[95] flex h-full w-full ${ancho} flex-col glass-heavy border-l border-[color:var(--doc-border)]`}
+            initial={reducido ? undefined : { x: 32, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
-            exit={reducido ? undefined : { x: 40, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 260, damping: 26 }}
+            exit={reducido ? undefined : { x: 24, opacity: 0, transition: { duration: DURACION.rapida, ease: CURVA.salidaQuint } }}
+            transition={resorte(reducido)}
+            style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
           >
-            <header className="flex items-start justify-between gap-3 border-b border-[color:var(--hairline)] px-4 py-3 sm:px-5">
+            <header className="flex items-start justify-between gap-3 border-b border-[color:var(--doc-border)] px-4 py-3 sm:px-5">
               <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-ink">{titulo}</h2>
-                {subtitulo && <p className="mt-0.5 truncate text-xs text-ink-soft">{subtitulo}</p>}
+                <h2 className="doc-balance text-sm font-semibold text-[color:var(--doc-text)]">{titulo}</h2>
+                {subtitulo && <p className="doc-prose mt-0.5 text-xs text-[color:var(--doc-text-muted)]">{subtitulo}</p>}
+                {encabezadoExtra}
               </div>
               <button
                 type="button"
-                onClick={onCerrar}
+                onClick={intentarCerrar}
                 aria-label="Cerrar"
-                className="rounded-xl p-2 text-ink-soft transition-colors hover:bg-[color:var(--fill-2)] hover:text-ink"
+                disabled={bloqueado}
+                className="doc-tap rounded-xl p-2 text-[color:var(--doc-text-muted)] transition-colors hover:bg-[color:var(--doc-surface-raised)] hover:text-[color:var(--doc-text)] disabled:opacity-40"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
             </header>
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">{children}</div>
-            {pie && <footer className="border-t border-[color:var(--hairline)] px-4 py-3 sm:px-5">{pie}</footer>}
+            {pie && (
+              <footer className="border-t border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-4 py-3 sm:px-5">{pie}</footer>
+            )}
           </motion.div>
         </>
       )}
@@ -758,7 +1211,8 @@ export function Lateral({
  *
  * Se usa para lo que no se puede deshacer con un clic: archivar, cancelar una
  * solicitud, lanzar una operación masiva. Muestra el impacto ANTES, porque una
- * confirmación que solo dice «¿seguro?» no informa de nada.
+ * confirmación que solo dice «¿seguro?» no informa de nada. Las destructivas se
+ * anuncian como `alertdialog`.
  */
 export function Confirmacion({
   abierta,
@@ -781,15 +1235,15 @@ export function Confirmacion({
   onCancelar: () => void;
   trabajando?: boolean;
 }) {
-  const reducido = usarMovimientoReducido();
+  const reducido = useMovimientoReducido();
   useEffect(() => {
     if (!abierta) return;
     const cerrar = (evento: KeyboardEvent) => {
-      if (evento.key === "Escape") onCancelar();
+      if (evento.key === "Escape" && !trabajando) onCancelar();
     };
     document.addEventListener("keydown", cerrar);
     return () => document.removeEventListener("keydown", cerrar);
-  }, [abierta, onCancelar]);
+  }, [abierta, onCancelar, trabajando]);
 
   return (
     <AnimatePresence>
@@ -799,24 +1253,26 @@ export function Confirmacion({
           initial={reducido ? undefined : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={reducido ? undefined : { opacity: 0 }}
+          transition={{ duration: reducido ? 0 : DURACION.rapida }}
         >
           <motion.div
-            role="dialog"
+            role={peligrosa ? "alertdialog" : "dialog"}
             aria-modal="true"
             aria-label={titulo}
-            className="glass-heavy w-full max-w-md rounded-3xl p-5"
-            initial={reducido ? undefined : { scale: 0.96, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={reducido ? undefined : { scale: 0.96, opacity: 0 }}
+            className="doc-console glass-heavy max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl p-5"
+            initial={reducido ? undefined : { scale: 0.97, opacity: 0, y: 8 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={reducido ? undefined : { scale: 0.98, opacity: 0, transition: { duration: DURACION.rapida } }}
+            transition={resorte(reducido)}
           >
-            <h2 className="text-sm font-semibold text-ink">{titulo}</h2>
-            {detalle && <div className="mt-2 text-xs leading-relaxed text-ink-soft">{detalle}</div>}
-            {impacto && <div className="mt-3 rounded-2xl bg-[color:var(--fill-1)] p-3 text-xs text-ink-soft">{impacto}</div>}
+            <h2 className="doc-balance text-sm font-semibold text-[color:var(--doc-text)]">{titulo}</h2>
+            {detalle && <div className="doc-prose mt-2 text-xs leading-relaxed text-[color:var(--doc-text-muted)]">{detalle}</div>}
+            {impacto && <div className="doc-sunken mt-3 p-3 text-xs text-[color:var(--doc-text-muted)]">{impacto}</div>}
             <div className="mt-4 flex justify-end gap-2">
-              <Boton variante="suave" onClick={onCancelar}>
+              <Boton variante="suave" onClick={onCancelar} disabled={trabajando}>
                 Cancelar
               </Boton>
-              <Boton variante={peligrosa ? "peligro" : "primario"} onClick={onConfirmar} cargando={trabajando} data-foco-inicial>
+              <Boton variante={peligrosa ? "peligro" : "primario"} onClick={onConfirmar} cargando={trabajando}>
                 {textoConfirmar}
               </Boton>
             </div>
@@ -858,6 +1314,8 @@ export function useNotitas() {
       contador.current += 1;
       const id = contador.current;
       setNotitas((prev) => [...prev, { id, intencion, texto, pista }]);
+      // Un error se lee más despacio que una confirmación, y a veces hay que
+      // copiar el código: se queda el doble de tiempo.
       setTimeout(() => quitar(id), intencion === "peligro" ? 8000 : 4500);
       return id;
     },
@@ -868,9 +1326,15 @@ export function useNotitas() {
 }
 
 export function Notitas({ notitas, onQuitar }: { notitas: Notita[]; onQuitar: (id: number) => void }) {
-  const reducido = usarMovimientoReducido();
+  const reducido = useMovimientoReducido();
   return (
-    <div className="pointer-events-none fixed bottom-4 right-4 z-[140] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2">
+    <div
+      role="region"
+      aria-label="Avisos del módulo"
+      aria-live="polite"
+      className="doc-console doc-no-print pointer-events-none fixed bottom-4 right-4 z-[140] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+    >
       <AnimatePresence>
         {notitas.map((notita) => (
           <motion.div
@@ -878,11 +1342,12 @@ export function Notitas({ notitas, onQuitar }: { notitas: Notita[]; onQuitar: (i
             className="pointer-events-auto"
             initial={reducido ? undefined : { opacity: 0, y: 12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={reducido ? undefined : { opacity: 0, y: 8, scale: 0.98 }}
+            exit={reducido ? undefined : { opacity: 0, y: 8, scale: 0.98, transition: { duration: DURACION.rapida } }}
+            transition={{ duration: reducido ? 0 : DURACION.normal, ease: CURVA.salidaExpo }}
           >
             <Aviso intencion={notita.intencion} onCerrar={() => onQuitar(notita.id)}>
               <span className="font-medium">{notita.texto}</span>
-              {notita.pista && <span className="mt-1 block text-[11px] opacity-80">{notita.pista}</span>}
+              {notita.pista && <span className="doc-prose mt-1 block text-[11px] opacity-80">{notita.pista}</span>}
             </Aviso>
           </motion.div>
         ))}

@@ -245,7 +245,17 @@ src/features/documentacion/
               acciones.ts      docApi: una función tipada por acción
   state/      consola.ts       estado de la consola, persistencia de preferencias
   export/     xlsx.ts          generador .xlsx real, sin dependencias de servidor
-  ui/         DocumentacionConsola.tsx   armazón y menú por capacidades
+  ui/         DocumentacionConsola.tsx   composición del módulo y capacidades
+              DocShell.tsx               armazón: cabecera, navegación agrupada
+              DocSyncIndicator.tsx       conexión, frescura del dato y guardado
+              DocAttentionPanel.tsx      bandeja de atención, salud, actividad
+              DocExpedienteHeader.tsx    identidad, situación y trazabilidad
+              DocStates.tsx              vacíos, errores, offline, modo degradado
+              DocSkeletons.tsx           esqueletos con la forma del contenido
+              DocMotion.ts               duraciones, curvas y preferencia de movimiento
+              DocViewTransitions.ts      View Transitions con detección y fallback
+              documentacion.css          tokens del módulo (`--doc-*`)
+              documentacion-motion.css   animaciones con propósito
               SeccionPanel.tsx           qué mirar hoy
               SeccionExpedientes.tsx     listado, filtros, alta, solicitud masiva
               ExpedienteLateral.tsx      expediente completo en nueve pestañas
@@ -284,20 +294,122 @@ Trece entradas de menú sobre seis pantallas, y el menú **sólo muestra lo que 
 rol puede hacer**: un `invitado` no ve la sección de configuración en gris, no la
 ve.
 
-El panel responde a «qué mirar hoy»: vencimientos, observaciones sin resolver,
-aprobaciones esperando, tareas propias. El listado permite filtrar y guardar el
-filtro. El lateral de expediente reúne en nueve pestañas lo que antes había que
-buscar en tres sitios, y guarda por bloque —con su versión— en lugar de mandar
-el expediente entero.
+La navegación está **agrupada por lo que se está haciendo** —Operación,
+Expedientes, Trabajo, Reportes y control, Configuración, Contingencia— en lugar de
+ser una lista plana de trece entradas al mismo nivel. El grupo es una etiqueta, no
+un desplegable: en una consola de trabajo, esconder la navegación detrás de un
+clic cuesta más de lo que ahorra. «Vista local» vive bajo *Contingencia* porque no
+es una pantalla más del proceso: es la salida cuando no hay backend.
 
-### 4.3 Movimiento y accesibilidad
+La cabecera del módulo responde el contexto global de un vistazo: módulo y
+sección (con miga de pan), rol resuelto por el backend, estado del enlace, libro
+contra el que se opera, antigüedad de los datos, avisos sin leer y la acción
+principal («Nuevo expediente»).
 
-Todo el movimiento pasa por las primitivas heredadas y respeta
-`prefers-reduced-motion` del sistema por encima de lo configurado: este módulo
-se usa durante horas seguidas y el mareo por movimiento es un problema real. Las
-tablas se convierten en tarjetas en pantalla estrecha, el lateral atrapa el foco
-y cierra con `Escape`, y toda acción destructiva pide confirmación mostrando el
-impacto que va a tener.
+### 4.3 El panel: qué necesita atención ahora
+
+El panel se lee de arriba abajo en el orden en que se trabaja:
+
+1. **Indicadores de urgencia.** Ocho cifras agregadas del backend, cada una con
+   severidad visible (borde e icono, no sólo color), su periodo y la acción que
+   abre la lista ya filtrada.
+2. **Bandeja de atención.** Los expedientes que hay que mirar hoy, ordenados por
+   urgencia real: plazo agotado manda sobre observación, y observación sobre
+   requisito que aún no ha llegado. Cada fila trae persona, identificador, tipo de
+   incidencia, avance, responsable, plazo, antigüedad y un botón que abre el
+   expediente. Sale de la **misma acción de listado** que usa la sección de
+   expedientes, pedida con orden por fecha crítica y página corta.
+3. **Actividad reciente**, tal como la registra el backend en sus avisos.
+4. **Salud del módulo**: enlace, libro, esquema, migraciones pendientes, hojas
+   faltantes y frescura del cálculo.
+5. **El conjunto en detalle**: agencias, gerencias, embudo, distribución por
+   estado, requisitos que más se atascan y evolución mensual.
+
+Ninguna cifra se calcula en el cliente, y cuando el backend sirve el panel desde
+su caché se dice —con la fecha del cálculo, no un «desde caché» sin contexto.
+
+### 4.4 La lista de expedientes
+
+- **Los filtros se ven.** Cada filtro aplicado es un chip con su valor y su aspa.
+  Antes había un botón «Filtros (3)» y para saber cuáles había que abrirlo.
+- **Dos lecturas de la misma lista.** El modo *operativo* prioriza lo que hay que
+  hacer (estado, avance, faltantes, plazo, responsable); el modo *auditoría*, lo
+  que hay que poder demostrar (identificador, versión, autoría, apertura, cierre,
+  estado de operación, año del libro). Son las mismas filas con otras columnas:
+  nadie tiene que exportar a Excel para ver la versión de un registro.
+- **Tres densidades y dos disposiciones.** Tabla para comparar, tarjetas para
+  leer; compacta, cómoda o amplia. La preferencia se guarda en el equipo.
+- **El recuento es del servidor.** «16 expedientes en la consulta · 16 en esta
+  página · avance promedio 81 %» sale del total y del resumen que devuelve la
+  consulta, no de las filas de la página.
+- En pantalla estrecha, los filtros avanzados se abren en un cajón y la tabla se
+  convierte en tarjetas estructuradas.
+
+### 4.5 El expediente
+
+La cabecera del expediente tiene tres franjas con jerarquía deliberada:
+**situación** (estado, rama, avance y desglose), **qué desbloquea el expediente**
+(el siguiente requisito que el backend señala, con el motivo y un salto directo) y
+**trazabilidad** (última modificación, autor, versión y estado del guardado). Las
+nueve pestañas llevan su total y, cuando hay algo que atender, una marca con su
+explicación; se recorren con las flechas y quedan pegadas al borde superior al
+bajar por los requisitos.
+
+El guardado por bloque se mantiene, y ahora se **nombra**: sin cambios, cambios
+por escribir, guardando, guardado en el servidor, conflicto de versión. El panel
+no se cierra por accidente mientras escribe, y si hay cambios sin guardar pide
+confirmación antes de cerrarse.
+
+### 4.6 Sistema visual del módulo
+
+`documentacion.css` declara el vocabulario visual como variables CSS acotadas a
+`.doc-console`: superficies (fondo, superficie, elevada, hundida), tinta, estados
+semánticos, foco, radios, sombras y duraciones. Cada tema —oscuro, claro, alto
+contraste, transparencia reducida e **impresión**— elige sus valores; los
+componentes piden el token, nunca el color.
+
+La semántica institucional se conserva y se afina: verde completo, celeste nuevo o
+inicial, durazno observación o gestión, **ámbar prórroga** (antes compartía color
+con la observación, y son dos cosas distintas: «hay algo mal» y «hay más plazo»),
+rojo crítico o desvinculado. La intención que manda el backend no cambia; lo que
+cambia es el tono con el que se pinta.
+
+En papel las superficies se aplanan, el armazón desaparece, los encabezados de
+tabla dejan de ser flotantes, las filas no se cortan entre páginas y los nombres
+recortados se muestran completos.
+
+### 4.7 Movimiento y accesibilidad
+
+El movimiento tiene una escala con nombre —120 ms para hover y foco, 240 ms para
+chips, filas y menús, 420 ms para paneles y cambios de sección— y las salidas usan
+la duración corta: al cerrar algo, la decisión ya está tomada. Toda animación
+explica algo (de dónde vino un panel, qué cifra acaba de cambiar, qué se está
+escribiendo); nada se mueve en bucle ni mientras se lee un dato crítico.
+
+La preferencia de movimiento se lee de **dos** sitios: `prefers-reduced-motion` del
+sistema y el interruptor «Reducir movimiento» de la aplicación (la clase
+`reduce-motion` del `<html>`), que antes este módulo ignoraba.
+
+Las transiciones de vista (lista → expediente, cambio de sección) usan la View
+Transitions API cuando existe, con detección de soporte y respeto por la
+reducción de movimiento; donde no hay soporte, el cambio es el instantáneo de
+siempre.
+
+Accesibilidad: navegación por teclado con foco visible propio del módulo, tablas
+con `caption` y `scope` y una acción explícita por fila —el clic en la fila es del
+ratón—, panel lateral con trampa de foco real (Tab cicla dentro) y devolución del
+foco, `role="alert"` para los errores y `role="status"` para el resto, cambio de
+sección anunciado en una región `aria-live`, estados con etiqueta e icono además
+de color, y controles táctiles de 44 × 44 px en punteros gruesos.
+
+### 4.8 Carga del módulo
+
+La consola documental se carga **aparte** del paquete inicial, como ya hacían
+Procesos y Evaluaciones: arrastra el cliente del backend, el vocabulario del
+modelo, el exportador a Excel y trece pantallas, y quien sólo entra al tablero no
+tiene por qué descargarla. El paquete inicial baja de 248 kB a 175 kB
+comprimidos; el módulo son 78 kB de JavaScript y 3 kB de CSS que se piden al
+abrirlo.
 
 ---
 
@@ -345,7 +457,8 @@ las pantallas muestran datos que salieron del `doPost` real.
 
 Al terminar informa de las llamadas fallidas y de los errores de la consola del
 navegador, y deja las capturas en `docs/modules/img/documentacion/`. La última
-ejecución: 20 llamadas al backend, ninguna fallida, cero errores de consola.
+ejecución, ya con la consola rediseñada: 22 llamadas al backend, ninguna fallida,
+cero errores de consola.
 
 > **Lo que encontró esta comprobación**
 > En la vista de tarjetas del móvil, la fila era un `<button>` y dentro se
