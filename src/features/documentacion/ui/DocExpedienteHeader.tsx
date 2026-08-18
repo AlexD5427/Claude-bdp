@@ -29,6 +29,7 @@ import { fechaCorta, fechaHora, textoAntiguedad, textoPlazo } from "../domain/pr
 import { ETIQUETA_EXPEDIENTE, INTENCION_EXPEDIENTE } from "../domain/vocabulario";
 import { categoriaDe, estiloCategoria } from "../domain/categorias";
 import { BarraAvance, ChipEstado, TONO } from "./piezas";
+import { Cifra } from "./DocTexto";
 import { IndicadorGuardado, hace, type EstadoEscritura } from "./DocSyncIndicator";
 
 export function DocExpedienteHeader({
@@ -217,7 +218,9 @@ function Par({ etiqueta, valor, intencion }: { etiqueta: string; valor: number; 
     <div className="flex items-baseline justify-between gap-2">
       <dt className="truncate text-[color:var(--doc-text-faint)]">{etiqueta}</dt>
       <dd className="doc-metric font-semibold" style={{ color: intencion ? TONO[intencion].texto : "var(--doc-text-muted)" }}>
-        {valor}
+        {/* El valor se interpola en lugar de saltar: al marcar un requisito se ve
+            de dónde a dónde se movió el contador. */}
+        <Cifra valor={valor} />
       </dd>
     </div>
   );

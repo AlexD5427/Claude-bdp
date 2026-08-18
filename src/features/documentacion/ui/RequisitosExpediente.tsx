@@ -47,6 +47,7 @@ import { categoriaDe, estiloCategoria } from "../domain/categorias";
 import { diasDesdeHoy, fechaLegible } from "./CampoFecha";
 import { AreaTexto, BarraAvance, Boton, Campo, ChipEstado, TONO } from "./piezas";
 import { CURVA, DURACION, useMovimientoReducido } from "./DocMotion";
+import { Cifra } from "./DocTexto";
 import { hace } from "./DocSyncIndicator";
 
 /* ------------------------------------------------------------------ */
@@ -225,12 +226,10 @@ export function RequisitosExpediente({
                 }
               >
                 {f.etiqueta}
-                <span
+                <Cifra
+                  valor={n}
                   className="doc-metric rounded-full px-1.5 text-[10px]"
-                  style={{ background: activo ? "transparent" : "var(--doc-surface-sunken)" }}
-                >
-                  {n}
-                </span>
+                />
               </button>
             );
           })}

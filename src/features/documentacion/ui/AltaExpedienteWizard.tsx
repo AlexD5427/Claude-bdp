@@ -43,6 +43,7 @@ import { useConsola } from "../state/consola";
 import { DURACION, CURVA, resorte, useMovimientoReducido } from "./DocMotion";
 import { Aviso, Boton, Campo, Confirmacion, Entrada, TONO } from "./piezas";
 import { CampoFecha, diasDesdeHoy, fechaLegible } from "./CampoFecha";
+import { TextoRevelado } from "./DocTexto";
 import { SelectorAuxiliar } from "./SelectorAuxiliar";
 import { bloquearScroll } from "../../../lib/scrollLock";
 import { useFormDraft } from "../../../hooks/useFormDraft";
@@ -802,7 +803,6 @@ function PasoDocumentos({
   docs,
   onDoc,
   reducido,
-  acento,
 }: {
   titulo: string;
   descripcion: string;
@@ -810,11 +810,10 @@ function PasoDocumentos({
   docs: Record<string, EstadoDoc>;
   onDoc: (codigo: string, patch: Partial<EstadoDoc>) => void;
   reducido: boolean;
-  acento?: string;
 }) {
   return (
     <div className="space-y-4">
-      <Encabezadillo titulo={titulo} detalle={descripcion} acento={acento} />
+      <Encabezadillo titulo={titulo} detalle={descripcion} />
       <ul className="space-y-2.5">
         {documentos.map((doc, i) => (
           <FilaDocumento key={doc.codigo} doc={doc} estado={docs[doc.codigo] ?? docInicial()} onDoc={onDoc} reducido={reducido} orden={i} />
@@ -1143,7 +1142,7 @@ function TarjetaGarantia({
       type="button"
       onClick={onSelect}
       aria-pressed={activa}
-      className="doc-tap flex flex-col rounded-[var(--doc-radius,14px)] p-3 text-left transition-all duration-150 active:scale-[0.98]"
+      className="doc-tap doc-elevar flex flex-col rounded-[var(--doc-radius,14px)] p-3 text-left"
       style={{
         background: activa ? hexAlpha(color, 0.16) : "var(--doc-surface)",
         boxShadow: activa ? `inset 0 0 0 1.5px ${color}` : "inset 0 0 0 1px var(--doc-border)",
@@ -1341,13 +1340,20 @@ function TarjetaCuenta({ etiqueta, valor, intencion }: { etiqueta: string; valor
 /* Piezas menores                                                      */
 /* ------------------------------------------------------------------ */
 
-function Encabezadillo({ titulo, detalle, acento }: { titulo: string; detalle: string; acento?: string }) {
+function Encabezadillo({ titulo, detalle }: { titulo: string; detalle: string }) {
   return (
     <div>
-      <h3 className="doc-balance text-base font-semibold text-[color:var(--doc-text)]" style={acento ? { color: acento } : undefined}>
-        {titulo}
-      </h3>
-      <p className="doc-prose mt-0.5 max-w-prose text-xs leading-relaxed text-[color:var(--doc-text-muted)]">{detalle}</p>
+      <TextoRevelado
+        como="h3"
+        texto={titulo}
+        className="doc-balance block text-base font-semibold text-[color:var(--doc-text)]"
+      />
+      <TextoRevelado
+        como="p"
+        texto={detalle}
+        retardo={0.04}
+        className="doc-prose mt-0.5 block max-w-prose text-xs leading-relaxed text-[color:var(--doc-text-muted)]"
+      />
     </div>
   );
 }
