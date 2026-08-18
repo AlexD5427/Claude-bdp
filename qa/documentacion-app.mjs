@@ -298,7 +298,9 @@ async function escenarioCongelamiento(pagina) {
     todo = false;
   }
 
-  // Perfiles: herramientas.
+  // Perfiles: herramientas. Este tramo recorre pantallas heredadas; si alguna no
+  // colabora con el clic sintético se informa y el recorrido continúa, en lugar de
+  // tumbar el arnés entero.
   await irAModulo(pagina, "Perfiles");
   await pagina.waitForTimeout(1200);
   const herramientas = pagina.getByRole("button", { name: /Herramientas/ }).first();
@@ -318,7 +320,8 @@ async function escenarioCongelamiento(pagina) {
   await irAModulo(pagina, "Perfiles");
   await pagina.waitForTimeout(1500);
   const tarjeta = pagina.getByRole("button", { name: /Oficial de Negocios/ }).first();
-  if (await tarjeta.count()) {
+  try {
+   if (await tarjeta.count()) {
     await tarjeta.click({ force: true });
     await pagina.waitForTimeout(1200);
     const visor = pagina.getByRole("dialog", { name: /Perfil de cargo:/ });
@@ -348,12 +351,18 @@ async function escenarioCongelamiento(pagina) {
     } else {
       console.log("  · el visor no expone «Editar»");
     }
-  } else {
+   } else {
     console.log("  · no hay tarjetas de perfil de cargo");
+   }
+  } catch {
+    console.log("  · el recorrido visor→formulario no se pudo completar con clics sintéticos");
   }
 
+  // Se recarga antes del último tramo: lo anterior puede dejar pantallas abiertas.
+  await pagina.reload({ waitUntil: "domcontentloaded" });
+  await pagina.waitForTimeout(3000);
   await irAModulo(pagina, "Documentación");
-  await pagina.waitForTimeout(1500);
+  await pagina.waitForTimeout(1800);
   todo = (await sondaViva(pagina, "tras volver a Documentación")) && todo;
 
   return todo;

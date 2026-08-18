@@ -100,6 +100,7 @@ npm i -D playwright && npx playwright install chromium --with-deps
 | `qa/documentacion-app.mjs` | Monta la **aplicación completa** (acceso, dock, superposiciones globales) con el backend `.gs` real en memoria. Recorre el alta y comprueba que la página siga respondiendo tras abrir y cerrar paneles. |
 | `qa/sonda-foco-expediente.mjs` | Escribe una observación letra a letra en el panel del expediente y compara lo escrito con lo que llegó. |
 | `qa/sonda-congelamiento.mjs` | Abre y cierra superposiciones de tres módulos y mira una sola cosa: si el `body` quedó con `overflow: hidden`. |
+| `qa/sonda-salida-perfil.mjs` | Pide salir del formulario de perfil de cargo y comprueba que la confirmación queda **encima** y se puede pulsar. |
 | `qa/visual-documentacion.mjs` | Recorre las diez pantallas y saca las capturas de esta documentación. |
 
 La sonda del foco es la que clavó el fallo:
@@ -204,6 +205,36 @@ Esta iteración lo termina: ya no queda **ninguna** superficie manipulando
 panel de Herramientas de Perfiles, la celda ampliada del Comparador, el cajón del
 sistema de diseño y el visor de Evaluaciones—, y el armazón de la aplicación lo
 reinicia al cambiar de módulo como red de seguridad.
+
+### 5 bis · La confirmación que quedaba enterrada (frontend, transversal)
+
+Investigando el congelamiento apareció un segundo fallo, de la misma familia y
+peor: **quien entraba a modificar un perfil de cargo se quedaba atrapado**.
+
+`GlassDialog` —la confirmación de «¿salir sin guardar?» del sistema de diseño—
+valía `z-index: 110`. El formulario que la abre vive en `z-[115]`. La confirmación
+se montaba **por detrás** del formulario: el botón «Descartar y salir» no se podía
+pulsar, Escape solo la cancelaba, y la única salida era guardar o recargar la
+página. Medido con `qa/sonda-salida-perfil.mjs`:
+
+```
+main:                                     con el arreglo:
+✓ aparece la confirmación de salida       ✓ aparece la confirmación de salida
+✗ el botón se puede pulsar                ✓ el botón se puede pulsar
+✗ el formulario se cierra                 ✓ el formulario se cierra
+```
+
+La escala del sistema de diseño (`design-system/tokens.ts`) sube el diálogo a
+`165` y el aviso flotante a `170`. Y como el problema de fondo es que esa escala
+convive con valores escritos a mano por toda la aplicación (`z-[115]`, `z-[150]`,
+`z-[160]`…), se añadió una **prueba de invariante**: recorre el código, encuentra
+todas las superficies a pantalla completa (`inset-0` + `z-[NNN]`) y falla si alguna
+supera al diálogo. Con el valor antiguo dice exactamente qué la tapaba:
+
+```
+Z.dialog (110) tiene que superar a la superficie más alta:
+components/CompetencyInfoButton.tsx usa 160.
+```
 
 ### 6 · Nunca más una sección en blanco
 
@@ -332,11 +363,12 @@ entero con `prefers-reduced-motion` o con el interruptor de la aplicación.
 | --- | --- |
 | `npm run typecheck` | limpio |
 | `npm run build` | compila en 8,2 s · el módulo se carga aparte (380 kB → 98 kB comprimido) |
-| `npm test` | **624** pruebas en 48 archivos, todas pasan |
+| `npm test` | **627** pruebas en 49 archivos, todas pasan |
 | `npm run doc:check` | 20 comprobaciones superadas |
 | `node qa/visual-documentacion.mjs` | 10 pantallas, 22 llamadas al backend, **0** fallidas, **0** errores de consola |
 | `node qa/sonda-foco-expediente.mjs` | se escribe la frase completa y el foco se queda en el área de texto |
-| `node qa/documentacion-app.mjs` | el alta termina y la página sigue respondiendo tras abrir y cerrar paneles |
+| `node qa/documentacion-app.mjs` | 29 llamadas al backend, 0 fallidas; el alta termina y la página sigue respondiendo tras abrir y cerrar paneles |
+| `node qa/sonda-salida-perfil.mjs` | la confirmación de salida se puede pulsar y el formulario se cierra |
 
 Pruebas nuevas de esta iteración:
 
@@ -353,6 +385,8 @@ Pruebas nuevas de esta iteración:
   cada persona llega con los documentos de su rama (23 / 27 / 19).
 - `__tests__/docTexto.test.tsx` — 6 pruebas de que la animación no rompe el
   contenido accesible.
+- `design-system/__tests__/apilamiento.test.ts` — 3 pruebas de la invariante de
+  apilamiento; la primera falla con el valor antiguo del diálogo.
 - `__tests__/wizard.test.tsx`, `lib/__tests__/scrollLock.test.ts`,
   `__tests__/informeMensual.test.ts` — del trabajo anterior de esta rama.
 
@@ -376,6 +410,9 @@ Pruebas nuevas de esta iteración:
    Excel, Word y PDF.
 8. Entra y sal de **Configuración › Ajustes locales** y de **Perfiles ›
    Herramientas**: la página sigue respondiendo y sigue scrolleando.
+9. En **Perfiles**, abre un perfil, pulsa **Modificar** y luego **Salir sin
+   guardar**: la confirmación aparece **encima** y el botón «Descartar y salir»
+   funciona (antes quedaba enterrada y había que recargar).
 
 ## Puesta en marcha (pasos manuales, con todo el detalle)
 
@@ -557,7 +594,20 @@ asistente. De paso, el intercambio es más rápido: no hay que esperar la salida
 </details>
 
 <details>
-<summary>6. Si el libro rechaza añadir una agencia nueva, ¿qué hace el formulario?</summary>
+<summary>6. ¿Por qué quien modificaba un perfil de cargo no podía salir?</summary>
+
+- **A.** El formulario esperaba una respuesta del backend.
+- **B.** La confirmación de salida se montaba con `z-index: 110` y el formulario
+  vive en `z-[115]`: quedaba por detrás y su botón no se podía pulsar. ✅
+- **C.** El botón no tenía manejador.
+
+Una confirmación tiene que estar por encima de cualquier superficie que la pueda
+abrir. Ahora el diálogo vale 165 y una prueba de invariante recorre el código para
+que ninguna superficie nueva vuelva a taparlo.
+</details>
+
+<details>
+<summary>7. Si el libro rechaza añadir una agencia nueva, ¿qué hace el formulario?</summary>
 
 - **A.** Cancela el alta del expediente.
 - **B.** Usa igualmente el valor en ese expediente y avisa de que hay que añadirlo

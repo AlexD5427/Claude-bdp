@@ -69,6 +69,7 @@ node qa/documentacion-app.mjs congelamiento # ¿sigue respondiendo tras abrir y 
 node qa/documentacion-app.mjs alta          # el asistente de nuevo expediente, de principio a fin
 node qa/sonda-foco-expediente.mjs           # ¿se puede ESCRIBIR en el panel del expediente?
 node qa/sonda-congelamiento.mjs             # ¿queda el `body` con overflow:hidden?
+node qa/sonda-salida-perfil.mjs             # ¿se puede SALIR del formulario de perfil de cargo?
 node qa/visual-documentacion.mjs            # las diez pantallas + capturas de la documentación
 ```
 
@@ -76,6 +77,10 @@ node qa/visual-documentacion.mjs            # las diez pantallas + capturas de l
 escribe una observación letra a letra y compara lo escrito con lo que llegó. Antes
 del arreglo devolvía `"F"` en lugar de la frase completa, y el foco terminaba en un
 `<button>`.
+
+`sonda-salida-perfil.mjs` encontró el otro fallo grave: la confirmación de «¿salir
+sin guardar?» se montaba por detrás del formulario (`z-index` 110 contra 115), así
+que no se podía pulsar y la única salida era recargar la página.
 
 A diferencia de `visual-documentacion.mjs` —que monta solo la consola—,
 `documentacion-app.mjs` monta la **aplicación completa** (acceso, dock y
