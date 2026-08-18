@@ -33,6 +33,7 @@ import { docApi } from "../api/acciones";
 import { seccionesPermitidas, type SeccionId } from "../domain/vocabulario";
 import { comprobarConexion, irASeccion, refrescarNotificaciones, useConsola } from "../state/consola";
 import { useProfiles } from "../../../lib/profilesStore";
+import { useDocStore } from "../../../lib/docStore";
 import { Aviso, Boton, Notitas, useNotitas } from "./piezas";
 import { propsSeccion, useMovimientoReducido } from "./DocMotion";
 import { conTransicionDeVista } from "./DocViewTransitions";
@@ -49,6 +50,8 @@ import { VistaLocal } from "./VistaLocal";
 export function DocumentacionConsola() {
   const consola = useConsola();
   const { current } = useProfiles();
+  const { settings } = useDocStore();
+  const backendUrl = settings.scriptUrl;
   const { notitas, avisar, quitar } = useNotitas();
   const reducido = useMovimientoReducido();
   const [expedienteAbierto, setExpedienteAbierto] = useState<string | null>(null);
@@ -56,13 +59,14 @@ export function DocumentacionConsola() {
   const [refresco, setRefresco] = useState(0);
 
   /**
-   * Al entrar —y cuando cambia el perfil— se resuelve la identidad contra el
-   * backend. El perfil viaja como actor: es lo que el backend usa para resolver el
-   * rol y para auditar quién hizo cada cosa.
+   * Al entrar —y cuando cambia el perfil o la URL del backend— se resuelve la
+   * identidad contra el backend de Documentación. La URL viene de los ajustes
+   * locales del módulo: es SU aplicación web, no la del resto del sistema. Sin
+   * este dato la consola hablaba con el backend equivocado y «no se conectaba».
    */
   useEffect(() => {
-    void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "" });
-  }, [current?.nombre, current?.role]);
+    void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl });
+  }, [current?.nombre, current?.role, backendUrl]);
 
   useEffect(() => {
     if (consola.conexion !== "conectado") return;
@@ -136,7 +140,7 @@ export function DocumentacionConsola() {
         rol={consola.rol}
         ultimaSincronizacion={consola.ultimaSincronizacion}
         operaciones={consola.cargando}
-        onReconectar={() => void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "" })}
+        onReconectar={() => void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl })}
         avisoGlobal={avisoGlobal}
         accionPrincipal={
           conectado && consola.capacidades.editar ? (

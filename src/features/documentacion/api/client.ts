@@ -184,7 +184,36 @@ export function accionesDeclaradas(): string[] {
 /* Estado del cliente                                                  */
 /* ------------------------------------------------------------------ */
 
-let urlActiva = SCRIPT_URL;
+/**
+ * URL de la aplicación web del backend de Documentación.
+ *
+ * ── Por qué no es simplemente `SCRIPT_URL` ──────────────────────────────────
+ * `SCRIPT_URL` es el backend del talento (postulantes, comparador). El módulo de
+ * Documentación es un proyecto de Apps Script APARTE, con su propia URL `/exec`.
+ * Confundirlos es exactamente el fallo que hacía que la consola «no se conectara»:
+ * hablaba con el backend equivocado, que no conoce las acciones `documentacion.*`.
+ *
+ * La URL propia se guarda en los ajustes locales (`bdp-documentacion`) y se lee
+ * aquí al arrancar, para que el cliente apunte al backend correcto desde la
+ * primera llamada —incluso antes de que la consola monte y la reconfigure—. Si no
+ * hay ninguna configurada, se cae con elegancia a `SCRIPT_URL`.
+ */
+const CLAVE_AJUSTES = "bdp-documentacion";
+
+function urlPersistidaDoc(): string {
+  if (typeof window === "undefined" || !window.localStorage) return "";
+  try {
+    const crudo = window.localStorage.getItem(CLAVE_AJUSTES);
+    if (!crudo) return "";
+    const guardado = JSON.parse(crudo) as { settings?: { scriptUrl?: string } };
+    const url = (guardado?.settings?.scriptUrl ?? "").trim();
+    return /^https:\/\/script\.google\.com\//.test(url) ? url : "";
+  } catch {
+    return "";
+  }
+}
+
+let urlActiva = urlPersistidaDoc() || SCRIPT_URL;
 let actorActivo = "";
 let rolActivo = "";
 let contadorSecuencia = 0;

@@ -18,7 +18,7 @@
  */
 
 import { useState } from "react";
-import { AlertTriangle, Database, RefreshCw, ShieldCheck, Stethoscope, Wrench } from "lucide-react";
+import { AlertTriangle, Database, Link2, RefreshCw, ShieldCheck, Stethoscope, Wrench } from "lucide-react";
 import { docApi, type CatalogoDocumento, type Diagnostico } from "../api/acciones";
 import { comprobarConexion, refrescarCatalogo, urlBackend, useConsola } from "../state/consola";
 import {
@@ -38,7 +38,8 @@ import {
 } from "./piezas";
 import { useDatos } from "./useDatos";
 import { DocSettingsModal } from "../../../components/doc/DocSettingsModal";
-import { useDocStore } from "../../../lib/docStore";
+import { setSettings, useDocStore } from "../../../lib/docStore";
+import { SCRIPT_URL } from "../../../constants";
 
 interface Props {
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
@@ -85,7 +86,9 @@ export function SeccionConfiguracion({ avisar }: Props) {
 
       {pestana === "estado" && (
         <div className="space-y-3">
-          <Panel titulo="Conexión" descripcion="Dónde está el libro y qué versión del módulo responde.">
+          <EditorConexion avisar={avisar} />
+
+          <Panel titulo="Estado del enlace" descripcion="Dónde está el libro y qué versión del módulo responde.">
             <dl className="grid gap-2 text-xs sm:grid-cols-2">
               <Fila etiqueta="Estado" valor={conexion} />
               <Fila etiqueta="Rol resuelto" valor={rol || "—"} />
@@ -193,6 +196,114 @@ function Fila({ etiqueta, valor }: { etiqueta: string; valor: string }) {
         {valor}
       </dd>
     </div>
+  );
+}
+
+/**
+ * Editor de la conexión con el backend de Documentación.
+ *
+ * ── Por qué es lo primero de la pantalla ────────────────────────────────────
+ * Si esta URL está mal, NADA del módulo funciona. Antes vivía enterrada en
+ * «Ajustes locales»; ahora es lo primero que se ve, con un diagnóstico honesto:
+ * distingue «no hay URL», «responde pero es otro backend» y «conectado».
+ *
+ * La URL se guarda en los ajustes locales (`setSettings`), que es la misma fuente
+ * que lee el cliente al arrancar, así que un recargado la conserva. Guardar
+ * dispara la comprobación con la URL nueva.
+ */
+function EditorConexion({ avisar }: Props) {
+  const { conexion, estado, ultimoError } = useConsola();
+  const { settings } = useDocStore();
+  const [borrador, setBorrador] = useState(settings.scriptUrl);
+  const [probando, setProbando] = useState(false);
+
+  const actual = urlBackend();
+  const usaGeneral = actual === SCRIPT_URL;
+  const limpio = borrador.trim();
+  const formatoValido = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(limpio);
+  const sinCambios = limpio === settings.scriptUrl.trim();
+
+  const intencion: "info" | "exito" | "aviso" | "peligro" =
+    conexion === "conectado" ? "exito" : conexion === "comprobando" ? "info" : conexion === "sin_instalar" ? "aviso" : "peligro";
+  const titulo =
+    conexion === "conectado"
+      ? "Conectado al backend de Documentación"
+      : conexion === "comprobando"
+        ? "Comprobando la conexión…"
+        : conexion === "sin_instalar"
+          ? "El backend responde, pero falta instalar el modelo"
+          : conexion === "sin_configurar"
+            ? "Sin backend configurado"
+            : "No se pudo hablar con el backend";
+
+  async function guardarYProbar() {
+    setProbando(true);
+    try {
+      // `setSettings` persiste y actualiza también el cliente heredado (vista
+      // local); `comprobarConexion` reconfigura el cliente de la consola nueva.
+      setSettings({ scriptUrl: limpio });
+      const estadoNuevo = await comprobarConexion({ url: limpio });
+      if (estadoNuevo === "conectado") avisar("exito", "Conectado. La consola ya opera contra el libro.");
+      else if (estadoNuevo === "sin_instalar") avisar("aviso", "El backend responde, pero falta instalar el modelo.", "Ve a Mantenimiento › Instalar o migrar.");
+      else avisar("peligro", "No se pudo conectar con esa URL.", "Revisa que sea la aplicación web del proyecto de Documentación.");
+    } finally {
+      setProbando(false);
+    }
+  }
+
+  return (
+    <Panel
+      titulo="Conexión con el libro"
+      descripcion="Pega aquí la URL de la aplicación web del proyecto de Apps Script de Documentación."
+    >
+      <Aviso intencion={intencion} titulo={titulo}>
+        {conexion === "conectado" && estado?.libro ? `Libro: ${estado.libro}.` : null}
+        {conexion !== "conectado" && ultimoError ? `${ultimoError.mensaje} ${ultimoError.pista}` : null}
+        {conexion === "sin_configurar" ? "Aún no has pegado la URL de la aplicación web del módulo." : null}
+      </Aviso>
+
+      {usaGeneral && conexion !== "conectado" && (
+        <div className="mt-2">
+          <Aviso intencion="aviso" titulo="Estás usando el backend general del sistema">
+            La consola está apuntando a la URL general (la del talento), que no conoce las acciones de Documentación. Pega la URL propia
+            del proyecto de Apps Script de este módulo.
+          </Aviso>
+        </div>
+      )}
+
+      <div className="mt-3 space-y-2">
+        <Campo
+          etiqueta="URL de la aplicación web (Apps Script)"
+          ayuda="Se obtiene al publicar el proyecto como aplicación web con acceso «Cualquier usuario». Debe terminar en /exec."
+          error={limpio && !formatoValido ? "La URL debe empezar por https://script.google.com/macros/s/ y terminar en /exec." : undefined}
+        >
+          <Entrada
+            value={borrador}
+            onChange={(e) => setBorrador(e.target.value)}
+            placeholder="https://script.google.com/macros/s/AKfycb…/exec"
+            spellCheck={false}
+            className="font-mono text-xs"
+          />
+        </Campo>
+        <div className="flex flex-wrap gap-2">
+          <Boton variante="primario" onClick={guardarYProbar} cargando={probando} disabled={!formatoValido || sinCambios}>
+            <Link2 className="h-3.5 w-3.5" aria-hidden /> Guardar y probar
+          </Boton>
+          <Boton variante="suave" onClick={() => void comprobarConexion()} cargando={probando && sinCambios}>
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Probar de nuevo
+          </Boton>
+          {settings.scriptUrl && borrador !== settings.scriptUrl && (
+            <Boton variante="fantasma" onClick={() => setBorrador(settings.scriptUrl)}>
+              Restablecer
+            </Boton>
+          )}
+        </div>
+        <p className="doc-prose text-[11px] text-[color:var(--doc-text-faint)]">
+          Endpoint activo: <span className="font-mono">{actual}</span>
+          {usaGeneral ? " · (backend general por defecto)" : " · (backend propio del módulo)"}
+        </p>
+      </div>
+    </Panel>
   );
 }
 
