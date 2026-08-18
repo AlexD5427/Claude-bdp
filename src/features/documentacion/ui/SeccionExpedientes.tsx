@@ -679,6 +679,7 @@ export function SeccionExpedientes({ onAbrir, avisar, altaAbierta = false, onCer
           onAbrir(expedienteId);
         }}
         onError={(mensaje, pista) => avisar("peligro", mensaje, pista)}
+        onAviso={(intencion, texto, pista) => avisar(intencion, texto, pista)}
       />
 
       <SolicitudMasiva

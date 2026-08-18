@@ -41,8 +41,11 @@ import {
 import { docApi } from "../api/acciones";
 import { useConsola } from "../state/consola";
 import { DURACION, CURVA, resorte, useMovimientoReducido } from "./DocMotion";
-import { Aviso, Boton, Campo, Entrada, Selector, TONO } from "./piezas";
+import { Aviso, Boton, Campo, Confirmacion, Entrada, TONO } from "./piezas";
+import { CampoFecha, diasDesdeHoy, fechaLegible } from "./CampoFecha";
+import { SelectorAuxiliar } from "./SelectorAuxiliar";
 import { bloquearScroll } from "../../../lib/scrollLock";
+import { useFormDraft } from "../../../hooks/useFormDraft";
 import {
   CATEGORIAS,
   CATEGORIA_GENERAL,
@@ -57,7 +60,7 @@ import {
   ETIQUETA_DOCUMENTO,
   type EstadoDocumento,
 } from "../domain/vocabulario";
-import { diasHasta, fechaEnDias, hoy, textoPlazo } from "../domain/progreso";
+import { hoy } from "../domain/progreso";
 import type { CatalogoCliente, CatalogoDocumento } from "../api/acciones";
 
 /* ------------------------------------------------------------------ */
@@ -86,6 +89,59 @@ interface Paso {
 
 const IDENTIFICADOR_RE = /^\s*\d{5,}\s*[-–]\s*\d+\s*[-–]\s*\d{4}\s*$/;
 
+interface Identidad {
+  identificador: string;
+  nombre: string;
+  cargo: string;
+  agencia: string;
+  gerencia: string;
+  fechaIngreso: string;
+  responsableId: string;
+}
+
+const IDENTIDAD_VACIA: Identidad = {
+  identificador: "",
+  nombre: "",
+  cargo: "",
+  agencia: "",
+  gerencia: "",
+  fechaIngreso: "",
+  responsableId: "",
+};
+
+/**
+ * Borrador del asistente.
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────
+ * Llenar un expediente son entre veinte y treinta decisiones. Perderlas por una
+ * pestaña cerrada, un navegador que se recarga o un clic fuera del panel es la
+ * clase de fricción que hace que la gente vuelva al Excel. El borrador se guarda
+ * en este equipo mientras se escribe y se ofrece al volver a abrir el asistente:
+ * continuar o empezar de cero, decidido siempre por la persona.
+ *
+ * Solo se guarda lo que la persona escribió; nada llega al libro hasta que pulsa
+ * «Guardar y abrir expediente». Al guardar con éxito, el borrador se borra.
+ */
+const CLAVE_BORRADOR = "bdp-documentacion-alta-borrador";
+
+interface BorradorAlta {
+  form: Identidad;
+  categoria: string;
+  garantia: string;
+  docs: Record<string, EstadoDoc>;
+  paso: PasoId;
+}
+
+/** ¿Tiene el borrador algo que valga la pena recuperar? */
+function borradorConContenido(b: BorradorAlta): boolean {
+  return (
+    b.form.identificador.trim() !== "" ||
+    b.form.nombre.trim() !== "" ||
+    b.categoria !== "" ||
+    Object.keys(b.docs).length > 0
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Componente principal                                                */
 /* ------------------------------------------------------------------ */
@@ -95,14 +151,19 @@ export function AltaExpedienteWizard({
   onCerrar,
   onCreado,
   onError,
+  onAviso,
 }: {
   abierta: boolean;
   onCerrar: () => void;
   onCreado: (expedienteId: string, requisitos: number) => void;
   onError: (mensaje: string, pista?: string) => void;
+  /** Avisos no bloqueantes (por ejemplo, un valor añadido al catálogo auxiliar). */
+  onAviso?: (intencion: "info" | "exito" | "aviso" | "peligro", texto: string, pista?: string) => void;
 }) {
   return (
-    <AnimatePresence>{abierta && <WizardCuerpo onCerrar={onCerrar} onCreado={onCreado} onError={onError} />}</AnimatePresence>
+    <AnimatePresence>
+      {abierta && <WizardCuerpo onCerrar={onCerrar} onCreado={onCreado} onError={onError} onAviso={onAviso} />}
+    </AnimatePresence>
   );
 }
 
@@ -110,30 +171,48 @@ function WizardCuerpo({
   onCerrar,
   onCreado,
   onError,
+  onAviso,
 }: {
   onCerrar: () => void;
   onCreado: (expedienteId: string, requisitos: number) => void;
   onError: (mensaje: string, pista?: string) => void;
+  onAviso?: (intencion: "info" | "exito" | "aviso" | "peligro", texto: string, pista?: string) => void;
 }) {
   const { catalogo } = useConsola();
   const reducido = useMovimientoReducido();
 
   const [paso, setPaso] = useState<PasoId>("identidad");
-  const [form, setForm] = useState({
-    identificador: "",
-    nombre: "",
-    cargo: "",
-    agencia: "",
-    gerencia: "",
-    fechaIngreso: "",
-    responsableId: "",
-  });
+  const [form, setForm] = useState(IDENTIDAD_VACIA);
   const [categoria, setCategoria] = useState<string>("");
   const [garantia, setGarantia] = useState<string>("");
   const [docs, setDocs] = useState<Record<string, EstadoDoc>>({});
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
+  const [pidiendoCierre, setPidiendoCierre] = useState(false);
   const [clave] = useState(() => `alta_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+
+  const borradorActual: BorradorAlta = { form, categoria, garantia, docs, paso };
+  const { recoveredDraft, savedAt, clearDraft } = useFormDraft<BorradorAlta>(
+    CLAVE_BORRADOR,
+    borradorActual,
+    borradorConContenido,
+  );
+  const [ofreciendoBorrador, setOfreciendoBorrador] = useState(Boolean(recoveredDraft));
+
+  function retomarBorrador() {
+    if (!recoveredDraft) return;
+    setForm({ ...IDENTIDAD_VACIA, ...recoveredDraft.form });
+    setCategoria(recoveredDraft.categoria ?? "");
+    setGarantia(recoveredDraft.garantia ?? "");
+    setDocs(recoveredDraft.docs ?? {});
+    setPaso(recoveredDraft.paso ?? "identidad");
+    setOfreciendoBorrador(false);
+  }
+
+  function descartarBorrador() {
+    clearDraft();
+    setOfreciendoBorrador(false);
+  }
 
   useEffect(() => bloquearScroll(), []);
 
@@ -308,6 +387,7 @@ function WizardCuerpo({
         }
       }
 
+      clearDraft();
       onCreado(creado.expedienteId, creado.requisitos ?? codigosAplicables.length);
     } catch (error) {
       const fallo = error as { message?: string; pista?: string; campos?: Record<string, string> };
@@ -323,9 +403,35 @@ function WizardCuerpo({
 
   function intentarCerrar() {
     if (guardando) return;
-    if (hayDatos && typeof window !== "undefined" && !window.confirm("Hay datos escritos en el asistente. ¿Cerrar y perderlos?")) return;
+    // Confirmación de la propia interfaz: `window.confirm` bloquea el hilo y, si
+    // alguien marca «no volver a mostrar estos diálogos», deja de poder cerrarse.
+    if (hayDatos) {
+      setPidiendoCierre(true);
+      return;
+    }
     onCerrar();
   }
+
+  /* Cinta de estado del borrador: dice que nada se está perdiendo mientras se
+     escribe, y ofrece retomar el que quedó de la última vez. */
+  const cintaBorrador = ofreciendoBorrador && recoveredDraft ? (
+    <div className="mx-auto mb-4 w-full max-w-3xl">
+      <Aviso intencion="info" titulo="Hay un expediente a medio llenar">
+        <span className="block">
+          Se guardó en este equipo {savedAt ? `el ${new Date(savedAt).toLocaleString("es-BO")}` : "en la sesión anterior"}
+          {recoveredDraft.form.nombre ? ` · ${recoveredDraft.form.nombre}` : ""}.
+        </span>
+        <span className="mt-2 flex flex-wrap gap-2">
+          <Boton variante="primario" onClick={retomarBorrador}>
+            Continuar donde lo dejé
+          </Boton>
+          <Boton variante="suave" onClick={descartarBorrador}>
+            Empezar de cero
+          </Boton>
+        </span>
+      </Aviso>
+    </div>
+  ) : null;
 
   const contenido = (
     <motion.div
@@ -336,7 +442,9 @@ function WizardCuerpo({
       transition={reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaExpo }}
       className="mx-auto w-full max-w-3xl"
     >
-      {paso === "identidad" && <PasoIdentidad form={form} poner={poner} errores={errores} catalogo={catalogo} reducido={reducido} />}
+      {paso === "identidad" && (
+        <PasoIdentidad form={form} poner={poner} errores={errores} catalogo={catalogo} reducido={reducido} onAviso={onAviso} />
+      )}
       {paso === "generales" && (
         <PasoDocumentos
           titulo="Documentos generales"
@@ -414,7 +522,10 @@ function WizardCuerpo({
         <Encabezado pasos={pasos} indice={indice} onIr={irA} onCerrar={intentarCerrar} />
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-          <AnimatePresence mode="wait">{contenido}</AnimatePresence>
+          {cintaBorrador}
+          {/* Sin `mode="wait"`: si un paso no reporta el fin de su salida, el
+              siguiente no se montaría nunca y el asistente quedaría en blanco. */}
+          {contenido}
         </div>
 
         <Pie
@@ -427,6 +538,18 @@ function WizardCuerpo({
           onGuardar={guardar}
         />
       </motion.div>
+
+      <Confirmacion
+        abierta={pidiendoCierre}
+        titulo="¿Cerrar el asistente?"
+        detalle="Hay datos escritos. Se guarda un borrador en este equipo, así que podrás continuar donde lo dejaste al volver a abrirlo."
+        textoConfirmar="Cerrar"
+        onConfirmar={() => {
+          setPidiendoCierre(false);
+          onCerrar();
+        }}
+        onCancelar={() => setPidiendoCierre(false)}
+      />
     </>
   );
 
@@ -561,12 +684,14 @@ function PasoIdentidad({
   errores,
   catalogo,
   reducido,
+  onAviso,
 }: {
   form: { identificador: string; nombre: string; cargo: string; agencia: string; gerencia: string; fechaIngreso: string; responsableId: string };
   poner: (campo: keyof typeof form, valor: string) => void;
   errores: Record<string, string>;
   catalogo: CatalogoCliente | null;
   reducido: boolean;
+  onAviso?: (intencion: "info" | "exito" | "aviso" | "peligro", texto: string, pista?: string) => void;
 }) {
   const agencias = catalogo?.auxiliares.agencia_bdp ?? [];
   const gerencias = catalogo?.auxiliares.gerencia_bdp ?? [];
@@ -591,20 +716,24 @@ function PasoIdentidad({
         <Campo etiqueta="Cargo">
           <Entrada value={form.cargo} onChange={(e) => poner("cargo", e.target.value)} placeholder="Ej. Oficial de Negocios" />
         </Campo>
-        <Campo etiqueta="Agencia" ayuda="Se lee de la pestaña Auxiliar (columna agencia_bdp).">
-          <Selector
+        <Campo etiqueta="Agencia" ayuda="Del libro: hoja Auxiliar, columna agencia_bdp. Se puede añadir una nueva.">
+          <SelectorAuxiliar
             valor={form.agencia}
             onChange={(v) => poner("agencia", v)}
-            opciones={agencias.map((a) => ({ valor: a, etiqueta: a }))}
-            placeholder={agencias.length ? "Elige una agencia" : "Sin agencias en el catálogo"}
+            opciones={agencias}
+            columna="agencia_bdp"
+            placeholder={agencias.length ? "Elige una agencia" : "Escribe la agencia y añádela"}
+            onAviso={onAviso}
           />
         </Campo>
-        <Campo etiqueta="Gerencia" ayuda="Se lee de la pestaña Auxiliar (columna gerencia_bdp).">
-          <Selector
+        <Campo etiqueta="Gerencia" ayuda="Del libro: hoja Auxiliar, columna gerencia_bdp. Se puede añadir una nueva.">
+          <SelectorAuxiliar
             valor={form.gerencia}
             onChange={(v) => poner("gerencia", v)}
-            opciones={gerencias.map((g) => ({ valor: g, etiqueta: g }))}
-            placeholder={gerencias.length ? "Elige una gerencia" : "Sin gerencias en el catálogo"}
+            opciones={gerencias}
+            columna="gerencia_bdp"
+            placeholder={gerencias.length ? "Elige una gerencia" : "Escribe la gerencia y añádela"}
+            onAviso={onAviso}
           />
         </Campo>
         <Campo etiqueta="Responsable del proceso" ayuda="Quien persigue la documentación.">
@@ -617,50 +746,47 @@ function PasoIdentidad({
   );
 }
 
-/** Selector de fecha de ingreso: campo nativo + accesos rápidos + eco legible. */
+/**
+ * Fecha de ingreso.
+ *
+ * Usa el calendario propio del módulo (`CampoFecha`): rejilla mensual, atajos al
+ * pasado, teclado completo y eco legible. El máximo es hoy —no se registra un
+ * ingreso futuro— y el año elegido es el que decide en qué pestaña anual del libro
+ * aterriza el expediente, así que se dice en voz alta.
+ */
 function SelectorFecha({ valor, onChange, reducido }: { valor: string; onChange: (v: string) => void; reducido: boolean }) {
-  const legible = valor
-    ? new Date(`${valor}T00:00:00`).toLocaleDateString("es-BO", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
-    : "";
-  const rapidos: { etiqueta: string; dias: number }[] = [
-    { etiqueta: "Hoy", dias: 0 },
-    { etiqueta: "Ayer", dias: -1 },
-    { etiqueta: "Hace una semana", dias: -7 },
-    { etiqueta: "Hace 15 días", dias: -15 },
-  ];
+  const anio = valor ? valor.slice(0, 4) : "";
   return (
     <div className="doc-sunken rounded-[var(--doc-radius,14px)] p-4">
       <div className="flex items-center gap-2">
         <CalendarClock className="h-4 w-4" style={{ color: "var(--doc-info)" }} aria-hidden />
         <span className="text-xs font-semibold text-[color:var(--doc-text)]">Fecha de ingreso</span>
       </div>
-      <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">Determina el año del libro y la antigüedad de la persona.</p>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Entrada type="date" value={valor} max={hoy()} onChange={(e) => onChange(e.target.value)} className="w-auto" />
-        {legible && (
-          <motion.span
-            key={valor}
+      <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">
+        Decide el año del libro y la antigüedad de la persona.
+      </p>
+      <div className="mt-3 max-w-xs">
+        <CampoFecha
+          valor={valor}
+          onChange={onChange}
+          max={hoy()}
+          sentido="pasado"
+          etiquetaAccesible="Fecha de ingreso"
+        />
+      </div>
+      <AnimatePresence initial={false}>
+        {anio && (
+          <motion.p
+            key={anio}
             initial={reducido ? false : { opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-xs capitalize text-[color:var(--doc-text-muted)]"
+            exit={reducido ? undefined : { opacity: 0 }}
+            className="mt-2 text-[11px] text-[color:var(--doc-text-muted)]"
           >
-            {legible}
-          </motion.span>
+            El expediente se escribirá en la pestaña <strong>CONTROL INGRESOS {anio}</strong>.
+          </motion.p>
         )}
-      </div>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {rapidos.map((r) => (
-          <button
-            key={r.etiqueta}
-            type="button"
-            onClick={() => onChange(fechaEnDias(r.dias))}
-            className="doc-tap rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors"
-            style={{ background: "var(--doc-surface-raised)", color: "var(--doc-text-muted)", boxShadow: "inset 0 0 0 1px var(--doc-border)" }}
-          >
-            {r.etiqueta}
-          </button>
-        ))}
-      </div>
+      </AnimatePresence>
     </div>
   );
 }
@@ -716,7 +842,7 @@ function FilaDocumento({
   const [obsAbierta, setObsAbierta] = useState(false);
   const opciones: EstadoDocumento[] = doc.permiteNoAplica ? [...ESTADOS_CHIP, "NO_APLICA"] : ESTADOS_CHIP;
   const mostrarObs = obsAbierta || estado.observaciones.trim() !== "";
-  const diasProrroga = estado.prorrogaActiva && estado.prorrogaFecha ? diasHasta(estado.prorrogaFecha) : null;
+  const diasProrroga = estado.prorrogaActiva && estado.prorrogaFecha ? diasDesdeHoy(estado.prorrogaFecha) : null;
 
   return (
     <motion.li
@@ -797,12 +923,18 @@ function FilaDocumento({
           >
             <div className="mt-2 rounded-[var(--doc-radius-sm)] p-3" style={{ background: TONO.aviso.fondo, boxShadow: `inset 0 0 0 1px ${TONO.aviso.borde}` }}>
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="block">
+                <div>
                   <span className="mb-1 block text-[11px] font-medium" style={{ color: TONO.aviso.texto }}>
                     Fecha límite de la prórroga
                   </span>
-                  <Entrada type="date" min={hoy()} value={estado.prorrogaFecha} onChange={(e) => onDoc(doc.codigo, { prorrogaFecha: e.target.value })} />
-                </label>
+                  <CampoFecha
+                    valor={estado.prorrogaFecha}
+                    onChange={(v) => onDoc(doc.codigo, { prorrogaFecha: v })}
+                    min={hoy()}
+                    sentido="futuro"
+                    etiquetaAccesible={`Fecha límite de la prórroga de ${doc.nombre}`}
+                  />
+                </div>
                 <label className="block">
                   <span className="mb-1 block text-[11px] font-medium" style={{ color: TONO.aviso.texto }}>
                     Motivo
@@ -810,7 +942,7 @@ function FilaDocumento({
                   <Entrada value={estado.prorrogaMotivo} onChange={(e) => onDoc(doc.codigo, { prorrogaMotivo: e.target.value })} placeholder="Por qué se concede el plazo" />
                 </label>
               </div>
-              {diasProrroga !== null && <CuentaRegresiva dias={diasProrroga} />}
+              {diasProrroga !== null && <CuentaRegresiva dias={diasProrroga} fecha={estado.prorrogaFecha} />}
             </div>
           </motion.div>
         )}
@@ -840,19 +972,27 @@ function ChipEstadoSeleccionable({ estado, activo, onClick }: { estado: EstadoDo
   );
 }
 
-function CuentaRegresiva({ dias }: { dias: number }) {
+function CuentaRegresiva({ dias, fecha }: { dias: number; fecha: string }) {
   const vencida = dias < 0;
   const porVencer = dias >= 0 && dias <= 3;
   const intencion = vencida ? "peligro" : porVencer ? "aviso" : "exito";
   const tono = TONO[intencion];
-  const pct = Math.max(0, Math.min(100, Math.round(((dias + 3) / 33) * 100)));
+  /* La barra representa un plazo típico de 30 días; se recorta en los extremos
+     para que un plazo de 90 días no la deje siempre llena ni un vencido negativa. */
+  const pct = Math.max(0, Math.min(100, Math.round((dias / 30) * 100)));
   return (
     <div className="mt-2">
-      <div className="flex items-center justify-between text-[11px]" style={{ color: tono.texto }}>
-        <span className="inline-flex items-center gap-1">
-          <Timer className="h-3 w-3" aria-hidden /> {textoPlazo(fechaEnDias(dias))}
+      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px]" style={{ color: tono.texto }}>
+        <span className="inline-flex items-center gap-1 capitalize">
+          <Timer className="h-3 w-3" aria-hidden /> {fechaLegible(fecha)}
         </span>
-        <span>{vencida ? "Fuera de plazo" : `${dias} día${dias === 1 ? "" : "s"} restantes`}</span>
+        <span>
+          {vencida
+            ? `Fuera de plazo por ${Math.abs(dias)} día${Math.abs(dias) === 1 ? "" : "s"}`
+            : dias === 0
+              ? "Vence hoy"
+              : `${dias} día${dias === 1 ? "" : "s"} restantes`}
+        </span>
       </div>
       <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "var(--doc-surface-sunken)" }}>
         <motion.div className="h-full rounded-full" style={{ background: tono.borde }} initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.4 }} />

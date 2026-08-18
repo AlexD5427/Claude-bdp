@@ -69,6 +69,65 @@ export interface ConsolaState {
 
 const CLAVE = "bdp-documentacion-consola";
 
+/* ------------------------------------------------------------------ */
+/* Catálogo en caché: la primera red de seguridad                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * El catálogo se guarda aparte, con su sello de tiempo.
+ *
+ * ── Por qué ─────────────────────────────────────────────────────────────────
+ * El catálogo es lo que decide qué documentos existen y cuáles aplican a cada
+ * rama. El asistente de alta, la vista del expediente y los reportes lo necesitan
+ * para pintar algo. Si la primera llamada falla —red mala, Apps Script tardando,
+ * implementación recién publicada—, sin caché el formulario aparece VACÍO: la
+ * persona ve un paso sin documentos y concluye que el módulo está roto.
+ *
+ * Con la copia local, el módulo abre con el último catálogo conocido y lo
+ * reemplaza en silencio cuando el backend contesta. Se guarda por separado del
+ * resto del estado porque tiene otro ciclo de vida: las preferencias cambian a
+ * cada rato y el catálogo casi nunca.
+ *
+ * No es un dato personal: son nombres de documentos exigibles y las listas de
+ * agencias y gerencias. Nada de expedientes ni de personas se guarda aquí.
+ */
+const CLAVE_CATALOGO = "bdp-documentacion-catalogo";
+
+interface CatalogoEnCache {
+  catalogo: CatalogoCliente;
+  guardadoEn: string;
+}
+
+function leerCatalogoCache(): CatalogoEnCache | null {
+  if (typeof window === "undefined" || !window.localStorage) return null;
+  try {
+    const crudo = window.localStorage.getItem(CLAVE_CATALOGO);
+    if (!crudo) return null;
+    const guardado = JSON.parse(crudo) as CatalogoEnCache;
+    // Se valida la forma: un `localStorage` de una versión anterior no debe
+    // tumbar el arranque del módulo.
+    if (!guardado?.catalogo || !Array.isArray(guardado.catalogo.documentos)) return null;
+    if (!Array.isArray(guardado.catalogo.aplicabilidad)) return null;
+    return guardado;
+  } catch {
+    return null;
+  }
+}
+
+function guardarCatalogoCache(catalogo: CatalogoCliente): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(CLAVE_CATALOGO, JSON.stringify({ catalogo, guardadoEn: new Date().toISOString() }));
+  } catch {
+    /* almacenamiento lleno o bloqueado: la caché es una ayuda, no un requisito */
+  }
+}
+
+/** Cuándo se guardó el catálogo que hay en memoria. Vacío si viene del servidor. */
+export function catalogoEnCacheDesde(): string {
+  return leerCatalogoCache()?.guardadoEn ?? "";
+}
+
 const DENSIDADES: Densidad[] = ["compacta", "comoda", "amplia"];
 
 const INICIAL: ConsolaState = {
@@ -119,6 +178,12 @@ const consola = createStore<ConsolaState>(INICIAL, {
     };
   },
 });
+
+/* Hidratación del catálogo: se hace aquí, después de crear el almacén, y no en
+   `INICIAL`, porque leerlo requiere una constante que todavía no existe cuando se
+   evalúa el estado inicial. Ocurre una vez, al cargar el módulo. */
+const catalogoGuardado = leerCatalogoCache();
+if (catalogoGuardado) consola.set((prev) => ({ ...prev, catalogo: catalogoGuardado.catalogo }));
 
 export const useConsola = consola.use;
 export const obtenerConsola = consola.get;
@@ -221,6 +286,7 @@ export async function comprobarConexion(opciones: { actor?: string; rol?: string
     if (conexion === "conectado") {
       try {
         const catalogo = await docApi.catalogo();
+        guardarCatalogoCache(catalogo);
         consola.set((prev) => ({ ...prev, catalogo }));
       } catch (error) {
         // Sin catálogo el módulo sigue siendo utilizable para consultar; solo el
@@ -255,6 +321,7 @@ export async function refrescarCatalogo(): Promise<void> {
   if (obtenerConsola().conexion !== "conectado") return;
   try {
     const catalogo = await docApi.catalogo();
+    guardarCatalogoCache(catalogo);
     consola.set((prev) => ({ ...prev, catalogo }));
   } catch (error) {
     registrarError(error);
