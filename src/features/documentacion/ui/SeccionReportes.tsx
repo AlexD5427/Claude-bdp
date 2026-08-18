@@ -10,11 +10,20 @@
  */
 
 import { useMemo, useState } from "react";
-import { Bell, BellOff, Download, FileSpreadsheet, RefreshCw, Search } from "lucide-react";
-import { docApi, type ReporteDatos } from "../api/acciones";
+import { Bell, BellOff, CalendarRange, Download, FileSpreadsheet, FileText, Printer, RefreshCw, Search } from "lucide-react";
+import { docApi, type ExpedienteOperativo, type ReporteDatos } from "../api/acciones";
 import { fechaHora, filtrosParaBackend } from "../domain/progreso";
 import { refrescarNotificaciones, useConsola } from "../state/consola";
 import { descargarXlsx, nombreConFecha, unirLotes } from "../export/xlsx";
+import {
+  construirInforme,
+  descargarWord,
+  enElMes,
+  etiquetaMes,
+  imprimirInforme,
+  informeALibro,
+  type InformeMensual,
+} from "../export/informeMensual";
 import {
   Aviso,
   Boton,
@@ -72,6 +81,8 @@ export function SeccionReportes({ avisar }: Props) {
 
   return (
     <div className="space-y-3">
+      <PanelInformeMensual avisar={avisar} />
+
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[220px]">
           <Campo etiqueta="Reporte">
@@ -115,6 +126,183 @@ export function SeccionReportes({ avisar }: Props) {
           vacio={<Vacio titulo="Sin datos" detalle="Este reporte no devolvió filas con los filtros actuales." />}
         />
       </Panel>
+    </div>
+  );
+}
+
+/* ================================================================== */
+/* Informe de avance mensual                                           */
+/* ================================================================== */
+
+/** Mes actual en formato `YYYY-MM`. */
+function mesActual(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+const TOPE_INFORME = 120;
+
+/**
+ * Informe de avance mensual.
+ *
+ * Reúne los expedientes cuyo INGRESO cae en el mes elegido, lee el detalle de
+ * cada uno (una lectura por persona, con progreso visible) y arma un informe
+ * categorizado → por persona → por documento. Se descarga en Excel, Word o PDF.
+ */
+function PanelInformeMensual({ avisar }: { avisar: Props["avisar"] }) {
+  const { conexion, capacidades } = useConsola();
+  const [mes, setMes] = useState(mesActual());
+  const [trabajando, setTrabajando] = useState(false);
+  const [progreso, setProgreso] = useState<{ hechos: number; total: number } | null>(null);
+  const [informe, setInforme] = useState<InformeMensual | null>(null);
+
+  const conectado = conexion === "conectado";
+
+  async function generar() {
+    setTrabajando(true);
+    setInforme(null);
+    setProgreso({ hechos: 0, total: 0 });
+    try {
+      const [anio, m] = mes.split("-").map((n) => parseInt(n, 10));
+      const ultimo = new Date(anio, m, 0).getDate();
+      const lista = await docApi.listarExpedientes({
+        ingresoDesde: `${mes}-01`,
+        ingresoHasta: `${mes}-${String(ultimo).padStart(2, "0")}`,
+        incluirArchivados: true,
+        porPagina: 200,
+        orden: "reciente",
+      });
+      // Segunda red: se filtra también en el cliente por si el backend no acotó.
+      let cabeceras = lista.expedientes.filter((e) => enElMes(e.fechaIngreso, mes));
+      if (cabeceras.length > TOPE_INFORME) {
+        avisar("aviso", `El mes tiene ${cabeceras.length} ingresos; el informe toma los primeros ${TOPE_INFORME}.`, "Acota el mes o exporta por lotes desde Exportaciones.");
+        cabeceras = cabeceras.slice(0, TOPE_INFORME);
+      }
+      if (!cabeceras.length) {
+        setInforme(construirInforme([], mes));
+        avisar("info", `No hay ingresos registrados en ${etiquetaMes(mes)}.`);
+        return;
+      }
+      const detalles: ExpedienteOperativo[] = [];
+      for (let i = 0; i < cabeceras.length; i++) {
+        setProgreso({ hechos: i, total: cabeceras.length });
+        const detalle = await docApi.obtenerExpediente(cabeceras[i].expedienteId);
+        detalles.push(detalle);
+      }
+      setProgreso({ hechos: cabeceras.length, total: cabeceras.length });
+      setInforme(construirInforme(detalles, mes));
+      avisar("exito", `Informe de ${etiquetaMes(mes)} listo: ${detalles.length} persona(s).`);
+    } catch (error) {
+      const fallo = error as { message?: string; pista?: string };
+      avisar("peligro", fallo.message ?? "No se pudo generar el informe.", fallo.pista);
+    } finally {
+      setTrabajando(false);
+    }
+  }
+
+  return (
+    <Panel
+      titulo="Informe de avance mensual"
+      descripcion="Analiza los ingresos del mes, agrupa por categoría y persona, y detalla el cumplimiento y las observaciones de cada documento."
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <Campo etiqueta="Mes del informe">
+          <Entrada type="month" value={mes} max={mesActual()} onChange={(e) => setMes(e.target.value)} className="w-auto" />
+        </Campo>
+        <Boton variante="primario" onClick={generar} cargando={trabajando} disabled={!conectado}>
+          <CalendarRange className="h-3.5 w-3.5" aria-hidden /> Generar informe
+        </Boton>
+        {!conectado && <span className="text-[11px] text-[color:var(--doc-text-faint)]">Conéctate al backend para generar el informe.</span>}
+      </div>
+
+      {trabajando && progreso && progreso.total > 0 && (
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[11px] text-[color:var(--doc-text-muted)]">
+            <span>Leyendo expedientes…</span>
+            <span>
+              {progreso.hechos} / {progreso.total}
+            </span>
+          </div>
+          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full" style={{ background: "var(--doc-surface-sunken)" }}>
+            <div
+              className="h-full rounded-full transition-[width] duration-200"
+              style={{ width: `${Math.round((progreso.hechos / progreso.total) * 100)}%`, background: "var(--doc-info)" }}
+            />
+          </div>
+        </div>
+      )}
+
+      {informe && (
+        <div className="mt-4 space-y-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <ResumenCifra etiqueta="Personas" valor={informe.totalPersonas} />
+            <ResumenCifra etiqueta="Avance promedio" valor={`${informe.avancePromedio}%`} />
+            <ResumenCifra etiqueta="Categorías" valor={informe.categorias.length} />
+            <ResumenCifra etiqueta="Mes" valor={informe.etiquetaMes} />
+          </div>
+
+          {informe.categorias.length > 0 && (
+            <ul className="space-y-1.5">
+              {informe.categorias.map((cat) => (
+                <li key={cat.codigo} className="doc-sunken flex flex-wrap items-center justify-between gap-2 p-2.5">
+                  <span className="inline-flex items-center gap-2 text-xs font-semibold text-[color:var(--doc-text)]">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: cat.color }} aria-hidden />
+                    {cat.etiqueta}
+                  </span>
+                  <span className="text-[11px] text-[color:var(--doc-text-muted)]">
+                    {cat.personas.length} persona(s) · avance {cat.avancePromedio}%
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {capacidades.exportar ? (
+            <div className="flex flex-wrap gap-2">
+              <Boton
+                variante="suave"
+                onClick={() => {
+                  const { nombre } = descargarXlsx(informeALibro(informe), nombreConFecha(`informe-mensual-${informe.mes}`));
+                  avisar("exito", `Descargado ${nombre}.`);
+                }}
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden /> Excel
+              </Boton>
+              <Boton
+                variante="suave"
+                onClick={() => {
+                  descargarWord(informe, `informe-mensual-${informe.mes}`);
+                  avisar("exito", "Documento de Word descargado.");
+                }}
+              >
+                <FileText className="h-3.5 w-3.5" aria-hidden /> Word
+              </Boton>
+              <Boton
+                variante="suave"
+                onClick={() => {
+                  imprimirInforme(informe);
+                  avisar("info", "Se abrió el diálogo de impresión: elige «Guardar como PDF».");
+                }}
+              >
+                <Printer className="h-3.5 w-3.5" aria-hidden /> PDF
+              </Boton>
+            </div>
+          ) : (
+            <Aviso intencion="info" titulo="Solo lectura">
+              Tu rol puede ver el informe, pero no descargarlo. Pide la capacidad de exportar a un administrador.
+            </Aviso>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ResumenCifra({ etiqueta, valor }: { etiqueta: string; valor: string | number }) {
+  return (
+    <div className="doc-raised rounded-[var(--doc-radius,14px)] p-3 text-center">
+      <div className="doc-metric text-lg font-bold text-[color:var(--doc-text)]">{valor}</div>
+      <div className="text-[10px] uppercase tracking-wide text-[color:var(--doc-text-faint)]">{etiqueta}</div>
     </div>
   );
 }
