@@ -14,6 +14,7 @@ import { AnimatePresence, motion, useMotionValue, useSpring, useTransform } from
 import { Check, Copy, ExternalLink } from "lucide-react";
 import type { EstadoEvaluacion, EstadoIntento } from "../domain/model";
 import { ESTADO_INTENTO_LABEL, ESTADO_LABEL } from "../domain/model";
+import { bloquearScroll } from "../../../lib/scrollLock";
 
 /* --------------------------------- Píldoras ------------------------------- */
 
@@ -717,11 +718,10 @@ export function GlassOverlay({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", alTeclado);
-    const previo = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const liberarScroll = bloquearScroll();
     return () => {
       document.removeEventListener("keydown", alTeclado);
-      document.body.style.overflow = previo;
+      liberarScroll();
     };
   }, [abierto, onClose]);
 

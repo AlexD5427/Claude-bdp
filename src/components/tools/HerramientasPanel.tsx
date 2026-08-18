@@ -1,5 +1,6 @@
 import { useEffect, type ComponentType } from "react";
 import { createPortal } from "react-dom";
+import { bloquearScroll } from "../../lib/scrollLock";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   Globe,
@@ -98,11 +99,12 @@ function Panel() {
       if (e.key === "Escape") closeTools();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    // Candado con recuento: apilar este panel sobre otra superposición y cerrarlos
+    // en cualquier orden ya no puede dejar la página sin scroll.
+    const liberarScroll = bloquearScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      liberarScroll();
     };
   }, []);
 

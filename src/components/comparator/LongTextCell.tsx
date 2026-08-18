@@ -4,6 +4,7 @@ import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { Expand, X, Sparkles } from "lucide-react";
 import { LevelBadge } from "../LevelBadge";
 import { MarqueeText } from "../MarqueeText";
+import { bloquearScroll } from "../../lib/scrollLock";
 import { proficiencyTone } from "../../lib/levels";
 import { usePrefersReducedMotion } from "../../shared/hooks";
 import { observeResize } from "../../lib/observers";
@@ -279,12 +280,11 @@ function CellViewer({
     };
     document.addEventListener("keydown", onKey);
     const scrollY = window.scrollY;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const liberarScroll = bloquearScroll();
     const focusTimer = window.setTimeout(() => closeRef.current?.focus(), 220);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
+      liberarScroll();
       window.clearTimeout(focusTimer);
       // Algunos navegadores restauran el scroll al liberar `overflow`; lo
       // devolvemos nosotros para que la vuelta sea siempre al mismo sitio.

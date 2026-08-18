@@ -27,7 +27,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { CircleSlash, Database, FolderPlus, RefreshCw, Wrench } from "lucide-react";
 import { docApi } from "../api/acciones";
 import { seccionesPermitidas, type SeccionId } from "../domain/vocabulario";
@@ -160,30 +160,37 @@ export function DocumentacionConsola() {
         {!conectado && seccionActiva !== "local" && seccionActiva !== "configuracion" ? (
           <SinConexion onIrALocal={() => irASeccion("local")} onIrAConfiguracion={() => irASeccion("configuracion")} avisar={avisar} />
         ) : (
-          <AnimatePresence mode="wait">
-            <motion.div key={seccionActiva} {...propsSeccion(reducido)}>
-              {seccionActiva === "panel" && <SeccionPanel onAbrirExpediente={abrirExpediente} />}
-              {seccionActiva === "expedientes" && (
-                <SeccionExpedientes
-                  onAbrir={abrirExpediente}
-                  avisar={avisar}
-                  altaAbierta={altaAbierta}
-                  onCerrarAlta={() => setAltaAbierta(false)}
-                />
-              )}
-              {seccionActiva === "solicitudes" && <SeccionSolicitudes onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-              {seccionActiva === "revision" && <SeccionRevision onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-              {seccionActiva === "aprobaciones" && <SeccionAprobaciones onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-              {seccionActiva === "prorrogas" && <SeccionProrrogas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-              {seccionActiva === "tareas" && <SeccionTareas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-              {seccionActiva === "reportes" && <SeccionReportes avisar={avisar} />}
-              {seccionActiva === "exportaciones" && <SeccionExportaciones avisar={avisar} />}
-              {seccionActiva === "notificaciones" && <SeccionNotificaciones avisar={avisar} onAbrirExpediente={abrirExpediente} />}
-              {seccionActiva === "auditoria" && <SeccionAuditoria avisar={avisar} onAbrirExpediente={abrirExpediente} />}
-              {seccionActiva === "configuracion" && <SeccionConfiguracion avisar={avisar} />}
-              {seccionActiva === "local" && <VistaLocal />}
-            </motion.div>
-          </AnimatePresence>
+          /* Sección con clave, NO envuelta en `<AnimatePresence mode="wait">`.
+             El apretón de manos «primero sale la anterior, luego entra la nueva»
+             se bloquea si la saliente no reporta que terminó —algo que ocurre en
+             cuanto dentro hay una animación viva, un `layout` o un `layoutId`—, y
+             entonces la sección nueva no se monta nunca: la pantalla se queda en
+             blanco y hay que recargar. `App.tsx` ya aprendió esta lección a nivel
+             de módulo (ver su comentario) y aquí aplica igual. Cambiar la clave de
+             un `motion.div` intercambia la sección en el mismo fotograma y aun así
+             la anima al entrar. */
+          <motion.div key={seccionActiva} {...propsSeccion(reducido)}>
+            {seccionActiva === "panel" && <SeccionPanel onAbrirExpediente={abrirExpediente} />}
+            {seccionActiva === "expedientes" && (
+              <SeccionExpedientes
+                onAbrir={abrirExpediente}
+                avisar={avisar}
+                altaAbierta={altaAbierta}
+                onCerrarAlta={() => setAltaAbierta(false)}
+              />
+            )}
+            {seccionActiva === "solicitudes" && <SeccionSolicitudes onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+            {seccionActiva === "revision" && <SeccionRevision onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+            {seccionActiva === "aprobaciones" && <SeccionAprobaciones onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+            {seccionActiva === "prorrogas" && <SeccionProrrogas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+            {seccionActiva === "tareas" && <SeccionTareas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+            {seccionActiva === "reportes" && <SeccionReportes avisar={avisar} />}
+            {seccionActiva === "exportaciones" && <SeccionExportaciones avisar={avisar} />}
+            {seccionActiva === "notificaciones" && <SeccionNotificaciones avisar={avisar} onAbrirExpediente={abrirExpediente} />}
+            {seccionActiva === "auditoria" && <SeccionAuditoria avisar={avisar} onAbrirExpediente={abrirExpediente} />}
+            {seccionActiva === "configuracion" && <SeccionConfiguracion avisar={avisar} />}
+            {seccionActiva === "local" && <VistaLocal />}
+          </motion.div>
         )}
       </DocShell>
 
