@@ -422,6 +422,13 @@ var DOC_CATALOGO_SEMILLA = [
   { id: 'garante-fam1-croquis', etiqueta: 'Croquis del garante familiar 1', grupo: 'garantia', prorroga: false, obligatorio: false },
   { id: 'garante-fam2-ci', etiqueta: 'Cédula de Identidad del garante familiar 2', grupo: 'garantia', prorroga: false, obligatorio: false },
   { id: 'garante-fam2-croquis', etiqueta: 'Croquis del garante familiar 2', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t1-fam-ci', etiqueta: 'CI del garante familiar (Tipo 1)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t1-fam-croquis', etiqueta: 'Croquis del garante familiar (Tipo 1)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t2-ci', etiqueta: 'Fotocopia de CI del postulante (Tipo 2)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t2-croquis', etiqueta: 'Croquis de domicilio del postulante (Tipo 2)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t3-ci', etiqueta: 'Fotocopia de CI del postulante (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t3-fam-ci', etiqueta: 'CI del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t3-fam-croquis', etiqueta: 'Croquis del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
 
   { id: 'impedimento-auditor', etiqueta: 'Declaración de impedimento de auditor', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
   { id: 'lgi-ft', etiqueta: 'Capacitación LGI/FT', grupo: 'cumplimiento', prorroga: false, obligatorio: true, columna: 'conozca_funcionario' },

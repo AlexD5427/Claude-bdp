@@ -195,10 +195,10 @@ describe("documentación · edición y progreso", () => {
       tipoFuncionario: "COMERCIAL",
       tipoGarantia: "COMERCIAL_1",
     });
-    const inmueble = creado.requisitos.find((r: any) => r.codigo === "garante-inmueble")!;
-    // Se registra una entrega en un requisito de la rama 1…
+    // `garante-ci` es exclusivo de la rama 1; se le registra una entrega.
+    const garanteCi = creado.requisitos.find((r: any) => r.codigo === "garante-ci")!;
     h.ok("documentacion.requisito.actualizar", {
-      expedienteDocumentoId: inmueble.expedienteDocumentoId,
+      expedienteDocumentoId: garanteCi.expedienteDocumentoId,
       cambios: { estado: "ENTREGADO" },
     });
 
@@ -212,10 +212,10 @@ describe("documentación · edición y progreso", () => {
 
     const detalle = h.ok("documentacion.expediente.obtener", { expedienteId: creado.expedienteId });
     const codigos = detalle.requisitos.map((r: any) => r.codigo);
-    expect(codigos).toContain("garante-fam1-ci");
+    expect(codigos).toContain("garante-t3-ci"); // requisito propio de la rama 3
     // El requisito con datos sigue ahí; los que estaban vacíos se archivaron.
-    expect(codigos).toContain("garante-inmueble");
-    expect(codigos).not.toContain("garante-folio");
+    expect(codigos).toContain("garante-ci");
+    expect(codigos).not.toContain("garante-t1-fam-ci");
   });
 
   it("el historial deja una línea legible por cada cambio", () => {

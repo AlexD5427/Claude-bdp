@@ -110,7 +110,7 @@ describe("documentación · catálogo único y aplicabilidad", () => {
     // carnet de heredero al final.
     expect(generales[0].codigo).toBe("foto-4x4");
     expect(generales[generales.length - 1].codigo).toBe("carnet-heredero");
-    expect(catalogo.documentos.length).toBe(31);
+    expect(catalogo.documentos.length).toBe(38);
   });
 
   it("solo certificados de trabajo, título y examen UIF admiten prórroga", () => {
@@ -135,23 +135,26 @@ describe("documentación · catálogo único y aplicabilidad", () => {
     const tipo1 = porClave("COMERCIAL", "COMERCIAL_1");
     expect(tipo1.codigos).toContain("garante-inmueble");
     expect(tipo1.codigos).toContain("garante-folio");
+    expect(tipo1.codigos).toContain("garante-t1-fam-ci");
     expect(tipo1.codigos).not.toContain("garante-fam1-ci");
 
     const tipo2 = porClave("COMERCIAL", "COMERCIAL_2");
     expect(tipo2.codigos).toContain("garante-boletas");
+    expect(tipo2.codigos).toContain("garante-fam2-croquis");
     expect(tipo2.codigos).not.toContain("garante-inmueble");
 
     const tipo3 = porClave("COMERCIAL", "COMERCIAL_3");
-    expect(tipo3.codigos).toContain("garante-fam1-ci");
-    expect(tipo3.codigos).toContain("garante-fam2-croquis");
-    expect(tipo3.codigos).not.toContain("garante-inmueble");
+    expect(tipo3.codigos).toContain("garante-inmueble");
+    expect(tipo3.codigos).toContain("garante-t3-fam-ci");
+    expect(tipo3.codigos).not.toContain("garante-fam1-ci");
 
     const auditoria = porClave("AUDITORIA", "NINGUNA");
     expect(auditoria.codigos).toContain("impedimento-auditor");
-    expect(auditoria.codigos).toContain("lgi-ft");
+    expect(auditoria.codigos).not.toContain("lgi-ft");
 
     const cumplimiento = porClave("CUMPLIMIENTO", "NINGUNA");
     expect(cumplimiento.codigos).toContain("examen-uif");
+    expect(cumplimiento.codigos).toContain("lgi-ft");
     expect(cumplimiento.codigos).not.toContain("impedimento-auditor");
   });
 

@@ -275,9 +275,9 @@ describe("cliente · integración con el backend real", () => {
     expect(estado.capacidades.ver).toBe(true);
   });
 
-  it("el catálogo llega con los 31 documentos y los catálogos auxiliares", async () => {
+  it("el catálogo llega con los 38 documentos y los catálogos auxiliares", async () => {
     const catalogo = await docApi.catalogo();
-    expect(catalogo.documentos.length).toBe(31);
+    expect(catalogo.documentos.length).toBe(38);
     expect(catalogo.auxiliares.gerencia_bdp.length).toBeGreaterThan(0);
     expect(catalogo.aplicabilidad.length).toBeGreaterThan(5);
   });
