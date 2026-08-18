@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { bloquearScroll } from "../../lib/scrollLock";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -126,11 +127,7 @@ export function DocDossierDetail({ identificador, settings, onClose }: DocDossie
   // Bloquear el scroll del fondo mientras el panel esta abierto.
   useEffect(() => {
     if (!dossier) return;
-    const previo = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previo;
-    };
+    return bloquearScroll();
   }, [dossier]);
 
   const report = useMemo(

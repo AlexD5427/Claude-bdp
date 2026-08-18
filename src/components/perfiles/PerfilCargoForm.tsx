@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { TextAutocomplete } from "../form/TextAutocomplete";
 import { MultiFieldList } from "./MultiFieldList";
+import { bloquearScroll } from "../../lib/scrollLock";
 import { EvaluarLinkField } from "./EvaluarLinkField";
 import { ImageManager } from "./ImageManager";
 import { YearField } from "./YearField";
@@ -88,19 +89,19 @@ function FormBody({ mode, initial, fila, initialVerified, onClose }: PerfilFormP
   );
   const [showRecovery, setShowRecovery] = useState<boolean>(Boolean(recoveredDraft));
 
-  // Escape asks to exit; lock body scroll while open.
+  // Escape asks to exit; lock body scroll while open (ref-counted, so stacking
+  // this over a confirm dialog never leaves the page frozen).
+  const attemptExitRef = useRef<() => void>(() => {});
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") attemptExit();
+      if (e.key === "Escape") attemptExitRef.current();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const liberarScroll = bloquearScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      liberarScroll();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const set = <K extends keyof FormShape>(key: K, value: FormShape[K]) =>
@@ -114,6 +115,7 @@ function FormBody({ mode, initial, fila, initialVerified, onClose }: PerfilFormP
     if (formHasContent(form)) setConfirmExit(true);
     else discardAndClose();
   }
+  attemptExitRef.current = attemptExit;
 
   function discardAndClose() {
     if (isCreate) clearDraft();

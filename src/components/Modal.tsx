@@ -1,7 +1,8 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
+import { bloquearScroll } from "../lib/scrollLock";
 
 interface ModalProps {
   open: boolean;
@@ -25,19 +26,21 @@ export function Modal({
   size = "max-w-5xl",
   ariaLabel,
 }: ModalProps) {
+  const onCloseRef = useRef(onRequestClose);
+  onCloseRef.current = onRequestClose;
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onRequestClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const liberarScroll = bloquearScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      liberarScroll();
     };
-  }, [open, onRequestClose]);
+  }, [open]);
 
   return createPortal(
     <AnimatePresence>
