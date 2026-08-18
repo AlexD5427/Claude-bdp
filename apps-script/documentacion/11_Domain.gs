@@ -376,8 +376,9 @@ var DOC2_SECCIONES = [
 /* ========================================================================== */
 
 /**
- * El catálogo canónico: 18 documentos generales, 10 de garantía y 3 de
- * cumplimiento, en el MISMO orden funcional que la implementación anterior.
+ * El catálogo canónico: 18 documentos generales, 17 de garantía comercial (por
+ * rama) y 3 de cumplimiento, en el MISMO orden funcional que la implementación
+ * anterior.
  *
  * `codigo` conserva los identificadores que ya existían (`foto-4x4`,
  * `garante-ci`…). No se renombran: los expedientes guardados los referencian y

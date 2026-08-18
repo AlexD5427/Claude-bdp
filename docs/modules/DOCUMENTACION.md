@@ -70,7 +70,7 @@ Y se añade una cuarta:
 | `Expedientes` | expediente | resúmenes materializados: avance, presentados, pendientes, observados |
 | `ExpedienteDocumentos` | requisito de un expediente | estado, páginas, observación, fechas |
 | `ExpedienteProrrogas` | prórroga concedida | la nueva sustituye a la vigente |
-| `CatalogoDocumentos` | documento exigible | 31 filas semilla; editable sin tocar código |
+| `CatalogoDocumentos` | documento exigible | 38 filas semilla; editable sin tocar código |
 | `SolicitudesDocumentales` | petición enviada | canal, destinatario, plazo, estado |
 | `SolicitudDocumentos` | documento dentro de una petición | permite cierre parcial |
 | `RevisionesDocumentales` | revisión de un documento | append-only, con motivo tipificado |
@@ -425,7 +425,7 @@ npm run build        # compilación
 `doc:check` comprueba lo que un compilador no puede ver en Apps Script:
 funciones duplicadas en el espacio global, acciones que el frontend llama y el
 backend no atiende **y al revés**, escrituras declaradas distinto en las dos
-partes, acciones heredadas que hayan desaparecido, el catálogo con sus 31
+partes, acciones heredadas que hayan desaparecido, el catálogo con sus 38
 documentos y sus códigos originales, y el vocabulario compartido.
 
 Las pruebas del backend no son simulaciones: `scripts/documentacion-backend.mjs`

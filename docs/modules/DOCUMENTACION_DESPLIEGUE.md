@@ -253,7 +253,7 @@ del área sin ayuda técnica.
 - [ ] Un expediente con prórroga en el libro sigue apareciendo con prórroga.
 - [ ] Un expediente completo sigue en verde en la pestaña anual.
 - [ ] La hoja `Auxiliar` incluye todas las agencias y gerencias que el área usa.
-- [ ] El catálogo tiene 31 documentos y los códigos son los de siempre.
+- [ ] El catálogo tiene 38 documentos (18 generales, 17 de garantía por rama y 3 de cumplimiento) y los códigos heredados se conservan.
 
 ### Trabajo diario
 

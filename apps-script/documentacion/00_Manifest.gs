@@ -387,7 +387,7 @@ function docColumnSpec_(sheetName, columnName) {
 /* ------------------------- Catálogo de documentos ------------------------- */
 
 /**
- * Los 31 documentos que hoy exige el proceso, con el mismo `id` que usa el
+ * Los 38 documentos que hoy exige el proceso, con el mismo `id` que usa el
  * frontend (`src/lib/docTemplate.ts`). Se siembran en la hoja `_CATALOGO` la
  * primera vez y a partir de ahí manda la hoja: si el equipo añade, quita o
  * renombra un documento allí, el módulo lo respeta sin tocar código.

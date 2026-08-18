@@ -28,7 +28,7 @@
 /* ========================================================================== */
 
 /**
- * Siembra el catálogo con los 31 documentos canónicos.
+ * Siembra el catálogo con los 38 documentos canónicos.
  *
  * Respeta lo que ya esté escrito: si el área editó el nombre visible de un
  * requisito o lo desactivó, la semilla no lo pisa. Solo añade los que falten.
