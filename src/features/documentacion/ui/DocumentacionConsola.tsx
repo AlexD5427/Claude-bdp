@@ -65,7 +65,7 @@ export function DocumentacionConsola() {
    * este dato la consola hablaba con el backend equivocado y «no se conectaba».
    */
   useEffect(() => {
-    void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl });
+    void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl || undefined });
   }, [current?.nombre, current?.role, backendUrl]);
 
   useEffect(() => {
@@ -140,7 +140,7 @@ export function DocumentacionConsola() {
         rol={consola.rol}
         ultimaSincronizacion={consola.ultimaSincronizacion}
         operaciones={consola.cargando}
-        onReconectar={() => void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl })}
+        onReconectar={() => void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl || undefined })}
         avisoGlobal={avisoGlobal}
         accionPrincipal={
           conectado && consola.capacidades.editar ? (
