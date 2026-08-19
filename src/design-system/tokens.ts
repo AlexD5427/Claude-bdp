@@ -60,14 +60,30 @@ export const INTENT: Record<Intent, IntentStyle> = {
   },
 };
 
-/** Layering scale kept below the app's modal (z-120) and keyboard glow (z-130). */
+/**
+ * Escala de apilamiento.
+ *
+ * ── El fallo que corrige `dialog: 165` ──────────────────────────────────────
+ * `GlassDialog` es la confirmación que usan los formularios grandes para
+ * preguntar «¿salir sin guardar?». Valía 110, y el formulario de perfiles de cargo
+ * que la abre vive en `z-[115]`: la confirmación aparecía **por detrás** del
+ * formulario, así que «Descartar y salir» no se podía pulsar y Escape solo la
+ * cancelaba. Quien entraba a modificar un perfil se quedaba **atrapado**: la única
+ * salida era guardar o recargar la página. Es la otra mitad del «se congela» que
+ * reportaba el área, esta vez en Perfiles.
+ *
+ * Una confirmación tiene que estar por encima de CUALQUIER superficie que la
+ * pueda abrir. Las superficies de la aplicación llegan hasta 150 (celda ampliada
+ * del comparador, visor de Evaluaciones), así que el diálogo va a 165 y por encima
+ * solo queda el aviso flotante, que no bloquea nada.
+ */
 export const Z = {
   base: 0,
   sticky: 10,
   dropdown: 40,
   drawer: 90,
-  dialog: 110,
-  toast: 140,
+  dialog: 165,
+  toast: 170,
 } as const;
 
 export const RADIUS = {

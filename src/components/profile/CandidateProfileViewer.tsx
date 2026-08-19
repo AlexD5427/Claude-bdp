@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { bloquearScroll } from "../../lib/scrollLock";
 import {
   Award,
   Briefcase,
@@ -106,12 +107,11 @@ function Viewer({ candidate }: { candidate: Candidate | null }) {
       if (e.key === "Escape") closeProfile();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const liberarScroll = bloquearScroll();
     const t = window.setTimeout(() => closeRef.current?.focus(), 120);
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      liberarScroll();
       window.clearTimeout(t);
     };
   }, []);

@@ -54,6 +54,7 @@ import {
 } from "lucide-react";
 import type { Intent } from "../../../design-system/tokens";
 import type { Intencion } from "../domain/vocabulario";
+import { bloquearScroll } from "../../../lib/scrollLock";
 import { CURVA, DURACION, resorte, useMovimientoReducido } from "./DocMotion";
 import { nombreDeVista } from "./DocViewTransitions";
 import "./documentacion.css";
@@ -1106,12 +1107,43 @@ export function Lateral({
   const reducido = useMovimientoReducido();
   const contenedor = useRef<HTMLDivElement | null>(null);
   const anterior = useRef<HTMLElement | null>(null);
+  const [pidiendoCierre, setPidiendoCierre] = useState(false);
+
+  /**
+   * ── El fallo que este `ref` corrige ────────────────────────────────────────
+   * El efecto de teclado dependía de `intentarCerrar`, que a su vez depende de
+   * `onCerrar` —una función nueva en cada renderizado del componente padre—. Es
+   * decir: el efecto se desmontaba y se volvía a montar EN CADA RENDERIZADO. Y su
+   * limpieza devuelve el foco al elemento que estaba enfocado antes de abrir el
+   * panel.
+   *
+   * Consecuencia medida en un navegador real: al escribir una observación, la
+   * primera tecla provoca un renderizado, la limpieza saca el foco del área de
+   * texto y el temporizador de 50 ms lo deja en el primer botón del panel. Entra
+   * UNA letra y el teclado parece muerto. Era el «se congela» que reportaba el
+   * área en la pantalla más usada del módulo.
+   *
+   * Los manejadores viven ahora en referencias y el efecto solo depende de
+   * `abierto`: se monta al abrir y se desmonta al cerrar, ni una vez más.
+   */
+  const cerrarRef = useRef(onCerrar);
+  cerrarRef.current = onCerrar;
+  const bloqueadoRef = useRef(bloqueado);
+  bloqueadoRef.current = bloqueado;
+  const confirmarRef = useRef(confirmarCierre);
+  confirmarRef.current = confirmarCierre;
 
   const intentarCerrar = useCallback(() => {
-    if (bloqueado) return;
-    if (confirmarCierre && typeof window !== "undefined" && !window.confirm(confirmarCierre)) return;
-    onCerrar();
-  }, [bloqueado, confirmarCierre, onCerrar]);
+    if (bloqueadoRef.current) return;
+    // Si hay cambios sin guardar se pregunta con la confirmación del módulo, no
+    // con `window.confirm`: el diálogo nativo bloquea el hilo y Chrome permite
+    // silenciarlo («no volver a mostrar»), con lo que el panel dejaba de cerrarse.
+    if (confirmarRef.current) {
+      setPidiendoCierre(true);
+      return;
+    }
+    cerrarRef.current();
+  }, []);
 
   useEffect(() => {
     if (!abierto) return;
@@ -1143,6 +1175,9 @@ export function Lateral({
     };
 
     document.addEventListener("keydown", alPulsar);
+    // El fondo no debe scrollear detrás del panel. El candado lleva recuento, así
+    // que apilar el panel sobre otra superposición no deja la página trancada.
+    const liberarScroll = bloquearScroll();
     const t = setTimeout(() => {
       contenedor.current?.querySelector<HTMLElement>("[data-foco-inicial], button, [href], input, select, textarea")?.focus();
     }, 50);
@@ -1150,6 +1185,7 @@ export function Lateral({
     return () => {
       document.removeEventListener("keydown", alPulsar);
       clearTimeout(t);
+      liberarScroll();
       anterior.current?.focus?.();
     };
   }, [abierto, intentarCerrar]);
@@ -1200,6 +1236,19 @@ export function Lateral({
               <footer className="border-t border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-4 py-3 sm:px-5">{pie}</footer>
             )}
           </motion.div>
+
+          <Confirmacion
+            abierta={pidiendoCierre}
+            titulo="Hay cambios sin guardar"
+            detalle={confirmarCierre}
+            textoConfirmar="Cerrar y descartar"
+            peligrosa
+            onConfirmar={() => {
+              setPidiendoCierre(false);
+              cerrarRef.current();
+            }}
+            onCancelar={() => setPidiendoCierre(false)}
+          />
         </>
       )}
     </AnimatePresence>
@@ -1236,14 +1285,20 @@ export function Confirmacion({
   trabajando?: boolean;
 }) {
   const reducido = useMovimientoReducido();
+  // Mismo motivo que en `Lateral`: `onCancelar` y `trabajando` cambian con cada
+  // renderizado del padre y no tienen por qué remontar el escuchador de teclado.
+  const cancelarRef = useRef(onCancelar);
+  cancelarRef.current = onCancelar;
+  const trabajandoRef = useRef(trabajando);
+  trabajandoRef.current = trabajando;
   useEffect(() => {
     if (!abierta) return;
     const cerrar = (evento: KeyboardEvent) => {
-      if (evento.key === "Escape" && !trabajando) onCancelar();
+      if (evento.key === "Escape" && !trabajandoRef.current) cancelarRef.current();
     };
     document.addEventListener("keydown", cerrar);
     return () => document.removeEventListener("keydown", cerrar);
-  }, [abierta, onCancelar, trabajando]);
+  }, [abierta]);
 
   return (
     <AnimatePresence>

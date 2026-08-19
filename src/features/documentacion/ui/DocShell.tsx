@@ -36,6 +36,7 @@ import { Boton } from "./piezas";
 import { IndicadorConexion, IndicadorFrescura } from "./DocSyncIndicator";
 import "./documentacion.css";
 import "./documentacion-motion.css";
+import { TextoRevelado } from "./DocTexto";
 
 /* ------------------------------------------------------------------ */
 /* Agrupación de la navegación                                         */
@@ -159,10 +160,19 @@ export function DocShell({
                 <ChevronRight className="h-3 w-3" aria-hidden />
                 <span className="font-semibold text-[color:var(--doc-text-muted)]">{definicion?.etiqueta ?? "Panel"}</span>
               </nav>
-              <h2 className="doc-balance mt-0.5 text-base font-semibold leading-tight text-[color:var(--doc-text)]">
-                {definicion?.etiqueta ?? "Documentación"}
-              </h2>
-              <p className="doc-prose mt-0.5 max-w-prose text-xs text-[color:var(--doc-text-muted)]">{definicion?.descripcion}</p>
+              {/* El título se revela palabra a palabra al cambiar de sección: da
+                  al ojo un punto de entrada antes de que llegue el contenido. */}
+              <TextoRevelado
+                como="h2"
+                texto={definicion?.etiqueta ?? "Documentación"}
+                className="doc-balance mt-0.5 block text-base font-semibold leading-tight text-[color:var(--doc-text)]"
+              />
+              <TextoRevelado
+                como="p"
+                texto={definicion?.descripcion ?? ""}
+                retardo={0.05}
+                className="doc-prose mt-0.5 block max-w-prose text-xs text-[color:var(--doc-text-muted)]"
+              />
             </div>
           </div>
 

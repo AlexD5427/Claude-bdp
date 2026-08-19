@@ -70,7 +70,7 @@ Y se añade una cuarta:
 | `Expedientes` | expediente | resúmenes materializados: avance, presentados, pendientes, observados |
 | `ExpedienteDocumentos` | requisito de un expediente | estado, páginas, observación, fechas |
 | `ExpedienteProrrogas` | prórroga concedida | la nueva sustituye a la vigente |
-| `CatalogoDocumentos` | documento exigible | 31 filas semilla; editable sin tocar código |
+| `CatalogoDocumentos` | documento exigible | 38 filas semilla; editable sin tocar código |
 | `SolicitudesDocumentales` | petición enviada | canal, destinatario, plazo, estado |
 | `SolicitudDocumentos` | documento dentro de una petición | permite cierre parcial |
 | `RevisionesDocumentales` | revisión de un documento | append-only, con motivo tipificado |
@@ -110,13 +110,21 @@ Qué documentos exige un expediente sale de dos ejes:
 | Tipo de funcionario | Garantía | Documentos |
 |---|---|---|
 | GENERAL | NINGUNA | 18 |
-| COMERCIAL | COMERCIAL_1 / 2 / 3 | 22 |
-| AUDITORIA | NINGUNA | 20 |
+| COMERCIAL | COMERCIAL_1 | 23 |
+| COMERCIAL | COMERCIAL_2 | 27 |
+| COMERCIAL | COMERCIAL_3 | 23 |
+| AUDITORIA | NINGUNA | 19 |
 | CUMPLIMIENTO | NINGUNA | 20 |
 
-Los cuatro documentos de garantía cuelgan del tipo `COMERCIAL`: poner una
-garantía a un funcionario `GENERAL` no los añade, porque en el proceso real la
-fianza acompaña al cargo comercial, no al nivel de garantía por sí solo.
+Los 17 documentos de garantía cuelgan del tipo `COMERCIAL`: poner una garantía a
+un funcionario `GENERAL` no los añade, porque en el proceso real la fianza
+acompaña al cargo comercial, no al nivel de garantía por sí solo. Y las tres ramas
+comerciales son **mutuamente excluyentes**: un expediente de tipo 1 no ve ni un
+documento del tipo 2.
+
+`AUDITORIA` exige solo la declaración de impedimento; `CUMPLIMIENTO`, la
+acreditación LGI/FT y el examen de la UIF. Antes compartían `lgi-ft` y mezclaban
+requisitos de dos áreas distintas.
 
 `EJECUTIVO` y `DIRECTORIO` están declarados pero inactivos: la web los muestra
 como «en construcción» en lugar de ofrecer una rama a medio definir.
@@ -355,10 +363,25 @@ nueve pestañas llevan su total y, cuando hay algo que atender, una marca con su
 explicación; se recorren con las flechas y quedan pegadas al borde superior al
 bajar por los requisitos.
 
+La cabecera lleva además el **distintivo de la categoría** (icono SVG y color
+propios), una franja del mismo color, y los datos que el área consulta a diario:
+**Cargo, Agencia, Gerencia, Ingreso** con su antigüedad, **Próximo plazo** y
+**Responsable**.
+
+La pestaña de requisitos (`ui/RequisitosExpediente.tsx`) tiene buscador —ignora
+acentos—, filtro de obligatorios y cinco filtros por situación con su recuento:
+todos, por conseguir, observados, en prórroga, entregados. Los recuentos se
+calculan sobre el estado **efectivo**, con los cambios sin guardar aplicados; si no,
+marcar un documento no movería el contador y parecería que el clic no hizo nada.
+Cada fila lleva chips de un toque en el orden del área —entregado, pendiente, no
+entregado, no aplica— con verde, ámbar, rojo y gris, una cinta lateral del color
+del estado para leer la lista de un barrido, y la prórroga con su cuenta regresiva.
+
 El guardado por bloque se mantiene, y ahora se **nombra**: sin cambios, cambios
 por escribir, guardando, guardado en el servidor, conflicto de versión. El panel
 no se cierra por accidente mientras escribe, y si hay cambios sin guardar pide
-confirmación antes de cerrarse.
+confirmación **en la propia interfaz** —no con `window.confirm`, que bloquea el
+hilo y se puede silenciar desde el navegador—.
 
 ### 4.6 Sistema visual del módulo
 
@@ -425,7 +448,7 @@ npm run build        # compilación
 `doc:check` comprueba lo que un compilador no puede ver en Apps Script:
 funciones duplicadas en el espacio global, acciones que el frontend llama y el
 backend no atiende **y al revés**, escrituras declaradas distinto en las dos
-partes, acciones heredadas que hayan desaparecido, el catálogo con sus 31
+partes, acciones heredadas que hayan desaparecido, el catálogo con sus 38
 documentos y sus códigos originales, y el vocabulario compartido.
 
 Las pruebas del backend no son simulaciones: `scripts/documentacion-backend.mjs`

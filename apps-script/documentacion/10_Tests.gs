@@ -92,7 +92,7 @@ function docTestManifiesto_() {
   }
   docCheckEq_('no hay claves internas repetidas', repetidas.length, 0);
 
-  docCheckEq_('el catalogo trae 31 documentos', DOC_CATALOGO_SEMILLA.length, 31);
+  docCheckEq_('el catalogo trae 38 documentos', DOC_CATALOGO_SEMILLA.length, 38);
   docCheckEq_('docColumnByKey_ encuentra la columna', docColumnByKey_('rejap').encabezado, 'REJAP');
   docCheck_('docYearColumnPosition_ ubica el identificador', docYearColumnPosition_('id') === 24);
 }
@@ -223,11 +223,11 @@ function docTestModelo_() {
   }
   docCheckEq_('ninguna hoja del modelo repite nombre', duplicadas, 0);
 
-  docCheckEq_('el catalogo canonico trae 31 documentos', DOC2_CATALOGO_SEMILLA.length, 31);
+  docCheckEq_('el catalogo canonico trae 38 documentos', DOC2_CATALOGO_SEMILLA.length, 38);
   docCheckEq_('un funcionario general sin garantia exige 18',
     doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 18);
-  docCheckEq_('un comercial con garantia exige 22',
-    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 22);
+  docCheckEq_('un comercial con garantia exige 23',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 23);
   docCheckEq_('cumplimiento exige 20',
     doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 20);
   docCheckEq_('la garantia sola no anade documentos a un general',

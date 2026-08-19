@@ -23,11 +23,13 @@
  */
 
 import type { ReactNode } from "react";
-import { AlertTriangle, ArrowRight, CalendarClock, User } from "lucide-react";
+import { AlertTriangle, ArrowRight, Briefcase, CalendarClock, User } from "lucide-react";
 import type { ExpedienteOperativo } from "../api/acciones";
 import { fechaCorta, fechaHora, textoAntiguedad, textoPlazo } from "../domain/progreso";
 import { ETIQUETA_EXPEDIENTE, INTENCION_EXPEDIENTE } from "../domain/vocabulario";
+import { categoriaDe, estiloCategoria } from "../domain/categorias";
 import { BarraAvance, ChipEstado, TONO } from "./piezas";
+import { Cifra } from "./DocTexto";
 import { IndicadorGuardado, hace, type EstadoEscritura } from "./DocSyncIndicator";
 
 export function DocExpedienteHeader({
@@ -59,20 +61,29 @@ export function DocExpedienteHeader({
   if (t.observados > 0) alertas.push({ intencion: "aviso", texto: `${t.observados} requisito(s) observado(s)` });
   if (t.noEntregados > 0) alertas.push({ intencion: "aviso", texto: `${t.noEntregados} requisito(s) no entregado(s)` });
 
+  const categoria = categoriaDe(cabecera.tipoFuncionario);
+  const IconoCategoria = categoria.Icono;
+
   return (
-    <section className="doc-raised doc-print-keep overflow-hidden">
+    <section className="doc-raised doc-print-keep overflow-hidden" style={estiloCategoria(cabecera.tipoFuncionario)}>
+      {/* Franja de color de la categoría: identifica el expediente de un vistazo. */}
+      <div className="h-1.5 w-full" style={{ background: "var(--cat-color)" }} aria-hidden />
+
       {/* ── 1 · Identidad ───────────────────────────────────────────── */}
       <div className="border-b border-[color:var(--doc-border)] p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            {/*
-              Aquí no se repite el nombre: la cabecera del panel lateral lo lleva y
-              queda fija mientras se baja por los requisitos, así que duplicarlo
-              solo gasta la primera línea de la pantalla. Esta franja empieza por lo
-              que el nombre no dice: en qué estado está y bajo qué rama.
-            */}
             <p className="doc-eyebrow">Situación del expediente</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {/* Distintivo de categoría: ícono SVG + color propio de la rama. */}
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                style={{ background: "var(--cat-tinte)", color: "var(--cat-color)", boxShadow: "inset 0 0 0 1px var(--cat-borde)" }}
+                title={categoria.descripcion}
+              >
+                <IconoCategoria className="h-3.5 w-3.5" />
+                {categoria.etiquetaCorta}
+              </span>
               <ChipEstado
                 estado={cabecera.estado}
                 etiqueta={ETIQUETA_EXPEDIENTE[cabecera.estado] ?? cabecera.estado}
@@ -80,7 +91,6 @@ export function DocExpedienteHeader({
                 prorroga={cabecera.estado === "CON_PRORROGA"}
                 titulo="Estado del expediente, calculado por el backend a partir de sus requisitos"
               />
-              <span className="text-[11px] text-[color:var(--doc-text-muted)]">{cabecera.tipoFuncionarioEtiqueta}</span>
               {cabecera.tipoGarantia !== "NINGUNA" && (
                 <span className="text-[11px] text-[color:var(--doc-text-muted)]">· {cabecera.tipoGarantiaEtiqueta}</span>
               )}
@@ -153,9 +163,14 @@ export function DocExpedienteHeader({
         </div>
 
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          <Dato
+            etiqueta="Cargo"
+            valor={cabecera.cargo || "No registrado"}
+            icono={<Briefcase className="h-3 w-3" aria-hidden />}
+          />
           <Dato etiqueta="Agencia" valor={cabecera.agencia || "No registrada"} />
           <Dato etiqueta="Gerencia" valor={cabecera.gerencia || "No registrada"} />
-          <Dato etiqueta="Ingreso" valor={fechaCorta(cabecera.fechaIngreso)} pista={textoAntiguedad(cabecera.diasDesdeIngreso)} />
+          <Dato etiqueta="Ingreso" valor={fechaCorta(cabecera.fechaIngreso)} pista={textoAntiguedad(cabecera.diasDesdeIngreso)} icono={<CalendarClock className="h-3 w-3" aria-hidden />} />
           <Dato
             etiqueta="Próximo plazo"
             valor={cabecera.proximaFechaCritica ? fechaCorta(cabecera.proximaFechaCritica) : "Sin plazo"}
@@ -168,7 +183,6 @@ export function DocExpedienteHeader({
             valor={cabecera.responsableId || "Sin asignar"}
             icono={<User className="h-3 w-3" aria-hidden />}
           />
-          <Dato etiqueta="Año del libro" valor={String(cabecera.anio || "—")} />
         </dl>
       </div>
 
@@ -204,7 +218,9 @@ function Par({ etiqueta, valor, intencion }: { etiqueta: string; valor: number; 
     <div className="flex items-baseline justify-between gap-2">
       <dt className="truncate text-[color:var(--doc-text-faint)]">{etiqueta}</dt>
       <dd className="doc-metric font-semibold" style={{ color: intencion ? TONO[intencion].texto : "var(--doc-text-muted)" }}>
-        {valor}
+        {/* El valor se interpola en lugar de saltar: al marcar un requisito se ve
+            de dónde a dónde se movió el contador. */}
+        <Cifra valor={valor} />
       </dd>
     </div>
   );

@@ -178,3 +178,84 @@
 .reduce-motion .doc-progreso-indeterminado::after {
   animation: none !important;
 }
+
+/* ---- Curva del sistema -------------------------------------
+   La curva de las hojas y los paneles de iOS: arranca decidida y
+   se asienta sin rebote. Se usa donde una superficie aparece o
+   desaparece (paneles, calendario, desplegables); las curvas
+   `out-expo` y `out-quint` de arriba siguen sirviendo para los
+   cambios pequeños de color y de posición.
+   ------------------------------------------------------------ */
+.doc-console {
+  --doc-ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ---- Respuesta al pulsar -----------------------------------
+   Un control que no responde al dedo se siente roto aunque
+   funcione. Se hunde 2 % durante la pulsación —solo `transform`,
+   sin recálculo de diseño— y vuelve con la curva del sistema.
+   No se aplica a lo que ya declara su propio `active:scale`.
+   ------------------------------------------------------------ */
+.doc-tap {
+  transition: transform var(--doc-duration-fast) var(--doc-ease-ios);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.doc-tap:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* ---- Elevación al pasar el puntero -------------------------
+   Solo en dispositivos con puntero fino: en una pantalla táctil el
+   `hover` se queda pegado tras el toque.
+   ------------------------------------------------------------ */
+@media (hover: hover) and (pointer: fine) {
+  .doc-elevar {
+    transition:
+      transform var(--doc-duration-normal) var(--doc-ease-ios),
+      box-shadow var(--doc-duration-normal) var(--doc-ease-ios);
+  }
+
+  .doc-elevar:hover {
+    transform: translate3d(0, -2px, 0);
+  }
+}
+
+/* ---- Calendario -------------------------------------------
+   El día bajo el puntero se marca con color, no con tamaño: una
+   celda que crece desplaza a sus vecinas y la rejilla «respira».
+   ------------------------------------------------------------ */
+.doc-calendario .doc-dia {
+  transition:
+    background-color var(--doc-duration-fast) var(--doc-ease-out-quint),
+    color var(--doc-duration-fast) var(--doc-ease-out-quint),
+    box-shadow var(--doc-duration-fast) var(--doc-ease-out-quint);
+}
+
+.doc-campo-fecha {
+  transition: box-shadow var(--doc-duration-normal) var(--doc-ease-ios);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-tap,
+  .doc-elevar,
+  .doc-calendario .doc-dia,
+  .doc-campo-fecha {
+    transition: none !important;
+  }
+
+  .doc-tap:active:not(:disabled) {
+    transform: none !important;
+  }
+}
+
+.reduce-motion .doc-tap,
+.reduce-motion .doc-elevar,
+.reduce-motion .doc-calendario .doc-dia,
+.reduce-motion .doc-campo-fecha {
+  transition: none !important;
+}
+
+.reduce-motion .doc-tap:active:not(:disabled) {
+  transform: none !important;
+}

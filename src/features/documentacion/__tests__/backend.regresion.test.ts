@@ -378,17 +378,17 @@ describe("regresión · los 18 documentos generales y las ramas", () => {
     const heredado = h.read<any[]>("DOC_CATALOGO_SEMILLA").map((d) => d.id).sort();
     const nuevo = h.ok("documentacion.catalogo").documentos.map((d: any) => d.codigo).sort();
     expect(nuevo).toEqual(heredado);
-    expect(nuevo.length).toBe(31);
+    expect(nuevo.length).toBe(38);
   });
 
   it("cada rama produce el número de requisitos esperado", () => {
     const h = loadInstalledBackend();
     const casos: [string, string, number][] = [
       ["GENERAL", "NINGUNA", 18],
-      ["COMERCIAL", "COMERCIAL_1", 22],
-      ["COMERCIAL", "COMERCIAL_2", 22],
-      ["COMERCIAL", "COMERCIAL_3", 22],
-      ["AUDITORIA", "NINGUNA", 20],
+      ["COMERCIAL", "COMERCIAL_1", 23],
+      ["COMERCIAL", "COMERCIAL_2", 27],
+      ["COMERCIAL", "COMERCIAL_3", 23],
+      ["AUDITORIA", "NINGUNA", 19],
       ["CUMPLIMIENTO", "NINGUNA", 20],
     ];
     let n = 0;

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { drawerRight } from "../motion";
 import { Z } from "../tokens";
+import { bloquearScroll } from "../../lib/scrollLock";
 
 interface GlassDrawerProps {
   open: boolean;
@@ -36,11 +37,10 @@ export function GlassDrawer({
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const liberarScroll = bloquearScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
+      liberarScroll();
     };
   }, [open, onClose]);
 

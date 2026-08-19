@@ -92,7 +92,7 @@ describe("documentación · volumen: 100 expedientes por el camino real", () => 
   it("los 100 expedientes quedan registrados con sus requisitos", () => {
     expect(ids.length).toBe(100);
     expect(h.rowsOf("Expedientes").length).toBe(100);
-    // 18 generales, más los cuatro de garantía en uno de cada cinco.
+    // 18 generales, más los nueve de garantía (Tipo 2) en uno de cada cinco.
     expect(h.rowsOf("ExpedienteDocumentos").length).toBeGreaterThan(1800);
   });
 
@@ -163,11 +163,11 @@ describe("documentación · volumen: 1 000 expedientes", () => {
   const h = loadInstalledBackend();
   const ids = sembrarPorServicio(h, 1000);
 
-  it("mil expedientes y dieciocho mil requisitos entran en el libro", () => {
+  it("mil expedientes y casi veinte mil requisitos entran en el libro", () => {
     expect(ids.length).toBe(1000);
     expect(h.rowsOf("Expedientes").length).toBe(1000);
-    // 18 generales por expediente, más los cuatro de garantía en uno de cada cinco.
-    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(18800);
+    // 18 generales por expediente, más los nueve de garantía (Tipo 2) en uno de cada cinco.
+    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(19800);
   });
 
   it("la lista sigue devolviendo una página, no la base entera", () => {

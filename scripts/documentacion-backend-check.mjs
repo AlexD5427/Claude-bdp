@@ -274,10 +274,10 @@ if (generales.length !== 18) {
 } else {
   ok("18 documentos generales, en el orden funcional del proceso");
 }
-if (semilla.length !== 31) {
-  fallo("El catálogo no tiene 31 documentos", `Tiene ${semilla.length}.`);
+if (semilla.length !== 38) {
+  fallo("El catálogo no tiene 38 documentos", `Tiene ${semilla.length}.`);
 } else {
-  ok("31 documentos en el catálogo canónico");
+  ok("38 documentos en el catálogo canónico");
 }
 
 const heredado = harness.read("DOC_CATALOGO_SEMILLA");

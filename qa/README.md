@@ -56,6 +56,37 @@ node qa/sondas.mjs nota-no-se-borra
 `qa/legacy-check.mjs <url>` es un atajo para comparar dos despliegues (por
 ejemplo `origin/main` frente a una rama) en el perfil de navegador antiguo.
 
+## Arnés del módulo de Documentación
+
+Tres piezas más, añadidas al investigar «la pantalla se congela». Todas montan la
+aplicación en un Chromium real y desvían las llamadas al backend `.gs` cargado en
+memoria por `scripts/documentacion-backend.mjs`, así que lo que se ve en pantalla
+salió del `doPost` de verdad.
+
+```bash
+node qa/documentacion-app.mjs               # recorrido completo (app entera)
+node qa/documentacion-app.mjs congelamiento # ¿sigue respondiendo tras abrir y cerrar paneles?
+node qa/documentacion-app.mjs alta          # el asistente de nuevo expediente, de principio a fin
+node qa/sonda-foco-expediente.mjs           # ¿se puede ESCRIBIR en el panel del expediente?
+node qa/sonda-congelamiento.mjs             # ¿queda el `body` con overflow:hidden?
+node qa/sonda-salida-perfil.mjs             # ¿se puede SALIR del formulario de perfil de cargo?
+node qa/visual-documentacion.mjs            # las diez pantallas + capturas de la documentación
+```
+
+`sonda-foco-expediente.mjs` es la que encontró el fallo grave de esta iteración:
+escribe una observación letra a letra y compara lo escrito con lo que llegó. Antes
+del arreglo devolvía `"F"` en lugar de la frase completa, y el foco terminaba en un
+`<button>`.
+
+`sonda-salida-perfil.mjs` encontró el otro fallo grave: la confirmación de «¿salir
+sin guardar?» se montaba por detrás del formulario (`z-index` 110 contra 115), así
+que no se podía pulsar y la única salida era recargar la página.
+
+A diferencia de `visual-documentacion.mjs` —que monta solo la consola—,
+`documentacion-app.mjs` monta la **aplicación completa** (acceso, dock y
+superposiciones globales): es el único entorno donde se reproducen los fallos que
+nacen de la convivencia entre módulos.
+
 ## Resultado esperado tras las correcciones
 
 | Sonda                     | Antes                                            | Después                                        |

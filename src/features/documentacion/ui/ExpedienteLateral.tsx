@@ -19,31 +19,25 @@
  *    botón en lugar de buscar en la lista.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  CalendarClock,
   CheckCircle2,
   Download,
-  FileText,
   MessageSquare,
   RefreshCw,
   Send,
-  ShieldCheck,
   Undo2,
 } from "lucide-react";
 import { docApi, type ExpedienteOperativo } from "../api/acciones";
 import {
   ETIQUETA_APROBACION,
-  ETIQUETA_DOCUMENTO,
   ETIQUETA_EXPEDIENTE,
   ETIQUETA_PRORROGA,
   ETIQUETA_REVISION,
   ETIQUETA_SITUACION,
   ETIQUETA_SOLICITUD,
   ETIQUETA_TAREA,
-  ESTADOS_DOCUMENTO,
   INTENCION_APROBACION,
-  INTENCION_DOCUMENTO,
   INTENCION_PRORROGA,
   INTENCION_REVISION,
   INTENCION_SITUACION,
@@ -51,13 +45,10 @@ import {
   INTENCION_TAREA,
   MOTIVOS_REVISION,
   VISIBILIDADES_COMENTARIO,
-  puedeTransitar,
-  TRANSICIONES_DOCUMENTO,
   type EstadoDocumento,
   type EstadoExpediente,
 } from "../domain/vocabulario";
 import {
-  agruparRequisitos,
   fechaCorta,
   fechaEnDias,
   fechaHora,
@@ -67,7 +58,6 @@ import {
 import { useConsola } from "../state/consola";
 import { descargarXlsx, nombreConFecha, unirLotes } from "../export/xlsx";
 import {
-  BarraAvance,
   Boton,
   Campo,
   ChipEstado,
@@ -81,6 +71,7 @@ import {
   type Notita,
 } from "./piezas";
 import { DocExpedienteHeader } from "./DocExpedienteHeader";
+import { RequisitosExpediente } from "./RequisitosExpediente";
 import { DocError, DocVacio } from "./DocStates";
 import { EsqueletoExpediente } from "./DocSkeletons";
 import type { EstadoEscritura } from "./DocSyncIndicator";
@@ -559,6 +550,14 @@ function contarAviso<T>(
 /* Requisitos                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Pestaña de requisitos.
+ *
+ * El listado vive en `RequisitosExpediente` (buscador, filtros por situación,
+ * chips de estado con el color del área y prórrogas con cuenta regresiva). Aquí
+ * solo quedan los dos formularios que se abren desde una fila: la decisión de
+ * revisión y la prórroga.
+ */
 function Requisitos({
   datos,
   borrador,
@@ -577,157 +576,22 @@ function Requisitos({
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }) {
   const { capacidades } = useConsola();
-  const setFoco = onFoco;
   const [revisando, setRevisando] = useState<RequisitoVista | null>(null);
   const [prorrogando, setProrrogando] = useState<RequisitoVista | null>(null);
-  const grupos = useMemo(() => agruparRequisitos(datos.requisitos), [datos.requisitos]);
-
-  function estadoDe(requisito: RequisitoVista): EstadoDocumento {
-    return borrador[requisito.expedienteDocumentoId]?.estado ?? requisito.estado;
-  }
 
   return (
     <div className="space-y-3">
-      {grupos.map((grupo) => (
-        <Panel
-          key={grupo.seccion}
-          titulo={grupo.etiqueta}
-          descripcion={`${grupo.resueltos} de ${grupo.total} resueltos`}
-          acciones={<div className="w-32"><BarraAvance valor={grupo.porcentaje} etiqueta={`Avance de ${grupo.etiqueta}`} /></div>}
-        >
-          <ul className="doc-list-long divide-y divide-[color:var(--doc-border)]">
-            {grupo.requisitos.map((requisito) => {
-              const estado = estadoDe(requisito);
-              const sucio = !!borrador[requisito.expedienteDocumentoId];
-              const enFoco = foco === requisito.expedienteDocumentoId;
-              return (
-                <li
-                  key={requisito.expedienteDocumentoId}
-                  className="doc-print-keep py-2.5"
-                  style={
-                    enFoco
-                      ? {
-                          margin: "0 -0.5rem",
-                          padding: "0.625rem 0.5rem",
-                          borderRadius: "var(--doc-radius-sm)",
-                          background: "var(--doc-info-bg)",
-                          boxShadow: "inset 0 0 0 1px var(--doc-info)",
-                        }
-                      : undefined
-                  }
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      {/* El nombre del requisito se muestra entero: recortarlo
-                          obliga a pasar el ratón para saber qué documento es. */}
-                      <p className="doc-prose doc-wrap-name text-sm text-[color:var(--doc-text)]">
-                        {requisito.nombre}
-                        {requisito.obligatorio && (
-                          <span className="ml-1.5 text-[10px] uppercase text-[color:var(--doc-text-faint)]">obligatorio</span>
-                        )}
-                        {sucio && (
-                          <span className="ml-2 text-[10px] font-semibold uppercase" style={{ color: TONO.aviso.texto }}>
-                            sin guardar
-                          </span>
-                        )}
-                      </p>
-                      {requisito.descripcion && (
-                        <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">{requisito.descripcion}</p>
-                      )}
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <ChipEstado estado={estado} etiqueta={ETIQUETA_DOCUMENTO[estado]} intencion={INTENCION_DOCUMENTO[estado]} />
-                        {requisito.estadoRevision !== "SIN_REVISION" && (
-                          <ChipEstado
-                            estado={requisito.estadoRevision}
-                            etiqueta={ETIQUETA_REVISION[requisito.estadoRevision as keyof typeof ETIQUETA_REVISION] ?? requisito.estadoRevision}
-                            intencion={INTENCION_REVISION[requisito.estadoRevision as keyof typeof INTENCION_REVISION] ?? "neutral"}
-                          />
-                        )}
-                        {requisito.prorrogas
-                          .filter((p) => p.situacion !== "cerrada")
-                          .map((prorroga) => (
-                            <ChipEstado
-                              key={prorroga.prorrogaId}
-                              estado={prorroga.situacion}
-                              etiqueta={`Prórroga ${ETIQUETA_SITUACION[prorroga.situacion]?.toLowerCase() ?? prorroga.situacion} · ${fechaCorta(prorroga.fechaProrroga)}`}
-                              intencion={INTENCION_SITUACION[prorroga.situacion] ?? "neutral"}
-                              /* Vencida sigue siendo roja: ahí el problema no es el
-                                 plazo, es que se agotó. */
-                              prorroga={prorroga.situacion !== "vencida"}
-                              titulo={prorroga.motivo || "Prórroga concedida sobre este requisito"}
-                            />
-                          ))}
-                      </div>
-                    </div>
-
-                    {/* Cambio de estado: solo los destinos que la máquina permite. */}
-                    {capacidades.editar && (
-                      <div className="flex flex-wrap gap-1">
-                        {ESTADOS_DOCUMENTO.filter(
-                          (destino) =>
-                            puedeTransitar(TRANSICIONES_DOCUMENTO, requisito.estado, destino) &&
-                            (destino !== "NO_APLICA" || requisito.permiteNoAplica),
-                        ).map((destino) => (
-                          <button
-                            key={destino}
-                            type="button"
-                            onClick={() => {
-                              onBorrador(requisito.expedienteDocumentoId, { estado: destino });
-                              setFoco(requisito.expedienteDocumentoId);
-                            }}
-                            aria-pressed={estado === destino}
-                            className="doc-tap rounded-[var(--doc-radius-sm)] px-2 py-1 text-[11px] font-semibold transition-colors"
-                            style={
-                              estado === destino
-                                ? { background: "var(--doc-info-bg)", color: "var(--doc-info-fg)", boxShadow: "inset 0 0 0 1px var(--doc-info)" }
-                                : {
-                                    background: "var(--doc-surface-raised)",
-                                    color: "var(--doc-text-muted)",
-                                    boxShadow: "inset 0 0 0 1px var(--doc-border)",
-                                  }
-                            }
-                          >
-                            {ETIQUETA_DOCUMENTO[destino]}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {(enFoco || requisito.observaciones || borrador[requisito.expedienteDocumentoId]?.observaciones !== undefined) && (
-                    <div className="mt-2">
-                      <Campo etiqueta="Observaciones" ayuda="Queda en el expediente y viaja a los reportes.">
-                        <AreaTexto
-                          value={borrador[requisito.expedienteDocumentoId]?.observaciones ?? requisito.observaciones}
-                          onChange={(e) => onBorrador(requisito.expedienteDocumentoId, { observaciones: e.target.value })}
-                          disabled={!capacidades.editar}
-                          rows={2}
-                        />
-                      </Campo>
-                    </div>
-                  )}
-
-                  <div className="mt-1.5 flex flex-wrap gap-2">
-                    {capacidades.revisar && (
-                      <Boton variante="fantasma" onClick={() => setRevisando(requisito)}>
-                        <ShieldCheck className="h-3.5 w-3.5" aria-hidden /> Revisar
-                      </Boton>
-                    )}
-                    {capacidades.editar && requisito.permiteProrroga && (
-                      <Boton variante="fantasma" onClick={() => setProrrogando(requisito)}>
-                        <CalendarClock className="h-3.5 w-3.5" aria-hidden /> Prórroga
-                      </Boton>
-                    )}
-                    <Boton variante="fantasma" onClick={() => setFoco(enFoco ? null : requisito.expedienteDocumentoId)}>
-                      <FileText className="h-3.5 w-3.5" aria-hidden /> {enFoco ? "Cerrar" : "Detalle"}
-                    </Boton>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </Panel>
-      ))}
+      <RequisitosExpediente
+        datos={datos}
+        borrador={borrador}
+        foco={foco}
+        puedeEditar={capacidades.editar === true}
+        puedeRevisar={capacidades.revisar === true}
+        onFoco={onFoco}
+        onBorrador={onBorrador}
+        onRevisar={setRevisando}
+        onProrrogar={setProrrogando}
+      />
 
       <DecisionRevision
         requisito={revisando}

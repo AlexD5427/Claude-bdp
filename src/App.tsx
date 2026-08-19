@@ -15,6 +15,7 @@ import { LoginScreen } from "./components/login/LoginScreen";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { TalentDataProvider, useTalentData } from "./context/TalentDataContext";
 import { useConfig, type DockPosition } from "./lib/configStore";
+import { reiniciarBloqueoScroll } from "./lib/scrollLock";
 import {
   getBundle,
   logActivity,
@@ -114,6 +115,10 @@ function AppShell() {
   // Trace navigation into the per-profile activity log (best-effort).
   useEffect(() => {
     logActivity({ modulo: active, accion: "Abrió módulo" });
+    // Red de seguridad: cambiar de módulo nunca debe dejar el scroll bloqueado.
+    // Si un overlay se cerró de forma anómala y dejó el `body` en «hidden», esto
+    // devuelve la interfaz a un estado usable sin recargar la página.
+    reiniciarBloqueoScroll();
   }, [active]);
 
   const meta = DOCK_ITEMS.find((d) => d.id === active)!;
