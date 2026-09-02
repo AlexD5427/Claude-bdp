@@ -92,7 +92,7 @@ function docTestManifiesto_() {
   }
   docCheckEq_('no hay claves internas repetidas', repetidas.length, 0);
 
-  docCheckEq_('el catalogo trae 38 documentos', DOC_CATALOGO_SEMILLA.length, 38);
+  docCheckEq_('el catalogo heredado trae 39 documentos', DOC_CATALOGO_SEMILLA.length, 39);
   docCheckEq_('docColumnByKey_ encuentra la columna', docColumnByKey_('rejap').encabezado, 'REJAP');
   docCheck_('docYearColumnPosition_ ubica el identificador', docYearColumnPosition_('id') === 24);
 }
@@ -223,15 +223,49 @@ function docTestModelo_() {
   }
   docCheckEq_('ninguna hoja del modelo repite nombre', duplicadas, 0);
 
-  docCheckEq_('el catalogo canonico trae 38 documentos', DOC2_CATALOGO_SEMILLA.length, 38);
-  docCheckEq_('un funcionario general sin garantia exige 18',
-    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 18);
-  docCheckEq_('un comercial con garantia exige 23',
-    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 23);
-  docCheckEq_('cumplimiento exige 20',
-    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 20);
+  // Recuentos del catalogo version 3. Son el contrato con el area: si cambian sin
+  // que nadie lo haya pedido, es que una semilla se editó por accidente.
+  docCheckEq_('el catalogo canonico trae 39 filas', DOC2_CATALOGO_SEMILLA.length, 39);
+  docCheckEq_('un funcionario general exige 16',
+    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 16);
+  docCheckEq_('comercial tipo 1 exige 21',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 21);
+  docCheckEq_('comercial tipo 2 exige 25',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_2').length, 25);
+  docCheckEq_('comercial tipo 3 exige 21',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_3').length, 21);
+  docCheckEq_('auditoria exige 17',
+    doc2AplicablesDeSemilla_('AUDITORIA', 'NINGUNA').length, 17);
+  docCheckEq_('cumplimiento exige 19',
+    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 19);
   docCheckEq_('la garantia sola no anade documentos a un general',
-    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 18);
+    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 16);
+
+  // Los dos generales retirados siguen en la semilla, inactivos: los expedientes
+  // antiguos los referencian y borrarlos falsearia su avance historico.
+  var retirados = 0;
+  for (var rt = 0; rt < DOC2_CATALOGO_SEMILLA.length; rt++) {
+    if (DOC2_CATALOGO_SEMILLA[rt].retirado === true) retirados++;
+  }
+  docCheckEq_('quedan 2 generales retirados sin borrar', retirados, 2);
+
+  // El contador de hojas se DEDUCE de la presentacion fisica: nueve documentos.
+  var conConteo = [];
+  for (var cc = 0; cc < DOC2_CATALOGO_SEMILLA.length; cc++) {
+    if (doc2EsFisico_(DOC2_CATALOGO_SEMILLA[cc].fisica)) conConteo.push(DOC2_CATALOGO_SEMILLA[cc].codigo);
+  }
+  docCheckEq_('nueve documentos llevan conteo de hojas', conConteo.length, 9);
+  docCheck_('y ninguno de garantia lo lleva', conConteo.join(',').indexOf('garante-') < 0);
+
+  // La trampa del documento compartido: misma fila, subseccion distinta por rama.
+  var compartido = null;
+  for (var sc = 0; sc < DOC2_CATALOGO_SEMILLA.length; sc++) {
+    if (DOC2_CATALOGO_SEMILLA[sc].codigo === 'garante-inmueble') compartido = DOC2_CATALOGO_SEMILLA[sc];
+  }
+  docCheckEq_('garante-inmueble en tipo 1 es del garante',
+    doc2SubseccionDe_(compartido.subseccion, 'COMERCIAL_1'), '1 Garante con Bien Inmueble');
+  docCheckEq_('y en tipo 3 es del postulante',
+    doc2SubseccionDe_(compartido.subseccion, 'COMERCIAL_3'), 'Postulante con inmueble propio');
 
   docCheck_('de BORRADOR se puede pasar a EN_RECOLECCION',
     doc2TransicionPermitida_('expediente', DOC2_ESTADO_EXPEDIENTE.BORRADOR, DOC2_ESTADO_EXPEDIENTE.EN_RECOLECCION));
@@ -252,7 +286,8 @@ function docTestModelo_() {
   docCheck_('un rol inventado cae en invitado',
     doc2CapacidadesDe_('duenio-del-banco').length === doc2CapacidadesDe_('invitado').length);
 
-  docCheckEq_('hay cuatro migraciones declaradas', DOC2_MIGRACIONES.length, 4);
+  // Cuatro del esquema 4 mas dos del esquema 5 (columnas nuevas y catalogo v3).
+  docCheckEq_('hay seis migraciones declaradas', DOC2_MIGRACIONES.length, 6);
   docCheckEq_('y la primera es la estructural', DOC2_MIGRACIONES[0].version, '4.0.0-estructura');
 }
 

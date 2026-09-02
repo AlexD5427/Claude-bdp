@@ -255,10 +255,26 @@ if (hojasNormalizadas.length !== 19) {
 }
 
 const columnasAuxiliar = harness.read("DOC2_AUXILIAR_COLUMNS");
-if (!columnasAuxiliar.includes("agencia_bdp") || !columnasAuxiliar.includes("gerencia_bdp")) {
-  fallo("La hoja Auxiliar no declara sus catálogos", `Declara ${columnasAuxiliar.join(", ")}.`);
+const AUXILIARES_ESPERADAS = ["agencia_bdp", "gerencia_bdp", "cargo_bdp"];
+const auxFaltantes = AUXILIARES_ESPERADAS.filter((c) => !columnasAuxiliar.includes(c));
+if (auxFaltantes.length) {
+  fallo("La hoja Auxiliar no declara sus catálogos", `Faltan ${auxFaltantes.join(", ")}; declara ${columnasAuxiliar.join(", ")}.`);
 } else {
-  ok("la hoja Auxiliar declara agencia_bdp y gerencia_bdp");
+  ok(`la hoja Auxiliar declara ${AUXILIARES_ESPERADAS.join(", ")}`);
+}
+
+// El tipo del frontend tiene que declarar las MISMAS columnas: si el backend
+// añade `cargo_bdp` y `acciones.ts` no la tipa, el selector de Cargo compila con
+// una lista vacía y nadie se enteraría hasta abrir el formulario.
+const accionesFuente = leer(join(DIR_FEATURE, "api", "acciones.ts"));
+const auxSinTipar = AUXILIARES_ESPERADAS.filter((c) => !accionesFuente.includes(`${c}: string[]`));
+if (auxSinTipar.length) {
+  fallo(
+    "El frontend no tipa todas las columnas auxiliares",
+    `Faltan en api/acciones.ts: ${auxSinTipar.join(", ")}.`,
+  );
+} else {
+  ok("el frontend tipa las tres columnas auxiliares");
 }
 
 /* ------------------------------------------------------------------ */
@@ -269,15 +285,102 @@ seccion("Catálogo");
 
 const semilla = harness.read("DOC2_CATALOGO_SEMILLA");
 const generales = semilla.filter((d) => d.seccion === "generales");
-if (generales.length !== 18) {
-  fallo("Los documentos generales no son 18", `Hay ${generales.length}.`);
+const generalesVigentes = generales.filter((d) => d.retirado !== true);
+const generalesRetirados = generales.filter((d) => d.retirado === true);
+
+if (generalesVigentes.length !== 16) {
+  fallo("Los documentos generales vigentes no son 16", `Hay ${generalesVigentes.length}.`);
 } else {
-  ok("18 documentos generales, en el orden funcional del proceso");
+  ok("16 documentos generales vigentes, en el orden de la lista del área");
 }
-if (semilla.length !== 38) {
-  fallo("El catálogo no tiene 38 documentos", `Tiene ${semilla.length}.`);
+if (generalesRetirados.length !== 2) {
+  fallo(
+    "Los generales retirados no son los dos esperados",
+    `Hay ${generalesRetirados.length}: ${generalesRetirados.map((d) => d.codigo).join(", ")}.`,
+  );
+} else if (!generalesRetirados.every((d) => ["cert-trabajo", "rc-iva"].includes(d.codigo))) {
+  fallo("Se retiró un general que no toca", generalesRetirados.map((d) => d.codigo).join(", "));
 } else {
-  ok("38 documentos en el catálogo canónico");
+  ok("cert-trabajo y rc-iva quedan retirados sin borrarse");
+}
+if (semilla.length !== 39) {
+  fallo("El catálogo no tiene 39 filas", `Tiene ${semilla.length}.`);
+} else {
+  ok("39 filas en el catálogo canónico (37 vigentes + 2 retiradas)");
+}
+
+/*
+ * Recuentos por rama.
+ *
+ * Se calculan con la MISMA función que usa la migración (`doc2AplicablesDeSemilla_`),
+ * no reimplementando el filtro aquí: una segunda implementación acabaría contando
+ * distinto y el verificador dejaría de verificar nada.
+ */
+const RECUENTOS = [
+  ["GENERAL", "NINGUNA", 16],
+  ["COMERCIAL", "COMERCIAL_1", 21],
+  ["COMERCIAL", "COMERCIAL_2", 25],
+  ["COMERCIAL", "COMERCIAL_3", 21],
+  ["AUDITORIA", "NINGUNA", 17],
+  ["CUMPLIMIENTO", "NINGUNA", 19],
+];
+const recuentosMal = [];
+for (const [funcionario, garantia, esperado] of RECUENTOS) {
+  const real = harness.call("doc2AplicablesDeSemilla_", funcionario, garantia).length;
+  if (real !== esperado) recuentosMal.push(`${funcionario}/${garantia}: ${real} en vez de ${esperado}`);
+}
+if (recuentosMal.length) {
+  fallo("Los recuentos por rama no cuadran", recuentosMal.join(" · "));
+} else {
+  ok("recuentos por rama: General 16 · T1 21 · T2 25 · T3 21 · Auditoría 17 · Cumplimiento 19");
+}
+
+/*
+ * Contador de hojas: se DEDUCE de la presentación física, nunca se cablea.
+ *
+ * Si alguien declarase `conteoHojas` a mano en la semilla, o la interfaz volviera
+ * a llevar su propia lista de documentos físicos, esta comprobación no lo vería;
+ * lo que sí ve es que la lista deducida sea exactamente la del proceso.
+ */
+const CON_CONTEO = [
+  "antecedentes-felcc", "rejap", "titulo-legalizado", "seguro-accidentes", "seguro-vida",
+  "impedimento-auditor", "djj-prohibiciones-cumplimiento", "lgi-ft", "examen-uif",
+];
+const deducidos = semilla.filter((d) => harness.call("doc2EsFisico_", d.fisica)).map((d) => d.codigo);
+const sobran = deducidos.filter((c) => !CON_CONTEO.includes(c));
+const faltanConteo = CON_CONTEO.filter((c) => !deducidos.includes(c));
+if (sobran.length || faltanConteo.length) {
+  fallo(
+    "Los documentos con conteo de hojas no son los esperados",
+    `Sobran: ${sobran.join(", ") || "—"} · Faltan: ${faltanConteo.join(", ") || "—"}.`,
+  );
+} else if (deducidos.some((c) => c.startsWith("garante-"))) {
+  fallo("Un documento de garantía lleva conteo de hojas", "Los de garantía son todos digitales.");
+} else {
+  ok("9 documentos llevan conteo de hojas, ninguno de garantía");
+}
+
+/*
+ * La trampa del documento compartido entre Tipo 1 y Tipo 3.
+ *
+ * `garante-inmueble` y `garante-folio` son la MISMA fila del catálogo y viven en
+ * subsecciones distintas según la rama. Es el caso que obligó a que `subseccion`
+ * admitiera un mapa, y el que se rompería en silencio si alguien lo volviera a
+ * convertir en un texto único.
+ */
+const compartidos = semilla.filter((d) => (d.garantia || []).length > 1);
+const subMal = [];
+for (const def of compartidos) {
+  const enT1 = harness.call("doc2SubseccionDe_", def.subseccion, "COMERCIAL_1");
+  const enT3 = harness.call("doc2SubseccionDe_", def.subseccion, "COMERCIAL_3");
+  if (!enT1 || !enT3 || enT1 === enT3) subMal.push(`${def.codigo}: T1="${enT1}" T3="${enT3}"`);
+}
+if (!compartidos.length) {
+  fallo("Ningún documento de garantía se comparte entre ramas", "Se esperaban garante-inmueble y garante-folio.");
+} else if (subMal.length) {
+  fallo("Un documento compartido no distingue su subsección por rama", subMal.join(" · "));
+} else {
+  ok(`${compartidos.length} documentos compartidos entre Tipo 1 y Tipo 3, con subsección propia en cada rama`);
 }
 
 const heredado = harness.read("DOC_CATALOGO_SEMILLA");
@@ -293,11 +396,20 @@ if (desalineados.length) {
   ok("los códigos del catálogo heredado se conservan uno a uno");
 }
 
-const conProrroga = semilla.filter((d) => d.prorroga === true).map((d) => d.codigo);
-if (!conProrroga.includes("cert-trabajo") || !conProrroga.includes("titulo-legalizado")) {
-  fallo("Las dos prórrogas del proceso no están habilitadas", `Habilitadas: ${conProrroga.join(", ")}.`);
+/*
+ * Prórrogas del proceso vigente.
+ *
+ * Antes eran «certificados de trabajo» y «título académico». `cert-trabajo` está
+ * retirado, así que las prórrogas vivas son el título en legalización y el examen
+ * de la UIF (que tiene tres meses desde la contratación por norma).
+ */
+const conProrroga = semilla.filter((d) => d.retirado !== true && d.prorroga === true).map((d) => d.codigo);
+const PRORROGAS_ESPERADAS = ["titulo-legalizado", "examen-uif"];
+const prorrogasFaltantes = PRORROGAS_ESPERADAS.filter((c) => !conProrroga.includes(c));
+if (prorrogasFaltantes.length) {
+  fallo("Faltan prórrogas del proceso", `Faltan ${prorrogasFaltantes.join(", ")}; habilitadas: ${conProrroga.join(", ")}.`);
 } else {
-  ok("certificados de trabajo y título académico siguen admitiendo prórroga");
+  ok("título académico y examen de la UIF admiten prórroga");
 }
 
 /* ------------------------------------------------------------------ */

@@ -18,11 +18,11 @@ describe("documentación · alta de expedientes", () => {
     const h = loadInstalledBackend();
     const { expediente, requisitos } = crearExpediente(h);
 
-    expect(requisitos.length).toBe(18);
+    expect(requisitos.length).toBe(16);
     expect(expediente.estado).toBe("EN_RECOLECCION");
     expect(expediente.porcentaje).toBe(0);
-    expect(expediente.totales.requisitos).toBe(18);
-    expect(expediente.totales.pendientes).toBe(18);
+    expect(expediente.totales.requisitos).toBe(16);
+    expect(expediente.totales.pendientes).toBe(16);
     for (const requisito of requisitos) {
       expect(requisito.estado).toBe("PENDIENTE");
       expect(requisito.estadoRevision).toBe("SIN_REVISION");
@@ -119,14 +119,14 @@ describe("documentación · edición y progreso", () => {
       cambios: { estado: "ENTREGADO", observaciones: "Recibido en original." },
     });
     expect(res.resumen.total_entregados).toBe(1);
-    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 18) * 100));
+    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 16) * 100));
     expect(res.resumen.estado_expediente).toBe("EN_RECOLECCION");
   });
 
   it("los no aplica salen del denominador del avance", () => {
     const h = loadInstalledBackend();
     const { expedienteId, requisitos } = crearExpediente(h);
-    const opcional = requisitos.find((r: any) => r.codigo === "rc-iva")!;
+    const opcional = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
     const otro = requisitos.find((r: any) => r.codigo === "carnet-heredero")!;
 
     h.ok("documentacion.requisitos.guardar", {
@@ -137,7 +137,13 @@ describe("documentación · edición y progreso", () => {
       ],
     });
 
-    const obligatorios = requisitos.filter((r: any) => r.obligatorio);
+    // Se excluyen los dos que acaban de marcarse como «no aplica»: volver a
+    // pedir ENTREGADO sobre ellos sería la transición contraria a la que la
+    // prueba está midiendo.
+    const noAplicaIds = new Set([opcional.expedienteDocumentoId, otro.expedienteDocumentoId]);
+    const obligatorios = requisitos.filter(
+      (r: any) => r.obligatorio && !noAplicaIds.has(r.expedienteDocumentoId),
+    );
     const res = h.ok("documentacion.requisitos.guardar", {
       expedienteId,
       cambios: obligatorios.map((r: any) => ({ expedienteDocumentoId: r.expedienteDocumentoId, estado: "ENTREGADO" })),

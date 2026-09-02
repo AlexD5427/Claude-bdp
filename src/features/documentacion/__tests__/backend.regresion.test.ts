@@ -369,7 +369,7 @@ describe("regresión · las dos arquitecturas conviven", () => {
   });
 });
 
-describe("regresión · los 18 documentos generales y las ramas", () => {
+describe("regresión · los 16 documentos generales vigentes y las ramas", () => {
   it("el catálogo heredado y el nuevo describen los mismos documentos", () => {
     const h = loadBackend();
     h.pedir("instalar", {});
@@ -378,18 +378,25 @@ describe("regresión · los 18 documentos generales y las ramas", () => {
     const heredado = h.read<any[]>("DOC_CATALOGO_SEMILLA").map((d) => d.id).sort();
     const nuevo = h.ok("documentacion.catalogo").documentos.map((d: any) => d.codigo).sort();
     expect(nuevo).toEqual(heredado);
-    expect(nuevo.length).toBe(38);
+    expect(nuevo.length).toBe(39);
   });
 
   it("cada rama produce el número de requisitos esperado", () => {
     const h = loadInstalledBackend();
+    /*
+     * Recuentos del catálogo v3. Son el contrato con el área.
+     *
+     * Bajan respecto a la versión 2 porque los generales pasaron de 18 a 16 (se
+     * retiraron «certificados de trabajo» y el RC-IVA), y Cumplimiento sube uno
+     * porque gana la declaración jurada de prohibiciones.
+     */
     const casos: [string, string, number][] = [
-      ["GENERAL", "NINGUNA", 18],
-      ["COMERCIAL", "COMERCIAL_1", 23],
-      ["COMERCIAL", "COMERCIAL_2", 27],
-      ["COMERCIAL", "COMERCIAL_3", 23],
-      ["AUDITORIA", "NINGUNA", 19],
-      ["CUMPLIMIENTO", "NINGUNA", 20],
+      ["GENERAL", "NINGUNA", 16],
+      ["COMERCIAL", "COMERCIAL_1", 21],
+      ["COMERCIAL", "COMERCIAL_2", 25],
+      ["COMERCIAL", "COMERCIAL_3", 21],
+      ["AUDITORIA", "NINGUNA", 17],
+      ["CUMPLIMIENTO", "NINGUNA", 19],
     ];
     let n = 0;
     for (const [funcionario, garantia, esperado] of casos) {
@@ -402,11 +409,20 @@ describe("regresión · los 18 documentos generales y las ramas", () => {
     }
   });
 
-  it("las prórrogas de certificados y título siguen siendo las únicas del proceso general", () => {
+  it("la prórroga del título sigue siendo la única del proceso general", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
     const conProrroga = requisitos.filter((r: any) => r.permiteProrroga).map((r: any) => r.codigo).sort();
-    expect(conProrroga).toEqual(["cert-trabajo", "titulo-legalizado"]);
+    /*
+     * En el catálogo v3 el proceso GENERAL tiene una sola prórroga.
+     *
+     * Eran dos: «certificados de trabajo» y «título académico». `cert-trabajo`
+     * se retiró de la lista vigente del área, así que en un expediente general
+     * nuevo queda el título en legalización. La otra prórroga del módulo —el
+     * examen de la UIF, tres meses desde la contratación— vive en la rama de
+     * Cumplimiento y se comprueba en `backend.workflow.test.ts`.
+     */
+    expect(conProrroga).toEqual(["titulo-legalizado"]);
   });
 });
 

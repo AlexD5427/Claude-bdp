@@ -259,3 +259,125 @@
 .reduce-motion .doc-tap:active:not(:disabled) {
   transform: none !important;
 }
+
+/* =============================================================
+   Logotipo de carga: hojas que se apilan y se hojean.
+
+   ── Regla dura de este bloque ────────────────────────────────
+   Solo `transform`, `opacity` y `filter`. Ni una propiedad que
+   provoque recálculo de diseño (`width`, `height`, `top`, `left`,
+   `margin`) ni repintado caro (`box-shadow`, `background-position`).
+   Es la animación que corre MIENTRAS el navegador descarga y
+   evalúa el resto del módulo: si compite por el hilo principal,
+   retrasa justo lo que la persona está esperando.
+
+   El color «dinámico» sale de girar un degradado ya pintado y de
+   un `hue-rotate` en el filtro. El ojo ve color en movimiento; el
+   compositor solo ve una transformación de una capa que no cambia.
+   ============================================================= */
+
+.doc-logo-hojas {
+  display: grid;
+  place-items: center;
+  /* `will-change` solo en el contenedor y solo mientras existe este
+     componente, que se desmonta al entrar: promocionar capas para
+     siempre consume memoria de GPU que nadie recupera. */
+  will-change: transform, filter;
+}
+
+.doc-logo-hojas svg {
+  overflow: visible;
+}
+
+/* Las hojas del fondo. `transform-box: fill-box` hace que el origen
+   sea el propio rectángulo y no el lienzo: sin eso, rotar mueve la
+   hoja por la pantalla en lugar de girarla sobre sí misma. */
+.doc-logo-hoja {
+  fill: var(--doc-surface-raised);
+  stroke: var(--doc-border);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: 12% 50%;
+}
+
+.doc-logo-frente {
+  transform-box: fill-box;
+  transform-origin: 12% 50%;
+}
+
+/* Estado quieto (modo ligero o `prefers-reduced-motion`): la pila se
+   ve, escalonada, sin moverse. Se lee igual de bien. */
+.doc-logo-hoja--1 { transform: translate(-2px, -3px) rotate(-3deg); opacity: 0.9; }
+.doc-logo-hoja--2 { transform: translate(-5px, -6px) rotate(-6deg); opacity: 0.6; }
+.doc-logo-hoja--3 { transform: translate(-8px, -9px) rotate(-9deg); opacity: 0.35; }
+
+.doc-logo-hojas--anima .doc-logo-pila {
+  animation: doc-logo-color 6s linear infinite;
+}
+
+.doc-logo-hojas--anima .doc-logo-hoja {
+  animation: doc-logo-hojear 2.4s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+/* La curva es la de las hojas de iOS. El retardo negativo arranca cada
+   hoja a mitad de su ciclo: la pila nace ya en movimiento en lugar de
+   empezar toda junta y separarse, que se lee como un salto. */
+.doc-logo-hojas--anima .doc-logo-hoja--1 { animation-delay: -0.1s; }
+.doc-logo-hojas--anima .doc-logo-hoja--2 { animation-delay: -0.35s; }
+.doc-logo-hojas--anima .doc-logo-hoja--3 { animation-delay: -0.6s; }
+
+.doc-logo-hojas--anima .doc-logo-frente {
+  animation: doc-logo-respirar 2.4s cubic-bezier(0.32, 0.72, 0, 1) infinite,
+    doc-logo-color 6s linear infinite;
+}
+
+.doc-logo-hojas--anima .doc-logo-renglon {
+  transform-box: fill-box;
+  transform-origin: 0% 50%;
+  animation: doc-logo-escribir 2.4s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+.doc-logo-hojas--anima .doc-logo-renglon--1 { animation-delay: 0s; }
+.doc-logo-hojas--anima .doc-logo-renglon--2 { animation-delay: 0.12s; }
+.doc-logo-hojas--anima .doc-logo-renglon--3 { animation-delay: 0.24s; }
+.doc-logo-hojas--anima .doc-logo-renglon--4 { animation-delay: 0.36s; }
+
+@keyframes doc-logo-hojear {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 0.15; }
+  35%  { transform: translate(-6px, -7px) rotate(-8deg); opacity: 0.7; }
+  70%  { transform: translate(-9px, -10px) rotate(-11deg); opacity: 0.4; }
+  100% { transform: translate(0, 0) rotate(0deg); opacity: 0.15; }
+}
+
+@keyframes doc-logo-respirar {
+  0%, 100% { transform: scale(1) rotate(0deg); }
+  45%      { transform: scale(1.035) rotate(1.5deg); }
+}
+
+/* El «color dinámico»: se gira el matiz del degradado ya pintado. */
+@keyframes doc-logo-color {
+  0%   { filter: hue-rotate(0deg); }
+  50%  { filter: hue-rotate(38deg); }
+  100% { filter: hue-rotate(0deg); }
+}
+
+/* Los renglones se «escriben»: `scaleX` desde el margen izquierdo. */
+@keyframes doc-logo-escribir {
+  0%, 12% { transform: scaleX(0.15); opacity: 0.35; }
+  45%     { transform: scaleX(1); opacity: 1; }
+  88%     { transform: scaleX(1); opacity: 0.85; }
+  100%    { transform: scaleX(0.15); opacity: 0.35; }
+}
+
+/* Se apaga entero: la clase de animación deja de aplicarse y quedan los
+   `transform` estáticos de arriba. Esta regla es el cinturón de
+   seguridad para el caso en que el componente no detecte la
+   preferencia (por ejemplo, si cambia sin recargar). */
+@media (prefers-reduced-motion: reduce) {
+  .doc-logo-hojas--anima .doc-logo-hoja,
+  .doc-logo-hojas--anima .doc-logo-frente,
+  .doc-logo-hojas--anima .doc-logo-pila,
+  .doc-logo-hojas--anima .doc-logo-renglon {
+    animation: none !important;
+  }
+}

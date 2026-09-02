@@ -1,4 +1,17 @@
 import { describe, it, expect } from "vitest";
+
+/*
+ * NOTA DEL CATÁLOGO v3
+ * ────────────────────
+ * `cert-trabajo` («Certificados de trabajo») se retiró de la lista vigente del
+ * área: no se pide en expedientes nuevos, aunque su fila sigue en el catálogo
+ * inactiva para no romper los expedientes que ya lo tenían. Estas pruebas usaban
+ * ese código como «un requisito general que admite prórroga»; ahora usan
+ * `titulo-legalizado`, que es el que cumple ese papel en el proceso vigente.
+ *
+ * El cambio es de DATO, no de expectativa: se sigue comprobando exactamente lo
+ * mismo (prórrogas, recordatorios, avisos) sobre un requisito que existe.
+ */
 import {
   crearExpediente,
   loadInstalledBackend,
@@ -266,11 +279,11 @@ describe("documentación · solicitudes", () => {
     });
 
     const res = h.ok("documentacion.solicitud.crear", { solicitud: { expedienteId } });
-    expect(res.requisitos).toBe(17);
+    expect(res.requisitos).toBe(15);
     expect(res.fechaLimite).toBeTruthy();
 
     const items = h.rowsOf("SolicitudDocumentos");
-    expect(items.length).toBe(17);
+    expect(items.length).toBe(15);
     expect(items.every((i) => i.estado_item === "PENDIENTE")).toBe(true);
   });
 
@@ -432,13 +445,32 @@ describe("documentación · solicitudes masivas", () => {
 });
 
 describe("documentación · prórrogas", () => {
+  /**
+   * Las dos prórrogas del proceso VIGENTE.
+   *
+   * Eran «certificados de trabajo» y «título académico». `cert-trabajo` se retiró
+   * del catálogo v3, así que las dos que quedan son el título en legalización
+   * (general) y el examen de la UIF (Cumplimiento, tres meses desde la
+   * contratación por norma). Se comprueban las dos, cada una en su rama.
+   */
   it("las dos prórrogas del proceso siguen funcionando", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
     const titulo = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
-    expect(cert.permiteProrroga).toBe(true);
     expect(titulo.permiteProrroga).toBe(true);
+
+    // El examen de la UIF solo existe en la rama de Cumplimiento.
+    const cumplimiento = h.ok("documentacion.expediente.crear", {
+      expediente: {
+        identificador: "9080706",
+        nombre: "Persona De Cumplimiento",
+        tipoFuncionario: "CUMPLIMIENTO",
+        fechaIngreso: h.read<string>("doc2Hoy_()"),
+      },
+    });
+    const detalleCump = h.ok("documentacion.expediente.obtener", { expedienteId: cumplimiento.expedienteId });
+    const cert = detalleCump.requisitos.find((r: any) => r.codigo === "examen-uif")!;
+    expect(cert.permiteProrroga).toBe(true);
 
     const uno = h.ok("documentacion.prorroga.crear", {
       prorroga: {
@@ -457,7 +489,10 @@ describe("documentación · prórrogas", () => {
       },
     });
     expect(dos.estado).toBe("VIGENTE");
-    expect(dos.resumen.total_prorrogas).toBe(2);
+    // Cada prórroga vive en SU expediente (el título en el general, el examen en
+    // el de Cumplimiento), así que el resumen de cada uno cuenta una.
+    expect(uno.resumen.total_prorrogas).toBe(1);
+    expect(dos.resumen.total_prorrogas).toBe(1);
   });
 
   it("un requisito sin prórroga habilitada la rechaza", () => {
@@ -474,7 +509,7 @@ describe("documentación · prórrogas", () => {
   it("exige motivo, fecha futura y respeta el máximo configurable", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    const cert = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
 
     const sinMotivo = h.pedir("documentacion.prorroga.crear", {
       prorroga: { expedienteDocumentoId: cert.expedienteDocumentoId, fechaProrroga: h.read<string>("doc2FechaMasDias_(10)") },
@@ -510,7 +545,7 @@ describe("documentación · prórrogas", () => {
   it("una prórroga nueva sustituye a la vigente en lugar de acumularse", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    const cert = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
 
     h.ok("documentacion.prorroga.crear", {
       prorroga: { expedienteDocumentoId: cert.expedienteDocumentoId, fechaProrroga: h.read<string>("doc2FechaMasDias_(10)"), motivo: "Primera." },
@@ -527,7 +562,7 @@ describe("documentación · prórrogas", () => {
   it("los días restantes se calculan al leer y distinguen vigente, por vencer y vencida", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    const cert = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
     h.ok("documentacion.prorroga.crear", {
       prorroga: { expedienteDocumentoId: cert.expedienteDocumentoId, fechaProrroga: h.read<string>("doc2FechaMasDias_(10)"), motivo: "Plazo." },
     });
@@ -550,7 +585,7 @@ describe("documentación · prórrogas", () => {
   it("el proceso diario avisa una sola vez por día aunque se ejecute dos veces", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    const cert = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
     h.ok("documentacion.prorroga.crear", {
       prorroga: { expedienteDocumentoId: cert.expedienteDocumentoId, fechaProrroga: h.read<string>("doc2FechaMasDias_(2)"), motivo: "Plazo corto." },
     });
@@ -568,7 +603,7 @@ describe("documentación · prórrogas", () => {
   it("una prórroga vencida marca el expediente y aparece en el filtro", () => {
     const h = loadInstalledBackend();
     const { expedienteId, requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    const cert = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
     h.ok("documentacion.prorroga.crear", {
       prorroga: { expedienteDocumentoId: cert.expedienteDocumentoId, fechaProrroga: h.read<string>("doc2FechaMasDias_(1)"), motivo: "Plazo." },
     });

@@ -347,6 +347,39 @@ export const SECCIONES_CATALOGO = [
   { codigo: "cumplimiento", etiqueta: "Cumplimiento y UIF", orden: 30 },
 ];
 
+/* ------------------------------------------------------------------ */
+/* Forma de presentación                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cómo se entrega un requisito.
+ *
+ * Es el vocabulario del backend (`DOC2_PRESENTACION`), y espeja la columna
+ * «Física» de la tabla del área: `SI`, `NO` (que ahí se escribe «N/A») y
+ * `CONDICIONAL`, que es el «SÍ*» con asterisco.
+ */
+export type Presentacion = "SI" | "NO" | "CONDICIONAL";
+
+/** Texto de la celda «Física» / «Digital» tal como lo lee el área. */
+export const ETIQUETA_PRESENTACION: Record<Presentacion, string> = {
+  SI: "Sí",
+  NO: "N/A",
+  CONDICIONAL: "Sí*",
+};
+
+/**
+ * Leyenda del asterisco.
+ *
+ * Va al pie de la sección, no pegada a cada fila: repetirla nueve veces la
+ * convierte en ruido y deja de leerse. Vive aquí, y no escrita en un JSX, para
+ * que el asistente, el visor y el informe digan lo mismo.
+ */
+export const LEYENDA_PRESENTACION_CONDICIONAL =
+  "Sí* : se entrega en papel solo en los casos que indique el área; en el resto basta el escaneado.";
+
+/** Tope de hojas por documento físico. El mismo que valida el backend. */
+export const MAX_HOJAS_FISICAS = 999;
+
 export const MOTIVOS_REVISION = [
   { codigo: "INFO_INCOMPLETA", etiqueta: "Información incompleta" },
   { codigo: "INFO_INCONSISTENTE", etiqueta: "Información inconsistente" },

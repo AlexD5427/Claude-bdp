@@ -38,10 +38,30 @@
   --doc-border: rgba(255, 255, 255, 0.12);
   --doc-border-strong: rgba(255, 255, 255, 0.22);
 
-  /* ---- Tinta ---- */
+  /* ---- Tinta ----
+     El módulo tiene su PROPIA escala, no la global.
+
+     ── El fallo que corrige ────────────────────────────────
+     `--doc-text-faint` heredaba `--ink-faint`, que en la raíz es
+     `rgba(226,232,240,0.5)` en oscuro y `rgba(13,47,84,0.5)` en
+     claro. Medido sobre las superficies reales del módulo eso da
+     4,42:1 en oscuro y **2,99:1 en claro**: por debajo del 4,5:1
+     que exige WCAG AA para texto normal. Y no es texto decorativo:
+     ahí van las ayudas de los campos, los marcadores de posición,
+     las etiquetas de los gráficos y los recuentos.
+
+     La escala global sigue intacta —la usa el resto de la
+     aplicación— y el módulo declara la suya, por tema, con valores
+     medidos. La prueba `contraste.test.ts` los vigila y falla por
+     debajo del umbral. ---- */
   --doc-text: var(--ink);
-  --doc-text-muted: var(--ink-soft);
-  --doc-text-faint: var(--ink-faint);
+  --doc-text-muted: rgba(226, 232, 240, 0.86);
+  --doc-text-faint: rgba(226, 232, 240, 0.66);
+
+  /* Fondo de referencia con el que se MIDIÓ el contraste. No se pinta:
+     existe para que la prueba automática sepa contra qué comparar y no
+     tenga que adivinar el color del lienzo. */
+  --doc-medicion-fondo: #0b1a2e;
 
   /* ---- Estados semánticos ---- */
   --doc-success: #34d399;
@@ -101,6 +121,13 @@
    ilegibles sobre papel blanco).
    ------------------------------------------------------------- */
 .light .doc-console {
+  /* Azules institucionales opacos, no el azul al 50 % sobre blanco: ese
+     era el que se quedaba en 2,99:1. Medidos sobre blanco puro, que es
+     el peor caso de este tema (`--doc-surface-raised` al 86 %). */
+  --doc-text-muted: #33506f;
+  --doc-text-faint: #4a637f;
+  --doc-medicion-fondo: #ffffff;
+
   --doc-surface: rgba(255, 255, 255, 0.62);
   --doc-surface-raised: rgba(255, 255, 255, 0.86);
   --doc-surface-muted: rgba(8, 47, 95, 0.035);

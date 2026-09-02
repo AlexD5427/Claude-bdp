@@ -45,7 +45,7 @@ describe("asistente de nuevo expediente · integración con el backend", () => {
     window.localStorage.clear();
   });
 
-  it("crea un expediente comercial Tipo 1 con sus 23 requisitos y aplica los estados marcados", async () => {
+  it("crea un expediente comercial Tipo 1 con sus 21 requisitos y aplica los estados marcados", async () => {
     const usuario = userEvent.setup();
     const creado = vi.fn();
     const error = vi.fn();
@@ -53,12 +53,12 @@ describe("asistente de nuevo expediente · integración con el backend", () => {
     render(<AltaExpedienteWizard abierta onCerrar={() => {}} onCreado={creado} onError={error} />);
 
     // Paso 1 · identidad
-    await usuario.type(screen.getByPlaceholderText("1234567 - 45 - 2026"), "1234567 - 45 - 2026");
+    await usuario.type(screen.getByPlaceholderText("Por ejemplo 1234567 o 1234567-1A"), "1234567 - 45 - 2026");
     await usuario.type(screen.getByPlaceholderText("Nombres y apellidos"), "Camila Comercial");
     await usuario.click(screen.getByRole("button", { name: /Continuar/i }));
 
     // Paso 2 · documentos generales — marcar la fotografía como ENTREGADO
-    const foto = await screen.findByText("Fotografía digital 4x4");
+    const foto = await screen.findByText(/^Fotografía en formato digital 4X4/);
     const filaFoto = foto.closest("li")!;
     await usuario.click(within(filaFoto).getByRole("button", { name: "Entregado" }));
     await usuario.click(screen.getByRole("button", { name: /Continuar/i }));
@@ -82,7 +82,7 @@ describe("asistente de nuevo expediente · integración con el backend", () => {
     const detalle = harness.ok("documentacion.expediente.obtener", { identificador: "1234567 - 45 - 2026" });
     expect(detalle.expediente.tipoFuncionario).toBe("COMERCIAL");
     expect(detalle.expediente.tipoGarantia).toBe("COMERCIAL_1");
-    expect(detalle.requisitos.length).toBe(23);
+    expect(detalle.requisitos.length).toBe(21);
     const foto4x4 = detalle.requisitos.find((r: { codigo: string }) => r.codigo === "foto-4x4");
     expect(foto4x4.estado).toBe("ENTREGADO");
     // Solo aparecen los documentos de garantía de la rama 1.
@@ -96,7 +96,7 @@ describe("asistente de nuevo expediente · integración con el backend", () => {
     const creado = vi.fn();
 
     render(<AltaExpedienteWizard abierta onCerrar={() => {}} onCreado={creado} onError={() => {}} />);
-    await usuario.type(screen.getByPlaceholderText("1234567 - 45 - 2026"), "7654321 - 9 - 2026");
+    await usuario.type(screen.getByPlaceholderText("Por ejemplo 1234567 o 1234567-1A"), "7654321 - 9 - 2026");
     await usuario.type(screen.getByPlaceholderText("Nombres y apellidos"), "Aldo Auditor");
     await usuario.click(screen.getByRole("button", { name: /Continuar/i }));
     await usuario.click(screen.getByRole("button", { name: /Continuar/i })); // generales
@@ -107,7 +107,7 @@ describe("asistente de nuevo expediente · integración con el backend", () => {
 
     await waitFor(() => expect(creado).toHaveBeenCalled());
     const detalle = harness.ok("documentacion.expediente.obtener", { identificador: "7654321 - 9 - 2026" });
-    expect(detalle.requisitos.length).toBe(19);
+    expect(detalle.requisitos.length).toBe(17);
     const codigos = detalle.requisitos.map((r: { codigo: string }) => r.codigo);
     expect(codigos).toContain("impedimento-auditor");
     expect(codigos).not.toContain("lgi-ft");

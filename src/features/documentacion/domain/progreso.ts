@@ -17,6 +17,7 @@ import {
   SECCIONES_CATALOGO,
   type EstadoDocumento,
   type EstadoExpediente,
+  type Presentacion,
 } from "./vocabulario";
 
 /* ------------------------------------------------------------------ */
@@ -31,6 +32,10 @@ export interface TotalesExpediente {
   noEntregados: number;
   noAplica: number;
   observados: number;
+  /** Suma de hojas anotadas en los documentos que se entregan en papel. */
+  hojasFisicas: number;
+  /** Cuántos requisitos de la rama llevan contador de hojas. */
+  documentosFisicos: number;
   prorrogas: number;
   prorrogasVencidas: number;
 }
@@ -72,10 +77,25 @@ export interface RequisitoVista {
   nombre: string;
   descripcion: string;
   seccion: string;
+  /** Título de la subsección, YA resuelto para la rama de este expediente. */
+  subseccion: string;
+  /** Sub-bloque dentro de la subsección (Garante familiar 1 / 2 del Tipo 2). */
+  subgrupo: string;
   grupo: string;
   orden: number;
   estado: EstadoDocumento;
   observaciones: string;
+  /**
+   * Hojas del documento en papel.
+   *
+   * `null` significa «sin contar» y es distinto de `0`, que es un dato: alguien
+   * miró y no había hojas. La interfaz muestra el control vacío en el primer caso
+   * y un cero en el segundo.
+   */
+  hojasFisicas: number | null;
+  presentacionFisica: Presentacion;
+  presentacionDigital: Presentacion;
+  requiereConteoHojas: boolean;
   obligatorio: boolean;
   permiteNoAplica: boolean;
   permiteProrroga: boolean;
@@ -159,6 +179,111 @@ export function agruparRequisitos(requisitos: RequisitoVista[]): GrupoRequisitos
     .sort((a, b) => (orden.get(a.seccion)?.orden ?? 99) - (orden.get(b.seccion)?.orden ?? 99));
 }
 
+/* ------------------------------------------------------------------ */
+/* Subsecciones                                                        */
+/* ------------------------------------------------------------------ */
+
+export interface BloqueRequisitos {
+  /** Título del sub-bloque («Garante familiar 1»). Vacío si no hay. */
+  subgrupo: string;
+  requisitos: RequisitoVista[];
+}
+
+export interface SubseccionRequisitos {
+  /** Título de la subsección. Cadena vacía para los requisitos «sueltos». */
+  titulo: string;
+  bloques: BloqueRequisitos[];
+  total: number;
+  entregados: number;
+  pendientes: number;
+  porcentaje: number;
+}
+
+/**
+ * Parte una sección en sus subsecciones y sub-bloques.
+ *
+ * ── Por qué existe una sola función para esto ───────────────────────────────
+ * El asistente, el visor, el informe mensual y las exportaciones tienen que
+ * agrupar IGUAL. Si cada uno lo hiciera por su cuenta, el caso del Tipo 2 —dos
+ * garantes familiares con cuatro documentos que parecen dos— acabaría presentado
+ * de tres formas distintas, y el recuento del informe no coincidiría con lo que
+ * la persona vio al registrar.
+ *
+ * ── Orden ───────────────────────────────────────────────────────────────────
+ * El de aparición, no el alfabético: el `orden` del catálogo es el de la lista de
+ * papel del área, y reordenar aquí obligaría a leer buscando.
+ *
+ * Los requisitos sin subsección declarada —todos los generales— caen en un bloque
+ * de título vacío que se pinta primero, sin cabecera.
+ */
+export function agruparPorSubseccion(requisitos: RequisitoVista[]): SubseccionRequisitos[] {
+  const vigentes = [...requisitos]
+    .filter((r) => !r.archivado)
+    .sort((a, b) => a.orden - b.orden || a.codigo.localeCompare(b.codigo));
+
+  const orden: string[] = [];
+  const porTitulo = new Map<string, RequisitoVista[]>();
+  for (const requisito of vigentes) {
+    const titulo = requisito.subseccion ?? "";
+    if (!porTitulo.has(titulo)) {
+      porTitulo.set(titulo, []);
+      orden.push(titulo);
+    }
+    porTitulo.get(titulo)!.push(requisito);
+  }
+
+  return orden.map((titulo) => {
+    const lista = porTitulo.get(titulo)!;
+    const ordenBloques: string[] = [];
+    const porBloque = new Map<string, RequisitoVista[]>();
+    for (const requisito of lista) {
+      const subgrupo = requisito.subgrupo ?? "";
+      if (!porBloque.has(subgrupo)) {
+        porBloque.set(subgrupo, []);
+        ordenBloques.push(subgrupo);
+      }
+      porBloque.get(subgrupo)!.push(requisito);
+    }
+
+    const aplicables = lista.filter((r) => r.estado !== "NO_APLICA");
+    const entregados = lista.filter((r) => r.estado === "ENTREGADO");
+    return {
+      titulo,
+      bloques: ordenBloques.map((subgrupo) => ({ subgrupo, requisitos: porBloque.get(subgrupo)! })),
+      total: lista.length,
+      entregados: entregados.length,
+      pendientes: lista.filter((r) => r.estado === "PENDIENTE" || r.estado === "NO_ENTREGADO").length,
+      porcentaje: aplicables.length ? Math.round((entregados.length / aplicables.length) * 100) : 100,
+    };
+  });
+}
+
+/**
+ * ¿Cuántas hojas de papel tiene este expediente, y en cuántos documentos?
+ *
+ * Cuenta solo los requisitos con contador: un digital sin hojas no es un
+ * documento físico «con cero hojas», simplemente no es de papel.
+ */
+export function resumenHojasFisicas(requisitos: RequisitoVista[]): {
+  documentos: number;
+  anotados: number;
+  hojas: number;
+  sinAnotar: RequisitoVista[];
+} {
+  const fisicos = requisitos.filter((r) => !r.archivado && r.requiereConteoHojas);
+  const anotados = fisicos.filter((r) => r.hojasFisicas !== null && r.hojasFisicas !== undefined);
+  return {
+    documentos: fisicos.length,
+    anotados: anotados.length,
+    hojas: anotados.reduce((suma, r) => suma + (r.hojasFisicas ?? 0), 0),
+    // Solo se echan de menos las hojas de lo que YA llegó: pedir el conteo de un
+    // documento que nadie ha entregado sería ruido.
+    sinAnotar: fisicos.filter(
+      (r) => (r.hojasFisicas === null || r.hojasFisicas === undefined) && r.estado === "ENTREGADO",
+    ),
+  };
+}
+
 /** Requisitos que hay que perseguir, en el orden en que conviene hacerlo. */
 export function requisitosPendientes(requisitos: RequisitoVista[]): RequisitoVista[] {
   const observados = requisitos.filter(
@@ -192,6 +317,8 @@ export function totalesDesdeRequisitos(requisitos: RequisitoVista[]): TotalesExp
   ).length;
   const prorrogas = vigentes.reduce((suma, r) => suma + r.prorrogas.filter((p) => p.situacion !== "cerrada").length, 0);
   const prorrogasVencidas = vigentes.reduce((suma, r) => suma + r.prorrogas.filter((p) => p.situacion === "vencida").length, 0);
+  const fisicos = vigentes.filter((r) => r.requiereConteoHojas);
+  const hojasFisicas = fisicos.reduce((suma, r) => suma + (r.hojasFisicas ?? 0), 0);
 
   return {
     requisitos: vigentes.length,
@@ -201,6 +328,8 @@ export function totalesDesdeRequisitos(requisitos: RequisitoVista[]): TotalesExp
     noEntregados,
     noAplica,
     observados,
+    hojasFisicas,
+    documentosFisicos: fisicos.length,
     prorrogas,
     prorrogasVencidas,
   };

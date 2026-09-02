@@ -82,7 +82,17 @@ describe("documentación · migración: importación de datos", () => {
     expect(porCodigo["titulo-legalizado"].estado).toBe("ENTREGADO");
     expect(porCodigo["titulo-legalizado"].estadoRevision).toBe("OBSERVADO");
     expect(porCodigo["titulo-legalizado"].observaciones).toMatch(/legalización/i);
+    /*
+     * `rc-iva` está RETIRADO del catálogo v3 y sigue aquí.
+     *
+     * Un expediente nuevo ya no lo pide, pero este viene del libro y lo tenía
+     * registrado como «no aplica». Borrarlo al migrar habría falseado el
+     * historial de esa persona, así que la migración lo rescata y lo marca como
+     * heredado. Es la promesa que hizo la retirada del catálogo, verificada.
+     */
     expect(porCodigo["rc-iva"].estado).toBe("NO_APLICA");
+    expect(porCodigo["rc-iva"].subseccion).toMatch(/heredado/i);
+    expect(porCodigo["rc-iva"].obligatorio).toBe(false);
 
     // La prórroga heredada se convierte en un registro propio.
     expect(detalle.prorrogas.length).toBe(1);
@@ -193,17 +203,48 @@ describe("documentación · migración: importación de datos", () => {
     expect(Number(registro.progreso)).toBe(100);
   });
 
+  it("un requisito retirado con historia se conserva; sin historia, no se inventa", () => {
+    const h = loadBackend();
+    seedLegacyBook(h, 2026);
+    h.pedir("documentacion.instalar", { conRespaldo: false });
+
+    const detalle = h.ok("documentacion.expediente.obtener", { identificador: "CI-1001-2024" });
+    const codigos = detalle.requisitos.map((r: any) => r.codigo);
+
+    // `rc-iva` venía como «no aplica» en el libro: es información y se conserva.
+    expect(codigos).toContain("rc-iva");
+    // `cert-trabajo` venía en «pendiente», que por sí solo es la AUSENCIA de
+    // información... pero traía una PRÓRROGA concedida, y eso es una decisión
+    // que alguien tomó y hay que poder auditar. Se conserva por el plazo.
+    expect(codigos).toContain("cert-trabajo");
+    const cert = detalle.requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    expect(cert.subseccion).toMatch(/heredado/i);
+    expect(cert.prorrogas.length).toBe(1);
+
+    // Y ninguno de los dos vuelve a aparecer en un expediente NUEVO.
+    const nuevo = h.ok("documentacion.expediente.crear", {
+      expediente: { identificador: "8887776", nombre: "Persona Nueva", tipoFuncionario: "GENERAL" },
+    });
+    const detalleNuevo = h.ok("documentacion.expediente.obtener", { expedienteId: nuevo.expedienteId });
+    const codigosNuevo = detalleNuevo.requisitos.map((r: any) => r.codigo);
+    expect(codigosNuevo).not.toContain("rc-iva");
+    expect(codigosNuevo).not.toContain("cert-trabajo");
+    expect(codigosNuevo.length).toBe(16);
+  });
+
   it("el estado de migraciones distingue aplicadas de pendientes", () => {
     const h = loadBackend();
     seedLegacyBook(h, 2026);
     const antes = h.ok("documentacion.migraciones.estado");
     expect(antes.aplicadas).toEqual([]);
-    expect(antes.pendientes.length).toBe(4);
+    // Seis: las cuatro del esquema 4 más las dos del esquema 5 (columnas de
+    // presentación y conteo de hojas, y publicación del catálogo v3).
+    expect(antes.pendientes.length).toBe(6);
 
     h.pedir("documentacion.instalar", { conRespaldo: false });
     const despues = h.ok("documentacion.migraciones.estado");
     expect(despues.pendientes).toEqual([]);
-    expect(despues.aplicadas.length).toBe(4);
+    expect(despues.aplicadas.length).toBe(6);
   });
 
   it("el respaldo previo guarda los expedientes del libro antes de tocar nada", () => {

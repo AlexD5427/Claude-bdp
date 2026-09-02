@@ -35,7 +35,40 @@ export interface EstadoModulo {
   expedientes?: number;
   notificacionesNoLeidas?: number;
   problema?: string;
+  /**
+   * Lo que el backend DESPLEGADO sabe hacer.
+   *
+   * Vercel publica el frontend al fusionar; Apps Script solo cambia cuando una
+   * persona publica una versión nueva de la implementación. Entre las dos cosas
+   * hay una ventana en la que esta interfaz habla con un backend anterior. Con
+   * este mapa se pregunta en vez de suponer: sin `altaCompleta`, el asistente usa
+   * la ruta antigua de cuatro llamadas y nadie ve un error.
+   *
+   * Opcional a propósito: un backend viejo no lo manda, y `undefined` significa
+   * exactamente «no lo sé, asume que no».
+   */
+  soporta?: {
+    altaCompleta?: boolean;
+    detalleMultiple?: boolean;
+    hojasFisicas?: boolean;
+    subsecciones?: boolean;
+    cargoAuxiliar?: boolean;
+  };
+  catalogoVersion?: number;
 }
+
+/** Columnas de catálogo auxiliar de la hoja `Auxiliar`, por su cabecera. */
+export type ColumnaAuxiliar = "agencia_bdp" | "gerencia_bdp" | "cargo_bdp";
+
+/** Las tres listas auxiliares. Siempre llegan las tres, vacías si hace falta. */
+export interface Auxiliares {
+  agencia_bdp: string[];
+  gerencia_bdp: string[];
+  cargo_bdp: string[];
+}
+
+/** Cómo se presenta un requisito. `CONDICIONAL` es el «SÍ*» de la tabla del área. */
+export type Presentacion = "SI" | "NO" | "CONDICIONAL";
 
 export interface CatalogoDocumento {
   codigo: string;
@@ -43,6 +76,17 @@ export interface CatalogoDocumento {
   descripcion: string;
   textoObservacion: string;
   seccion: string;
+  /**
+   * Subsección declarada en el catálogo.
+   *
+   * Texto cuando es la misma en todas las ramas, y mapa `tipoGarantia -> título`
+   * cuando cambia: `garante-inmueble` es «1 Garante con Bien Inmueble» en Tipo 1 y
+   * «Postulante con inmueble propio» en Tipo 3. Resuélvela con
+   * `subseccionPara()`; no la leas directamente.
+   */
+  subseccion: string | Record<string, string>;
+  /** Sub-bloque dentro de la subsección (los dos garantes familiares del Tipo 2). */
+  subgrupo: string;
   grupo: string;
   orden: number;
   obligatorio: boolean;
@@ -51,6 +95,10 @@ export interface CatalogoDocumento {
   permiteProrroga: boolean;
   tipoFuncionario: string[];
   tipoGarantia: string[];
+  presentacionFisica: Presentacion;
+  presentacionDigital: Presentacion;
+  /** Si lleva contador de hojas. Lo deduce el backend de `presentacionFisica`. */
+  requiereConteoHojas: boolean;
   confidencialidad: string;
   requiereRevision: boolean;
   requiereAprobacion: boolean;
@@ -66,7 +114,7 @@ export interface CatalogoCliente {
   esquema: number;
   documentos: CatalogoDocumento[];
   vocabulario: Record<string, unknown>;
-  auxiliares: { agencia_bdp: string[]; gerencia_bdp: string[] };
+  auxiliares: Auxiliares;
   aplicabilidad: {
     tipoFuncionario: string;
     etiqueta: string;
@@ -74,9 +122,30 @@ export interface CatalogoCliente {
     habilitada: boolean;
     total: number;
     obligatorios: number;
+    conConteoHojas: number;
     codigos: string[];
+    /** Títulos de subsección de la rama, en el orden en que se muestran. */
+    subsecciones: string[];
     nota: string;
   }[];
+}
+
+/**
+ * Resuelve la subsección de un documento para una rama concreta.
+ *
+ * Vive aquí, junto al tipo, y no en cada pantalla: el asistente, el visor, los
+ * reportes y las exportaciones tienen que agrupar IGUAL, y cuatro copias de este
+ * `if` acabarían discrepando en el caso del documento compartido, que es
+ * justamente el que importa.
+ */
+export function subseccionPara(
+  documento: Pick<CatalogoDocumento, "subseccion">,
+  tipoGarantia: string,
+): string {
+  const declarada = documento.subseccion;
+  if (!declarada) return "";
+  if (typeof declarada === "string") return declarada;
+  return declarada[tipoGarantia || "NINGUNA"] ?? "";
 }
 
 export interface PanelDatos {
@@ -404,12 +473,8 @@ export const docApi = {
   guardarCatalogo: (catalogo: unknown[], o?: OpcionesLlamada) =>
     llamar<{ guardados: number; creados: number; rechazados: unknown[] }>("documentacion.catalogo.guardar", { catalogo }, o),
   auxiliares: (o?: OpcionesLlamada) =>
-    llamar<{ auxiliares: { agencia_bdp: string[]; gerencia_bdp: string[] }; revision: Record<string, unknown> }>(
-      "documentacion.auxiliares",
-      {},
-      o,
-    ),
-  agregarAuxiliar: (columna: string, valores: string[], o?: OpcionesLlamada) =>
+    llamar<{ auxiliares: Auxiliares; revision: Record<string, unknown> }>("documentacion.auxiliares", {}, o),
+  agregarAuxiliar: (columna: ColumnaAuxiliar, valores: string[], o?: OpcionesLlamada) =>
     llamar<{ columna: string; agregados: string[]; total: number }>("documentacion.auxiliares.agregar", { columna, valores }, o),
   permisos: (o?: OpcionesLlamada) =>
     llamar<{ rol: string; actor: string; actorId: string; capacidades: Capacidades; matriz: Record<string, string[]>; roles: string[] }>(
@@ -489,11 +554,28 @@ export const docApi = {
   obtenerExpediente: (expedienteId: string, extras: Record<string, unknown> = {}, o?: OpcionesLlamada) =>
     llamar<ExpedienteOperativo>("documentacion.expediente.obtener", { expedienteId, ...extras }, o),
   crearExpediente: (expediente: Record<string, unknown>, o?: OpcionesLlamada) =>
-    llamar<{ expedienteId: string; creado: boolean; requisitos?: number; repetido?: boolean }>(
-      "documentacion.expediente.crear",
-      { expediente },
-      o,
-    ),
+    llamar<{
+      expedienteId: string;
+      creado: boolean;
+      requisitos?: number;
+      repetido?: boolean;
+      /** Solo en el alta completa: el expediente ya montado, para abrirlo sin otra llamada. */
+      detalle?: ExpedienteOperativo | null;
+      aplicado?: { requisitos: number; prorrogas: number; fallidos: unknown[] } | null;
+    }>("documentacion.expediente.crear", { expediente }, o),
+  /**
+   * Detalle de varios expedientes en una sola llamada.
+   *
+   * La usa la precarga en segundo plano. Un id inaccesible o inexistente no tumba
+   * el lote: vuelve en `fallidos` y los demás llegan igual.
+   */
+  detalleExpedientes: (expedienteIds: string[], o?: OpcionesLlamada) =>
+    llamar<{
+      expedientes: ExpedienteOperativo[];
+      fallidos: { expedienteId: string; motivo: string; codigo: string }[];
+      solicitados: number;
+      devueltos: number;
+    }>("documentacion.expedientes.detalle", { expedienteIds }, o),
   actualizarExpediente: (expedienteId: string, cambios: Record<string, unknown>, version?: number, o?: OpcionesLlamada) =>
     llamar<{ expedienteId: string; cambios: number; sincronizacion?: unknown }>(
       "documentacion.expediente.actualizar",

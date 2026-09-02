@@ -307,21 +307,23 @@ function doc2EnsureAuxiliar_() {
 
   var ancho = Math.max(hoja.getLastColumn(), 1);
   var cabeceras = hoja.getRange(1, 1, 1, ancho).getValues()[0];
+  // La comparación es normalizada: si el área ya escribió «Cargo_BDP» o
+  // «cargo bdp», esa es la columna y NO se crea una segunda al lado. Crear un
+  // duplicado sería peor que no encontrarla: los valores quedarían repartidos.
   var presentes = {};
   for (var i = 0; i < cabeceras.length; i++) {
-    var clave = String(cabeceras[i] === null || cabeceras[i] === undefined ? '' : cabeceras[i]).trim();
+    var clave = doc2ClaveCabecera_(cabeceras[i]);
     if (clave) presentes[clave] = i + 1;
   }
 
   var añadidas = [];
-  var siguiente = ancho;
   for (var c = 0; c < DOC2_AUXILIAR_COLUMNS.length; c++) {
     var columna = DOC2_AUXILIAR_COLUMNS[c];
-    if (presentes[columna]) continue;
-    siguiente = (hoja.getLastColumn() || 0) + 1;
+    if (presentes[doc2ClaveCabecera_(columna)]) continue;
+    var siguiente = (hoja.getLastColumn() || 0) + 1;
     docEnsureColumns_(hoja, siguiente);
     hoja.getRange(1, siguiente, 1, 1).setValues([[columna]]);
-    presentes[columna] = siguiente;
+    presentes[doc2ClaveCabecera_(columna)] = siguiente;
     añadidas.push(columna);
   }
 
@@ -345,29 +347,85 @@ function doc2EnsureAuxiliar_() {
 }
 
 /**
+ * Localiza una columna de `Auxiliar` por su CABECERA, no por su posición.
+ *
+ * ── El fallo que corrige ────────────────────────────────────────────────────
+ * La versión anterior comparaba `String(cabecera).trim() === columna`. Eso falla
+ * con todo lo que una hoja escrita a mano tiene de verdad: una cabecera
+ * `"Agencia_BDP"`, un `"agencia_bdp "` con espacio final que el `trim` sí
+ * arreglaba pero un `"agencia bdp"` con espacio en medio no, un espacio duro
+ * (`\u00a0`) pegado al copiar de un correo, o un acento. Cuando la comparación
+ * fallaba, `doc2LeerAuxiliar_` devolvía `[]` y el desplegable aparecía vacío sin
+ * un solo error en ningún sitio: el síntoma era «Agencia no trae los valores».
+ *
+ * Ahora se compara normalizado —sin acentos, sin espacios duros, sin espacios de
+ * sobra, sin distinguir mayúsculas— y se admiten los separadores intercambiables
+ * (`_`, `-`, espacio). Devuelve el índice de columna en base 1, o `-1`.
+ */
+function doc2ColumnaAuxiliar_(hoja, columna) {
+  if (!hoja) return -1;
+  var ancho = hoja.getLastColumn();
+  if (ancho < 1) return -1;
+  var cabeceras = hoja.getRange(1, 1, 1, ancho).getValues()[0];
+  var buscada = doc2ClaveCabecera_(columna);
+  for (var i = 0; i < cabeceras.length; i++) {
+    if (doc2ClaveCabecera_(cabeceras[i]) === buscada) return i + 1;
+  }
+  return -1;
+}
+
+/** Clave comparable de una cabecera: sin acentos, sin separadores, en mayúsculas. */
+function doc2ClaveCabecera_(valor) {
+  var texto = String(valor === null || valor === undefined ? '' : valor);
+  return docKey_(texto.replace(/\u00a0/g, ' ')).replace(/[\s_\-.]+/g, '');
+}
+
+/**
+ * Última fila con datos de UNA columna.
+ *
+ * ── Por qué no basta `getLastRow()` ─────────────────────────────────────────
+ * `getLastRow()` es de la HOJA: si `agencia_bdp` tiene 187 valores y
+ * `gerencia_bdp` tiene 9, el último renglón de la hoja es 188 para las dos. Leer
+ * hasta ahí está bien (sobran celdas vacías, se filtran). El error real era el
+ * contrario: parar en la primera celda vacía. Las columnas de `Auxiliar` tienen
+ * huecos —alguien borró un valor del medio y dejó la fila— y detenerse en el
+ * primer hueco recortaba la lista a la mitad sin avisar.
+ *
+ * Aquí se lee el rango completo de la columna y se filtra después. Es una sola
+ * llamada a la hoja, así que no cuesta más que la versión rota.
+ */
+function doc2RangoColumnaAuxiliar_(hoja, indice) {
+  var filas = hoja.getMaxRows();
+  var ultima = hoja.getLastRow();
+  // `getLastRow()` puede quedarse corto si la columna se rellenó con una fórmula
+  // o un pegado que la hoja no contabilizó; se toma el mayor de los dos, acotado
+  // al número real de filas de la hoja para no pedir un rango inexistente.
+  var alto = Math.min(Math.max(ultima, 1), Math.max(filas, 1));
+  if (alto < 2) return [];
+  return hoja.getRange(2, indice, alto - 1, 1).getValues();
+}
+
+/**
  * Lee un catálogo de la hoja `Auxiliar`.
  *
- * Deduplica por clave normalizada y descarta los espacios invisibles, que en un
- * catálogo escrito a mano son la causa habitual de que «LA PAZ» y «LA PAZ »
- * aparezcan como dos agencias distintas en un desplegable. Conserva el texto tal
- * como está escrito —solo recortado— porque es el que la persona reconoce.
+ * Recorre TODA la columna (sin topes artificiales: si tiene 300 valores llegan
+ * los 300), descarta vacíos y espacios invisibles, deduplica por clave
+ * normalizada —que es la causa habitual de que «LA PAZ» y «LA PAZ » aparezcan
+ * como dos agencias distintas— y ordena con `localeCompare('es')` para que la Ñ y
+ * los acentos caigan donde el área espera.
+ *
+ * Conserva el texto TAL COMO está escrito, solo recortado: es el que la persona
+ * reconoce en el desplegable y el que ya está guardado en los expedientes.
  */
 function doc2LeerAuxiliar_(columna) {
   var ss = docSpreadsheet_();
   var hoja = ss.getSheetByName(DOC2_SHEET.AUXILIAR);
   if (!hoja) return [];
-  var ancho = hoja.getLastColumn();
-  if (ancho < 1) return [];
-  var cabeceras = hoja.getRange(1, 1, 1, ancho).getValues()[0];
-  var indice = -1;
-  for (var i = 0; i < cabeceras.length; i++) {
-    if (String(cabeceras[i] || '').trim() === columna) { indice = i + 1; break; }
-  }
+  var indice = doc2ColumnaAuxiliar_(hoja, columna);
   if (indice < 0) return [];
 
-  var filas = hoja.getLastRow();
-  if (filas < 2) return [];
-  var valores = hoja.getRange(2, indice, filas - 1, 1).getValues();
+  var valores = doc2RangoColumnaAuxiliar_(hoja, indice);
+  if (!valores.length) return [];
   docCount_('hojasLeidas');
   docCount_('filasLeidas', valores.length);
 
@@ -381,6 +439,12 @@ function doc2LeerAuxiliar_(columna) {
     vistos[clave] = true;
     salida.push(texto);
   }
+
+  // El orden alfabético del español, no el de los códigos UTF-16: sin esto,
+  // «ÑUFLO DE CHÁVEZ» acaba después de «ZONA SUR».
+  salida.sort(function (a, b) {
+    try { return a.localeCompare(b, 'es'); } catch (e) { return a > b ? 1 : (a < b ? -1 : 0); }
+  });
   return salida;
 }
 
@@ -391,11 +455,25 @@ function doc2LeerAuxiliar_(columna) {
  * ofrece sobre esta hoja: no existe «reemplazar el catálogo», porque un catálogo
  * reemplazado deja huérfanos todos los expedientes que usaban los valores
  * anteriores.
+ *
+ * ── El fallo que corrige el cálculo de `desde` ──────────────────────────────
+ * La versión anterior escribía en la fila `2 + actuales.length`, donde `actuales`
+ * es la lista YA DEDUPLICADA Y ORDENADA. Con una columna que tiene un hueco en el
+ * medio —o dos valores que solo se diferencian por un espacio— esa cuenta apunta
+ * a una fila OCUPADA, y el valor nuevo pisaba una agencia existente. Aquí se
+ * busca la última fila con contenido real de ESA columna y se escribe debajo.
  */
 function doc2AgregarAuxiliar_(columna, valores) {
   if (DOC2_AUXILIAR_COLUMNS.indexOf(columna) < 0) {
+    var etiquetas = [];
+    for (var q = 0; q < DOC2_AUXILIAR_COLUMNS.length; q++) {
+      etiquetas.push(DOC2_AUXILIAR_ETIQUETAS[DOC2_AUXILIAR_COLUMNS[q]] || DOC2_AUXILIAR_COLUMNS[q]);
+    }
     throw docError_(DOC_CODE.VALIDATION_ERROR, 'La columna "' + columna + '" no es un catálogo auxiliar.',
-      { details: { columnasValidas: DOC2_AUXILIAR_COLUMNS } });
+      {
+        hint: 'Los catálogos que se pueden ampliar son: ' + etiquetas.join(', ') + '.',
+        details: { columnasValidas: DOC2_AUXILIAR_COLUMNS }
+      });
   }
   doc2EnsureAuxiliar_();
   var actuales = doc2LeerAuxiliar_(columna);
@@ -417,16 +495,10 @@ function doc2AgregarAuxiliar_(columna, valores) {
 
   var ss = docSpreadsheet_();
   var hoja = ss.getSheetByName(DOC2_SHEET.AUXILIAR);
-  var cabeceras = hoja.getRange(1, 1, 1, Math.max(hoja.getLastColumn(), 1)).getValues()[0];
-  var indice = -1;
-  for (var c = 0; c < cabeceras.length; c++) {
-    if (String(cabeceras[c] || '').trim() === columna) { indice = c + 1; break; }
-  }
+  var indice = doc2ColumnaAuxiliar_(hoja, columna);
   if (indice < 0) return { columna: columna, agregados: [], total: actuales.length };
 
-  // La primera fila libre de ESTA columna, no de la hoja: cada catálogo crece a
-  // su ritmo y usar el último renglón de la hoja dejaría huecos.
-  var desde = 2 + actuales.length;
+  var desde = doc2PrimeraFilaLibreAuxiliar_(hoja, indice);
   var bloque = [];
   for (var n = 0; n < nuevos.length; n++) bloque.push([nuevos[n]]);
   docEnsureRows_(hoja, desde + bloque.length + 10);
@@ -437,19 +509,54 @@ function doc2AgregarAuxiliar_(columna, valores) {
   return { columna: columna, agregados: nuevos, total: actuales.length + nuevos.length };
 }
 
-/** Los dos catálogos auxiliares, con caché por petición y por sesión. */
+/**
+ * Primera fila libre POR DEBAJO del último valor real de la columna.
+ *
+ * Se recorre de abajo hacia arriba y se para en el primer contenido: así los
+ * huecos del medio se respetan (no se rellenan, que confundiría a quien los dejó
+ * a propósito) y nada se pisa.
+ */
+function doc2PrimeraFilaLibreAuxiliar_(hoja, indice) {
+  var valores = doc2RangoColumnaAuxiliar_(hoja, indice);
+  for (var r = valores.length - 1; r >= 0; r--) {
+    if (String(valores[r][0] === null || valores[r][0] === undefined ? '' : valores[r][0]).trim()) {
+      return r + 3; // +2 por la cabecera y el índice base 0, +1 para la siguiente
+    }
+  }
+  return 2;
+}
+
+/**
+ * Los catálogos auxiliares, con caché por petición y por sesión.
+ *
+ * Se devuelven SIEMPRE las tres columnas declaradas, aunque alguna no exista
+ * todavía en la hoja: el frontend tipa `auxiliares.cargo_bdp` y una respuesta sin
+ * esa clave lo obligaría a defenderse en cada uso. Una columna ausente devuelve
+ * una lista vacía, que es la verdad.
+ */
 function doc2Auxiliares_() {
   var enCache = docCacheGet_(DOC2_CACHE.AUXILIAR);
   if (enCache) {
     var parseado = docParseJson_(enCache, null);
-    if (parseado) return parseado;
+    // Una respuesta cacheada de antes de que existiera `cargo_bdp` no tiene la
+    // clave. Se descarta en lugar de devolverla a medias.
+    if (parseado && doc2AuxiliaresCompletos_(parseado)) return parseado;
   }
-  var salida = {
-    agencia_bdp: doc2LeerAuxiliar_('agencia_bdp'),
-    gerencia_bdp: doc2LeerAuxiliar_('gerencia_bdp')
-  };
+  var salida = {};
+  for (var c = 0; c < DOC2_AUXILIAR_COLUMNS.length; c++) {
+    salida[DOC2_AUXILIAR_COLUMNS[c]] = doc2LeerAuxiliar_(DOC2_AUXILIAR_COLUMNS[c]);
+  }
   docCachePut_(DOC2_CACHE.AUXILIAR, docWriteJson_(salida), DOC2_LIMITS.CACHE_AUXILIAR_SEG);
   return salida;
+}
+
+/** ¿Trae ese objeto una lista por cada columna auxiliar declarada? */
+function doc2AuxiliaresCompletos_(objeto) {
+  for (var c = 0; c < DOC2_AUXILIAR_COLUMNS.length; c++) {
+    var lista = objeto[DOC2_AUXILIAR_COLUMNS[c]];
+    if (Object.prototype.toString.call(lista) !== '[object Array]') return false;
+  }
+  return true;
 }
 
 /* ========================================================================== */

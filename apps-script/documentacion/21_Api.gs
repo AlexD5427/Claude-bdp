@@ -150,6 +150,10 @@ var DOC2_API = {
       });
     }
   },
+  'documentacion.expedientes.detalle': {
+    escribe: false, capacidad: DOC2_CAPACIDAD.VER,
+    fn: function (p, ctx) { return doc2DetalleMultiple_(p.expedienteIds || p.ids || [], ctx, { historial: p.historial }); }
+  },
   'documentacion.expediente.crear': {
     escribe: true, capacidad: DOC2_CAPACIDAD.EDITAR,
     fn: function (p, ctx) { return doc2CrearExpediente_(p.expediente || p, ctx); }
@@ -531,6 +535,29 @@ function doc2Estado_(ctx) {
     rol: contexto.rol,
     actor: contexto.actorDisplay,
     capacidades: doc2CapacidadesMapa_(contexto),
+    /**
+     * Lo que este backend sabe hacer, por nombre.
+     *
+     * ── Por qué hace falta ─────────────────────────────────────────────────
+     * El frontend de Vercel se despliega solo al fusionar; el backend de Apps
+     * Script solo cambia cuando una persona publica una versión nueva de la
+     * implementación. Así que existe una ventana —a veces de días— en la que la
+     * interfaz nueva habla con el backend viejo.
+     *
+     * Con esta lista, la interfaz PREGUNTA en vez de suponer: si
+     * `altaCompleta` no está, hace el alta por la ruta antigua de cuatro pasos y
+     * nadie se entera. Sin ella, el alta fallaría con un error de acción
+     * desconocida y el módulo parecería roto justo después de un despliegue
+     * correcto.
+     */
+    soporta: {
+      altaCompleta: true,
+      detalleMultiple: true,
+      hojasFisicas: true,
+      subsecciones: true,
+      cargoAuxiliar: true
+    },
+    catalogoVersion: DOC2_CATALOGO_VERSION,
     hojas: {},
     migraciones: null,
     aniosLibro: []

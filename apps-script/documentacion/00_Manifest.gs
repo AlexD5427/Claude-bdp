@@ -431,6 +431,7 @@ var DOC_CATALOGO_SEMILLA = [
   { id: 'garante-t3-fam-croquis', etiqueta: 'Croquis del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
 
   { id: 'impedimento-auditor', etiqueta: 'Declaración de impedimento de auditor', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
+  { id: 'djj-prohibiciones-cumplimiento', etiqueta: 'DJJ de prohibiciones (Unidad de Cumplimiento)', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
   { id: 'lgi-ft', etiqueta: 'Capacitación LGI/FT', grupo: 'cumplimiento', prorroga: false, obligatorio: true, columna: 'conozca_funcionario' },
   { id: 'examen-uif', etiqueta: 'Examen UIF aprobado', grupo: 'cumplimiento', prorroga: true, obligatorio: true }
 ];

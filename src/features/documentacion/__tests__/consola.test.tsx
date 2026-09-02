@@ -136,8 +136,8 @@ describe("consola de Documentación · integración con el backend", () => {
     // La cabecera trae el resumen textual que genera el backend.
     await waitFor(() => expect(within(panel).getByText(/Avance 0%/)).toBeInTheDocument());
     expect(within(panel).getByText("Documentos generales")).toBeInTheDocument();
-    expect(within(panel).getByText("Currículum Vitae actualizado")).toBeInTheDocument();
-    expect(within(panel).getByRole("tab", { name: /Requisitos\s*18/ })).toBeInTheDocument();
+    expect(within(panel).getByText("Curriculum Vitae actualizado.")).toBeInTheDocument();
+    expect(within(panel).getByRole("tab", { name: /Requisitos\s*16/ })).toBeInTheDocument();
   }, 20000);
 
   it("marcar un requisito no escribe hasta guardar el bloque", async () => {
@@ -151,7 +151,8 @@ describe("consola de Documentación · integración con el backend", () => {
     await userEvent.click(tabla.getByText("Bloque Guardado"));
 
     const panel = await screen.findByRole("dialog", {}, { timeout: 12000 });
-    const fila = (await within(panel).findByText("Fotografía digital 4x4")).closest("li")!;
+    const filas = await within(panel).findAllByText(/^Fotografía en formato digital 4X4/);
+    const fila = filas.map((n) => n.closest("li")).find((li): li is HTMLLIElement => li !== null)!;
     await userEvent.click(within(fila).getByRole("button", { name: "Entregado" }));
 
     // Aviso de cambios sin guardar y, sobre todo, NADA escrito todavía.

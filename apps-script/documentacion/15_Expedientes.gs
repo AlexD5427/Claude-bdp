@@ -44,11 +44,20 @@ function doc2CrearExpediente_(datos, ctx) {
   var d = datos || {};
   doc2ExigirCampos_(d, ['identificador', 'nombre']);
 
+  // El identificador es el CARNET DE IDENTIDAD tal como está en el documento: sin
+  // formato impuesto. Hay carnets con letras de complemento («1234567-1A»), con
+  // extensión de departamento, con puntos y con espacios; exigir un patrón solo
+  // conseguía que quien registra lo escribiera «como sea» para poder continuar.
+  // Lo único obligatorio es que quede algo al normalizarlo, porque de eso depende
+  // la detección de duplicados.
   var identificador = doc2Texto_(d.identificador, 120);
   var normalizado = doc2NormalizarIdentificador_(identificador);
   if (!normalizado) {
-    throw docError_(DOC_CODE.VALIDATION_ERROR, 'El identificador no puede quedar vacío al normalizarlo.',
-      { details: { fields: doc2Campo_('identificador', 'Escribe el identificador con el formato CI - proceso - año.') } });
+    throw docError_(DOC_CODE.VALIDATION_ERROR, 'El carnet de identidad no puede quedar vacío.',
+      {
+        hint: 'Escríbelo como aparece en el documento; se admite cualquier formato.',
+        details: { fields: doc2Campo_('identificador', 'Escribe el carnet de identidad.') }
+      });
   }
 
   var tipoFuncionario = doc2Enum_(d.tipoFuncionario || d.tipo_funcionario || 'GENERAL',
@@ -75,11 +84,26 @@ function doc2CrearExpediente_(datos, ctx) {
   }
   var existente = doc2BuscarPorIdentificador_(normalizado);
   if (existente) {
+    // El error lleva los datos del expediente existente para que la interfaz
+    // pueda ofrecer «abrirlo» en lugar de dejar a la persona con un formulario
+    // lleno y un mensaje que no la lleva a ninguna parte.
     throw docError_(DOC_CODE.CONFLICT,
-      'Ya existe un expediente con el identificador ' + identificador + '.',
+      'Ya existe un expediente con ese carnet: ' + (existente.nombre || existente.identificador) + '.',
       {
-        hint: 'Abre el expediente existente en lugar de crear otro. Si son dos personas distintas, revisa el identificador.',
-        details: { fields: doc2Campo_('identificador', 'Identificador ya registrado.'), expedienteId: existente.expediente_id }
+        hint: 'Ábrelo para seguir trabajando en él. Si de verdad son dos personas distintas, revisa el carnet.',
+        details: {
+          fields: doc2Campo_('identificador', 'Ya hay un expediente con este carnet.'),
+          expedienteId: existente.expediente_id,
+          duplicado: {
+            expedienteId: existente.expediente_id,
+            identificador: existente.identificador,
+            nombre: existente.nombre || '',
+            cargo: existente.cargo || '',
+            agencia: existente.agencia || '',
+            estado: existente.estado_expediente || '',
+            fechaIngreso: existente.fecha_ingreso || ''
+          }
+        }
       });
   }
 
@@ -105,6 +129,8 @@ function doc2CrearExpediente_(datos, ctx) {
     total_no_entregados: 0,
     total_no_aplica: 0,
     total_observados: 0,
+    total_hojas_fisicas: 0,
+    total_documentos_fisicos: 0,
     total_prorrogas: 0,
     total_prorrogas_vencidas: 0,
     proxima_fecha_critica: '',
@@ -120,6 +146,7 @@ function doc2CrearExpediente_(datos, ctx) {
   // Los catálogos auxiliares aprenden de lo que se registra, sin borrar nada.
   if (fila.agencia) doc2AgregarAuxiliar_('agencia_bdp', [fila.agencia]);
   if (fila.gerencia) doc2AgregarAuxiliar_('gerencia_bdp', [fila.gerencia]);
+  if (fila.cargo) doc2AgregarAuxiliar_('cargo_bdp', [fila.cargo]);
 
   doc2Historial_({
     expedienteId: expedienteId, entidadTipo: 'expediente', entidadId: expedienteId,
@@ -133,13 +160,210 @@ function doc2CrearExpediente_(datos, ctx) {
   });
 
   doc2Emitir_(DOC2_EVENTO.EXPEDIENTE_CREADO, { expedienteId: expedienteId }, contexto);
+
+  // ── Alta completa en una sola ida y vuelta ────────────────────────────────
+  // El asistente hacía cuatro llamadas seguidas (crear → obtener → guardar
+  // requisitos → N prórrogas). Cada una es un `POST` a Apps Script con su
+  // arranque, su `LockService` y su latencia: con veinticinco requisitos y dos
+  // prórrogas eran seis viajes de red y el botón se quedaba «guardando» ocho o
+  // diez segundos, tiempo suficiente para que alguien lo pulsara otra vez.
+  //
+  // Si la petición trae `requisitos` y/o `prorrogas`, se aplican AQUÍ, dentro de
+  // la misma ejecución y del mismo candado. Y si algo falla a medias se revierte
+  // el expediente entero: un alta a la mitad —creada pero sin sus estados— es
+  // peor que un alta que no ocurrió, porque nadie sabe qué le falta.
+  var aplicado = null;
+  if ((d.requisitos && d.requisitos.length) || (d.prorrogas && d.prorrogas.length)) {
+    try {
+      aplicado = doc2AplicarAltaCompleta_(expedienteId, d, contexto);
+      resumen = aplicado.resumen || resumen;
+    } catch (error) {
+      doc2RevertirAltaFallida_(expedienteId, contexto, docClassify_(error).message);
+      throw error;
+    }
+  }
+
   doc2EspejoLibro_(expedienteId, contexto);
 
   return {
     expedienteId: expedienteId,
     creado: true,
     requisitos: sincronizacion.creados,
-    resumen: resumen
+    resumen: resumen,
+    // El detalle completo viaja de vuelta para que el asistente pueda abrir el
+    // expediente SIN una quinta llamada. Solo cuando se pidió el alta completa:
+    // en el camino corto sería un payload gratuito.
+    detalle: aplicado ? aplicado.detalle : null,
+    aplicado: aplicado ? { requisitos: aplicado.aplicados, prorrogas: aplicado.prorrogas, fallidos: aplicado.fallidos } : null
+  };
+}
+
+/**
+ * Aplica estados, observaciones, hojas y prórrogas de un alta completa.
+ *
+ * Los requisitos llegan por CÓDIGO de catálogo, no por `expedienteDocumentoId`:
+ * el cliente no puede conocer los identificadores de unas filas que se acaban de
+ * crear en esta misma ejecución. La traducción se hace aquí, que es el único sitio
+ * que ya las tiene delante.
+ *
+ * Un requisito que no aplica a la rama elegida se ignora en silencio: el
+ * asistente conserva lo que se marcó antes de cambiar de categoría, y eso es una
+ * comodidad deliberada, no un error que haya que reportar.
+ */
+function doc2AplicarAltaCompleta_(expedienteId, datos, contexto) {
+  var lista = datos.requisitos || [];
+  var existentes = doc2RequisitosDe_(expedienteId, false);
+  var porCodigo = {};
+  for (var i = 0; i < existentes.length; i++) porCodigo[String(existentes[i].codigo_documento)] = existentes[i];
+
+  var cambios = [];
+  for (var c = 0; c < lista.length; c++) {
+    var entrada = lista[c] || {};
+    var fila = porCodigo[String(entrada.codigo || entrada.codigo_documento || '')];
+    if (!fila) continue;
+    var cambio = { expedienteDocumentoId: fila.expediente_documento_id, codigo: fila.codigo_documento };
+    var tieneAlgo = false;
+    if (entrada.estado !== undefined && String(entrada.estado) !== DOC2_ESTADO_DOCUMENTO.PENDIENTE) {
+      cambio.estado = entrada.estado;
+      tieneAlgo = true;
+    }
+    if (entrada.observaciones !== undefined && String(entrada.observaciones).trim() !== '') {
+      cambio.observaciones = entrada.observaciones;
+      tieneAlgo = true;
+    }
+    if (doc2TraeHojas_(entrada) && String(doc2ValorHojas_(entrada)).trim() !== '') {
+      cambio.hojasFisicas = doc2ValorHojas_(entrada);
+      tieneAlgo = true;
+    }
+    if (tieneAlgo) cambios.push(cambio);
+  }
+
+  var resultado = { aplicados: 0, fallidos: [], resumen: null };
+  if (cambios.length) {
+    var lote = doc2ActualizarRequisitosEnLote_(expedienteId, cambios, contexto);
+    resultado.aplicados = lote.aplicados;
+    resultado.fallidos = lote.fallidos;
+    resultado.resumen = lote.resumen;
+  }
+
+  // Prórrogas: una por una porque cada una audita y valida su fecha. Fallan de
+  // forma acumulativa —una fecha mal puesta no debe tirar el alta— y se reportan.
+  var prorrogas = 0;
+  var listaP = datos.prorrogas || [];
+  for (var pp = 0; pp < listaP.length; pp++) {
+    var pedido = listaP[pp] || {};
+    var destino = porCodigo[String(pedido.codigo || pedido.codigo_documento || '')];
+    if (!destino || destino.permite_prorroga !== true) continue;
+    if (!pedido.fechaProrroga && !pedido.fecha_prorroga) continue;
+    try {
+      doc2CrearProrroga_({
+        expedienteDocumentoId: destino.expediente_documento_id,
+        fechaProrroga: pedido.fechaProrroga || pedido.fecha_prorroga,
+        motivo: pedido.motivo || 'Prórroga registrada al abrir el expediente.'
+      }, contexto);
+      prorrogas++;
+    } catch (error) {
+      resultado.fallidos.push({
+        codigo: destino.codigo_documento,
+        motivo: docClassify_(error).message,
+        parte: 'prorroga'
+      });
+    }
+  }
+  resultado.prorrogas = prorrogas;
+  resultado.detalle = doc2ExpedienteOperativo_(expedienteId, contexto, { historial: 20, auditoria: 0 });
+  return resultado;
+}
+
+/**
+ * Deshace un alta que falló a medias.
+ *
+ * ── Por qué no se borra la fila ─────────────────────────────────────────────
+ * Porque en este módulo no se borra nada, y porque el `idempotency_key_creacion`
+ * ya escrito tiene que seguir ahí: si el cliente reintenta con la misma clave,
+ * tiene que encontrar el mismo expediente y no crear un tercero. Se marca como
+ * `ELIMINADO_LOGICO` con constancia del motivo, que es la reversión que el modelo
+ * admite. Un administrador puede restaurarlo si el fallo fue puntual.
+ *
+ * La reversión no puede lanzar: si falla, el error que importa es el original.
+ */
+function doc2RevertirAltaFallida_(expedienteId, contexto, motivo) {
+  try {
+    doc2Update_(DOC2_SHEET.EXPEDIENTES, expedienteId, {
+      estado_expediente: DOC2_ESTADO_EXPEDIENTE.ELIMINADO_LOGICO,
+      estado_operacion: 'ALTA_REVERTIDA'
+    }, contexto);
+    doc2Historial_({
+      expedienteId: expedienteId, entidadTipo: 'expediente', entidadId: expedienteId,
+      campo: 'expediente', anterior: 'expediente creado', nuevo: 'alta revertida',
+      motivo: 'El alta completa falló y se deshizo: ' + String(motivo || ''), actor: contexto.actor
+    });
+    doc2Audit_({
+      tipo: 'expediente.alta_revertida', expedienteId: expedienteId, entidadTipo: 'expediente',
+      entidadId: expedienteId, actor: contexto.actor, actorId: contexto.actorId,
+      origen: contexto.origen, requestId: contexto.requestId, resultado: 'error',
+      metadata: { motivo: String(motivo || '') }
+    });
+  } catch (e) {
+    docWarn_('No se pudo revertir un alta fallida.', { expediente: expedienteId, motivo: docClassify_(e).message });
+  }
+}
+
+/**
+ * Detalle de VARIOS expedientes en una sola llamada.
+ *
+ * ── Para qué ────────────────────────────────────────────────────────────────
+ * La precarga en segundo plano del frontend necesita el detalle de los
+ * expedientes visibles. Pedirlos de uno en uno son N peticiones a Apps Script,
+ * cada una con su arranque de contenedor: veinticinco filas eran veinticinco
+ * viajes. Aquí se traen en uno.
+ *
+ * ── Los tres límites que la hacen segura ────────────────────────────────────
+ *   1. **tope de ids** (`LOTE_MASIVO`): Apps Script corta a los seis minutos y una
+ *      lista sin tope acabaría devolviendo un error en vez de datos;
+ *   2. **payload recortado**: sin auditoría y con poco historial. La precarga
+ *      quiere pintar la ficha rápido, no auditarla; quien la abra de verdad pide
+ *      el detalle completo;
+ *   3. **permisos y errores por elemento**: un expediente inaccesible o
+ *      inexistente no tumba el lote, se devuelve en `fallidos`.
+ */
+function doc2DetalleMultiple_(ids, ctx, opciones) {
+  var contexto = ctx || doc2CtxActual_();
+  doc2Autorizar_(contexto, DOC2_CAPACIDAD.VER);
+  var o = opciones || {};
+  var lista = Object.prototype.toString.call(ids) === '[object Array]' ? ids : [];
+
+  if (lista.length > DOC2_LIMITS.LOTE_MASIVO) {
+    throw docError_(DOC2_CODE.LIMITE_EXCEDIDO, 'Demasiados expedientes en una sola lectura.',
+      {
+        hint: 'Pide como máximo ' + DOC2_LIMITS.LOTE_MASIVO + ' expedientes por llamada.',
+        details: { recibidos: lista.length, maximo: DOC2_LIMITS.LOTE_MASIVO }
+      });
+  }
+
+  var expedientes = [];
+  var fallidos = [];
+  var vistos = {};
+  for (var i = 0; i < lista.length; i++) {
+    var id = docRaw_(lista[i] || '', 200);
+    if (!id || vistos[id]) continue;
+    vistos[id] = true;
+    try {
+      expedientes.push(doc2ExpedienteOperativo_(id, contexto, {
+        historial: docInt_(o.historial, 12),
+        auditoria: 0
+      }));
+    } catch (error) {
+      var info = docClassify_(error);
+      fallidos.push({ expedienteId: id, motivo: info.message, codigo: info.docCode });
+    }
+  }
+
+  return {
+    expedientes: expedientes,
+    fallidos: fallidos,
+    solicitados: lista.length,
+    devueltos: expedientes.length
   };
 }
 
@@ -223,6 +447,10 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
         codigo_documento: codigo,
         version_catalogo: docInt_(def.version_catalogo, DOC2_CATALOGO_VERSION),
         seccion: def.seccion,
+        // La subsección viene YA RESUELTA para esta rama por `doc2Aplicables_`.
+        // Se materializa en la fila para que reportes y exportaciones no tengan
+        // que volver a resolverla —y no puedan resolverla distinto.
+        subseccion: doc2Texto_(def.subseccion || '', 200),
         grupo: def.grupo,
         orden: docInt_(def.orden, (i + 1) * 10),
         estado_documental: DOC2_ESTADO_DOCUMENTO.PENDIENTE,
@@ -249,6 +477,7 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
     // refrescan sin tocar el estado ni la observación, que son datos operativos.
     doc2Update_(DOC2_SHEET.EXPEDIENTE_DOCS, actual.expediente_documento_id, {
       seccion: def.seccion,
+      subseccion: doc2Texto_(def.subseccion || '', 200),
       grupo: def.grupo,
       orden: docInt_(def.orden, docInt_(actual.orden, 0)),
       obligatorio: def.obligatorio === true,
@@ -258,6 +487,28 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
     }, contexto);
   }
 
+  /*
+   * Prórrogas por requisito, para el criterio de «tiene datos».
+   *
+   * ── El fallo que esto corrige ─────────────────────────────────────────────
+   * `tieneDatos` miraba el estado, la observación y la revisión, pero NO las
+   * prórrogas. Un requisito todavía pendiente al que alguien había concedido un
+   * plazo —el caso normal: «el título llega en marzo, te doy hasta el 31»— se
+   * consideraba vacío y se ARCHIVABA al recalcular la aplicabilidad. La fila de
+   * la prórroga seguía en su hoja, pero el requisito desaparecía de la vista y
+   * con él el plazo: nadie volvía a perseguirlo.
+   *
+   * Se lee una sola vez y se indexa, en lugar de consultar por requisito: con
+   * veinticinco requisitos serían veinticinco lecturas de la misma hoja.
+   */
+  var prorrogasPorRequisito = {};
+  var todasProrrogas = doc2By_(DOC2_SHEET.PRORROGAS, 'expediente_id', expediente.expediente_id, false);
+  for (var pr = 0; pr < todasProrrogas.length; pr++) {
+    var estadoPr = String(todasProrrogas[pr].estado_prorroga || '');
+    if (estadoPr === DOC2_ESTADO_PRORROGA.CANCELADA || estadoPr === DOC2_ESTADO_PRORROGA.RECHAZADA) continue;
+    prorrogasPorRequisito[String(todasProrrogas[pr].expediente_documento_id || '')] = true;
+  }
+
   for (var x = 0; x < existentes.length; x++) {
     var fila = existentes[x];
     if (aplicablesPorCodigo[String(fila.codigo_documento)]) continue;
@@ -265,6 +516,8 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
 
     var tieneDatos = String(fila.estado_documental) !== DOC2_ESTADO_DOCUMENTO.PENDIENTE ||
       String(fila.observaciones || '').trim() !== '' ||
+      docInt_(fila.hojas_fisicas, 0) > 0 ||
+      prorrogasPorRequisito[String(fila.expediente_documento_id)] === true ||
       String(fila.estado_revision) !== DOC2_ESTADO_REVISION.SIN_REVISION;
 
     if (tieneDatos) {
@@ -492,6 +745,73 @@ function doc2ValoresDe_(mapa) {
 /* ========================================================================== */
 
 /**
+ * Valida el número de hojas de un documento FÍSICO.
+ *
+ * ── Por qué el backend rechaza en lugar de ignorar ──────────────────────────
+ * Un contador enviado sobre un requisito digital significa una de dos cosas: o el
+ * cliente está desincronizado con el catálogo, o alguien está llamando a la API a
+ * mano. En los dos casos, guardarlo en silencio deja un dato que nadie sabe
+ * interpretar —¿cuántas hojas tiene una fotografía enviada por WhatsApp?— y
+ * descartarlo en silencio hace creer que se guardó. Se rechaza con `campos` para
+ * que el formulario marque exactamente el control que sobra.
+ *
+ * El requisito manda su propia definición del catálogo: la fila de
+ * `ExpedienteDocumentos` no guarda `requiere_conteo_hojas` a propósito, porque es
+ * una propiedad del documento y no de un expediente concreto. Si el catálogo lo
+ * cambia, el cambio aplica de inmediato a todos.
+ */
+function doc2ValidarHojasFisicas_(fila, valor) {
+  var def = doc2CatalogoItem_(fila.codigo_documento);
+  var admite = !!(def && def.requiere_conteo_hojas === true);
+
+  if (!admite) {
+    throw docError_(DOC_CODE.VALIDATION_ERROR,
+      'El requisito "' + doc2NombreRequisito_(fila) + '" no se entrega en papel: no lleva conteo de hojas.',
+      {
+        hint: 'El contador de hojas solo existe en los documentos que se presentan físicamente.',
+        details: {
+          fields: doc2Campo_('hojas_fisicas', 'Este documento no lleva conteo de hojas.'),
+          codigo: fila.codigo_documento
+        }
+      });
+  }
+
+  // Vacío significa «sin anotar», y es distinto de cero: cero hojas es un dato
+  // (alguien contó y no había nada), vacío es la ausencia de dato.
+  if (valor === null || valor === undefined || String(valor).trim() === '') return '';
+
+  var texto = String(valor).trim();
+  if (!/^\d{1,4}$/.test(texto)) {
+    throw docError_(DOC_CODE.VALIDATION_ERROR, 'El número de hojas tiene que ser un número entero.',
+      {
+        hint: 'Escribe cuántas hojas tiene el documento en papel, sin decimales ni signos.',
+        details: { fields: doc2Campo_('hojas_fisicas', 'Escribe un número entero de hojas.') }
+      });
+  }
+
+  var entero = docInt_(texto, -1);
+  if (entero < 0 || entero > DOC2_MAX_HOJAS_FISICAS) {
+    throw docError_(DOC_CODE.VALIDATION_ERROR,
+      'El número de hojas tiene que estar entre 0 y ' + DOC2_MAX_HOJAS_FISICAS + '.',
+      {
+        hint: 'Si el documento tiene más hojas que eso, anótalo en la observación.',
+        details: { fields: doc2Campo_('hojas_fisicas', 'Entre 0 y ' + DOC2_MAX_HOJAS_FISICAS + ' hojas.') }
+      });
+  }
+  return entero;
+}
+
+/** ¿Trae este cambio un conteo de hojas? Acepta las dos formas de nombrarlo. */
+function doc2TraeHojas_(cambio) {
+  return cambio.hojasFisicas !== undefined || cambio.hojas_fisicas !== undefined;
+}
+
+/** El valor del conteo de hojas de un cambio, con cualquiera de sus dos nombres. */
+function doc2ValorHojas_(cambio) {
+  return cambio.hojasFisicas !== undefined ? cambio.hojasFisicas : cambio.hojas_fisicas;
+}
+
+/**
  * Cambia el estado de un requisito y su observación.
  *
  * Comprueba tres cosas antes de escribir: que la transición sea válida, que el
@@ -531,6 +851,11 @@ function doc2ActualizarRequisito_(expedienteDocumentoId, cambios, ctx, opciones)
   if (c.observaciones !== undefined || c.observacion !== undefined) {
     antes.observaciones = fila.observaciones;
     patch.observaciones = doc2TextoLargo_(c.observaciones !== undefined ? c.observaciones : c.observacion, DOC2_LIMITS.MAX_TEXTO_MEDIO);
+  }
+
+  if (doc2TraeHojas_(c)) {
+    antes.hojas_fisicas = fila.hojas_fisicas;
+    patch.hojas_fisicas = doc2ValidarHojasFisicas_(fila, doc2ValorHojas_(c));
   }
 
   if (!Object.keys(patch).length) {
@@ -625,6 +950,10 @@ function doc2ActualizarRequisitosEnLote_(expedienteId, lista, ctx, opciones) {
         antes.observaciones = fila.observaciones;
         patch.observaciones = doc2TextoLargo_(cambio.observaciones !== undefined ? cambio.observaciones : cambio.observacion, DOC2_LIMITS.MAX_TEXTO_MEDIO);
       }
+      if (doc2TraeHojas_(cambio)) {
+        antes.hojas_fisicas = fila.hojas_fisicas;
+        patch.hojas_fisicas = doc2ValidarHojasFisicas_(fila, doc2ValorHojas_(cambio));
+      }
       if (!Object.keys(patch).length) continue;
 
       doc2Update_(DOC2_SHEET.EXPEDIENTE_DOCS, id, patch, contexto, { version: cambio.version });
@@ -718,7 +1047,13 @@ function doc2RecalcularExpediente_(expedienteId, ctx, opciones) {
     total_no_entregados: 0,
     total_no_aplica: 0,
     total_observados: 0,
-    total_resueltos: 0
+    total_resueltos: 0,
+    // Resúmenes materializados del papel: los pide la lista, el informe mensual y
+    // la columna PAGINAS del libro anual. Se recalculan aquí para que ninguna de
+    // las tres tenga que recorrer `ExpedienteDocumentos` por su cuenta y llegar a
+    // un número distinto.
+    total_hojas_fisicas: 0,
+    total_documentos_fisicos: 0
   };
 
   var hayRevisionEnCurso = false;
@@ -734,6 +1069,12 @@ function doc2RecalcularExpediente_(expedienteId, ctx, opciones) {
     if (revision === DOC2_ESTADO_REVISION.OBSERVADO || revision === DOC2_ESTADO_REVISION.REQUIERE_CORRECCION ||
         revision === DOC2_ESTADO_REVISION.RECHAZADO) totales.total_observados++;
     if (revision === DOC2_ESTADO_REVISION.EN_REVISION) hayRevisionEnCurso = true;
+
+    var defR = doc2CatalogoItem_(r.codigo_documento);
+    if (defR && defR.requiere_conteo_hojas === true) {
+      totales.total_documentos_fisicos++;
+      totales.total_hojas_fisicas += docInt_(r.hojas_fisicas, 0);
+    }
   }
   totales.total_resueltos = totales.total_entregados + totales.total_no_aplica;
 
@@ -811,6 +1152,8 @@ function doc2RecalcularExpediente_(expedienteId, ctx, opciones) {
     total_no_entregados: totales.total_no_entregados,
     total_no_aplica: totales.total_no_aplica,
     total_observados: totales.total_observados,
+    total_hojas_fisicas: totales.total_hojas_fisicas,
+    total_documentos_fisicos: totales.total_documentos_fisicos,
     total_prorrogas: prorrogasVigentes + prorrogasVencidas,
     total_prorrogas_vencidas: prorrogasVencidas,
     porcentaje_completitud: porcentaje,
@@ -897,10 +1240,18 @@ function doc2ExpedienteOperativo_(idOIdentificador, ctx, opciones) {
       nombre: (def && def.nombre_visible) || r.codigo_documento,
       descripcion: (def && def.descripcion) || '',
       seccion: r.seccion,
+      subseccion: r.subseccion || '',
+      subgrupo: (def && def.subgrupo) || '',
       grupo: r.grupo,
       orden: docInt_(r.orden, 0),
       estado: r.estado_documental,
       observaciones: r.observaciones || '',
+      // Vacío (no cero) cuando nadie lo ha anotado: la interfaz distingue «cero
+      // hojas» de «sin contar» y no puede hacerlo si el backend manda un 0.
+      hojasFisicas: String(r.hojas_fisicas || '').trim() === '' ? null : docInt_(r.hojas_fisicas, 0),
+      presentacionFisica: (def && def.presentacion_fisica) || DOC2_PRESENTACION.NO,
+      presentacionDigital: (def && def.presentacion_digital) || DOC2_PRESENTACION.SI,
+      requiereConteoHojas: !!(def && def.requiere_conteo_hojas === true),
       obligatorio: r.obligatorio === true,
       permiteNoAplica: r.permite_no_aplica === true,
       permiteProrroga: r.permite_prorroga === true,
@@ -992,6 +1343,8 @@ function doc2ExpedienteVista_(fila) {
       noEntregados: docInt_(fila.total_no_entregados, 0),
       noAplica: docInt_(fila.total_no_aplica, 0),
       observados: docInt_(fila.total_observados, 0),
+      hojasFisicas: docInt_(fila.total_hojas_fisicas, 0),
+      documentosFisicos: docInt_(fila.total_documentos_fisicos, 0),
       prorrogas: docInt_(fila.total_prorrogas, 0),
       prorrogasVencidas: docInt_(fila.total_prorrogas_vencidas, 0)
     },
@@ -1405,7 +1758,11 @@ function doc2ADossierHeredado_(expediente) {
       label: (def && def.nombre_visible) || r.codigo_documento,
       group: r.grupo || 'personal',
       status: estado,
-      pages: 0
+      // `pages` es el conteo de hojas del documento físico. Alimenta la columna
+      // PAGINAS del bloque de gestión —que ya existía y estaba siempre a cero— y
+      // el detalle por documento del `DETALLE JSON`. Las columnas A-W del Excel
+      // del área no se tocan ni se renumeran.
+      pages: docInt_(r.hojas_fisicas, 0)
     };
     if (r.observaciones) item.observation = String(r.observaciones);
     if (r.permite_prorroga === true) item.allowProrroga = true;

@@ -1,4 +1,17 @@
 import { describe, it, expect } from "vitest";
+
+/*
+ * NOTA DEL CATÁLOGO v3
+ * ────────────────────
+ * `cert-trabajo` («Certificados de trabajo») se retiró de la lista vigente del
+ * área: no se pide en expedientes nuevos, aunque su fila sigue en el catálogo
+ * inactiva para no romper los expedientes que ya lo tenían. Estas pruebas usaban
+ * ese código como «un requisito general que admite prórroga»; ahora usan
+ * `titulo-legalizado`, que es el que cumple ese papel en el proceso vigente.
+ *
+ * El cambio es de DATO, no de expectativa: se sigue comprobando exactamente lo
+ * mismo (prórrogas, recordatorios, avisos) sobre un requisito que existe.
+ */
 import {
   crearExpediente,
   loadBackend,
@@ -145,7 +158,7 @@ describe("documentación · idempotencia del enrutador", () => {
   it("el proceso diario ejecutado dos veces no duplica efectos", () => {
     const h = loadInstalledBackend();
     const { expedienteId, requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    const cert = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
     h.ok("documentacion.prorroga.crear", {
       prorroga: { expedienteDocumentoId: cert.expedienteDocumentoId, fechaProrroga: h.read("doc2FechaMasDias_(1)"), motivo: "Plazo." },
     });

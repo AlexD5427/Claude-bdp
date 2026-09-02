@@ -64,6 +64,18 @@ var DOC2_MIGRACIONES = [
     nombre: 'Reconstruir resúmenes y estados de los expedientes importados',
     porLotes: true,
     ejecutar: function (ctx, opciones) { return doc2MigracionResumenes_(ctx, opciones); }
+  },
+  {
+    version: '5.0.0-hojas-fisicas',
+    nombre: 'Añadir el conteo de hojas físicas, la forma de presentación y las subsecciones',
+    porLotes: false,
+    ejecutar: function (ctx, opciones) { return doc2MigracionHojasFisicas_(ctx, opciones); }
+  },
+  {
+    version: '5.0.1-catalogo-v3',
+    nombre: 'Publicar el catálogo versión 3: 16 generales, subsecciones y retiro de dos requisitos',
+    porLotes: true,
+    ejecutar: function (ctx, opciones) { return doc2MigracionCatalogoV3_(ctx, opciones); }
   }
 ];
 
@@ -551,6 +563,11 @@ function doc2AplicablesDeSemilla_(tipoFuncionario, tipoGarantia) {
   var salida = [];
   for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) {
     var def = DOC2_CATALOGO_SEMILLA[i];
+    // Un requisito retirado NO se exige a un expediente nuevo, ni siquiera cuando
+    // la cuenta se hace desde la semilla y no desde la hoja. Sin esta línea, la
+    // migración y el verificador contarían 18 generales donde el motor de
+    // aplicabilidad ve 16, y las dos cifras discreparían para siempre.
+    if (def.retirado === true) continue;
     var funcionarios = def.funcionario || [];
     if (funcionarios.length && funcionarios.indexOf(funcionario) < 0) continue;
     var garantias = def.garantia || [];
@@ -651,13 +668,35 @@ function doc2EstadosDesdeLibro_(fila, dossier, expedienteId, ctx) {
 
   var actualizados = 0;
   var prorrogas = 0;
+  var heredados = 0;
 
   // 1. Checklist del JSON.
   var items = d.items || [];
   for (var it = 0; it < items.length; it++) {
     var item = items[it] || {};
     var requisito = porCodigo[String(item.id)];
-    if (!requisito) continue;
+    if (!requisito) {
+      /*
+       * ── Rescate de un requisito RETIRADO con historia ────────────────────
+       * El JSON del libro trae un documento que el catálogo vigente ya no exige
+       * (`cert-trabajo`, `rc-iva`). `doc2SincronizarRequisitos_` no le creó fila
+       * porque no es aplicable, y sin este bloque su estado —«presentado en
+       * marzo de 2024»— desaparecería del modelo normalizado. Eso es
+       * exactamente lo que la retirada del catálogo prometió NO hacer.
+       *
+       * Se materializa la fila si el documento existe en el catálogo (aunque
+       * inactivo) y el JSON dice algo distinto de «pendiente»: un pendiente sin
+       * más no es información, es la ausencia de ella.
+       */
+      var rescatado = doc2RescatarRequisitoHeredado_(expedienteId, item, contexto);
+      if (rescatado) {
+        porCodigo[String(item.id)] = rescatado;
+        requisito = rescatado;
+        heredados++;
+      } else {
+        continue;
+      }
+    }
 
     var estado = doc2EstadoDesdeHeredado_(item.status);
     var revision = String(item.status) === 'observado' ? DOC2_ESTADO_REVISION.OBSERVADO : String(requisito.estado_revision || DOC2_ESTADO_REVISION.SIN_REVISION);
@@ -705,7 +744,77 @@ function doc2EstadosDesdeLibro_(fila, dossier, expedienteId, ctx) {
     }
   }
 
-  return { actualizados: actualizados, prorrogas: prorrogas };
+  return { actualizados: actualizados, prorrogas: prorrogas, heredados: heredados };
+}
+
+/**
+ * Crea la fila de un requisito RETIRADO que el libro sí tenía registrado.
+ *
+ * Devuelve la fila creada, o `null` si no hay nada que rescatar: el documento
+ * no existe ni siquiera inactivo en el catálogo, o el libro lo tenía en
+ * «pendiente», que no es un dato que valga la pena conservar.
+ *
+ * La fila nace con la subsección «Requisito heredado» para que la vista del
+ * expediente pueda agruparla aparte y decir en voz alta de dónde viene, en vez
+ * de mezclarla con los dieciséis vigentes y hacer creer que se sigue pidiendo.
+ */
+function doc2RescatarRequisitoHeredado_(expedienteId, item, ctx) {
+  var contexto = ctx || doc2CtxActual_();
+  var codigo = String((item && item.id) || '');
+  if (!codigo) return null;
+
+  var def = doc2CatalogoItem_(codigo);
+  if (!def) return null;
+
+  /*
+   * ¿Hay algo que valga la pena conservar?
+   *
+   * Tres cosas cuentan como información, y la tercera es la que se me pasó
+   * primero: una PRÓRROGA. Un `cert-trabajo` en «pendiente» no dice nada, pero un
+   * `cert-trabajo` en «pendiente CON un plazo concedido hasta el 31 de diciembre»
+   * es una decisión que alguien tomó y que hay que poder auditar. Descartarlo por
+   * mirar solo el estado habría perdido justo el dato que costó una gestión.
+   */
+  var estado = doc2EstadoDesdeHeredado_(item.status);
+  var tieneObservacion = String(item.observation || '').trim() !== '';
+  var tieneProrroga = String(item.prorroga || '').trim() !== '';
+  if (estado === DOC2_ESTADO_DOCUMENTO.PENDIENTE && !tieneObservacion && !tieneProrroga) return null;
+
+  var id = doc2StableId_('expdoc', expedienteId + '|' + codigo);
+  // Idempotencia: si una ejecución anterior ya la creó, se reutiliza.
+  var existente = doc2Get_(DOC2_SHEET.EXPEDIENTE_DOCS, id);
+  if (existente) return existente;
+
+  doc2Insert_(DOC2_SHEET.EXPEDIENTE_DOCS, {
+    expediente_documento_id: id,
+    expediente_id: expedienteId,
+    codigo_documento: codigo,
+    version_catalogo: docInt_(def.version_catalogo, DOC2_CATALOGO_VERSION),
+    seccion: def.seccion || 'generales',
+    subseccion: 'Requisito heredado (ya no se exige)',
+    grupo: def.grupo || 'personal',
+    orden: docInt_(def.orden, 900),
+    estado_documental: DOC2_ESTADO_DOCUMENTO.PENDIENTE,
+    observaciones: '',
+    obligatorio: false,
+    permite_no_aplica: true,
+    permite_prorroga: def.permite_prorroga === true,
+    tipo_funcionario: def.tipo_funcionario || '',
+    tipo_garantia: def.tipo_garantia || '',
+    estado_revision: DOC2_ESTADO_REVISION.SIN_REVISION,
+    revision_actual_id: '',
+    aprobacion_actual_id: '',
+    version_registro: 1
+  }, contexto);
+
+  doc2Historial_({
+    expedienteId: expedienteId, entidadTipo: 'expediente_documento', entidadId: id,
+    campo: 'aplicabilidad', anterior: '', nuevo: 'requisito heredado conservado',
+    motivo: 'El libro tenía este requisito registrado y el catálogo vigente ya no lo exige.',
+    actor: contexto.actor
+  });
+
+  return doc2GetOrFail_(DOC2_SHEET.EXPEDIENTE_DOCS, id, 'el requisito heredado');
 }
 
 /** Traduce un estado heredado (del JSON o de una columna) al vocabulario nuevo. */
@@ -804,6 +913,187 @@ function doc2MigracionResumenes_(ctx, opciones) {
 
 /* ========================================================================== */
 /* Instalación completa del modelo normalizado                                 */
+/* ========================================================================== */
+/* Migración 5: columnas de presentación y conteo de hojas                     */
+/* ========================================================================== */
+
+/**
+ * Añade las columnas que introduce el esquema 5, sin tocar un solo dato.
+ *
+ *   · `ExpedienteDocumentos`: `subseccion` y `hojas_fisicas`;
+ *   · `Expedientes`: `total_hojas_fisicas` y `total_documentos_fisicos`;
+ *   · `CatalogoDocumentos`: `subseccion`, `subgrupo`, `presentacion_fisica`,
+ *     `presentacion_digital` y `requiere_conteo_hojas`;
+ *   · `Auxiliar`: la cabecera `cargo_bdp`.
+ *
+ * ── Por qué es tan corta ────────────────────────────────────────────────────
+ * Porque `doc2EnsureSheets_` ya sabe hacer exactamente esto: compara las columnas
+ * declaradas con las que hay, AÑADE las que faltan al final y no reordena ni
+ * borra nada. Escribir aquí una segunda implementación del mismo recorrido sería
+ * duplicar la parte peligrosa del código para no reutilizarla.
+ *
+ * Es idempotente por construcción: la segunda ejecución no encuentra columnas que
+ * falten y no hace nada. Y no necesita lotes, porque no recorre registros: toca
+ * cabeceras. La reconstrucción de los totales la hace la migración siguiente, que
+ * sí va por lotes.
+ */
+function doc2MigracionHojasFisicas_(ctx, opciones) {
+  var o = opciones || {};
+  var hojasTocadas = [
+    DOC2_SHEET.EXPEDIENTES,
+    DOC2_SHEET.EXPEDIENTE_DOCS,
+    DOC2_SHEET.CATALOGO
+  ];
+
+  if (o.simular === true) {
+    var ss = docSpreadsheet_();
+    var porCrear = [];
+    var porAñadir = [];
+    for (var i = 0; i < hojasTocadas.length; i++) {
+      var hoja = ss.getSheetByName(hojasTocadas[i]);
+      if (!hoja) { porCrear.push(hojasTocadas[i]); continue; }
+      var estado = docInspectSheet_(hoja, docColumnNames_(hojasTocadas[i]));
+      for (var c = 0; c < estado.columnasFaltantes.length; c++) {
+        porAñadir.push(hojasTocadas[i] + '.' + estado.columnasFaltantes[c]);
+      }
+    }
+    var auxiliar = ss.getSheetByName(DOC2_SHEET.AUXILIAR);
+    var faltaCargo = !auxiliar || doc2ColumnaAuxiliar_(auxiliar, 'cargo_bdp') < 0;
+    if (faltaCargo) porAñadir.push(DOC2_SHEET.AUXILIAR + '.cargo_bdp');
+    return {
+      quedan: false, filas: 0,
+      detalle: { hojasPorCrear: porCrear, columnasPorAñadir: porAñadir },
+      resumen: porAñadir.length || porCrear.length
+        ? ('Se añadirían ' + porAñadir.length + ' columna(s)' +
+           (porCrear.length ? (' y se crearían ' + porCrear.length + ' hoja(s)') : '') + '. Ningún dato se modifica.')
+        : 'Las columnas nuevas ya existen. No haría nada.'
+    };
+  }
+
+  var acciones = doc2EnsureSheets_({ silencioso: true });
+  return {
+    quedan: false, filas: acciones.length,
+    detalle: { acciones: acciones },
+    resumen: acciones.length
+      ? (acciones.length + ' hoja(s) con columnas nuevas. Los datos existentes no se tocaron.')
+      : 'Sin cambios: las columnas ya estaban.'
+  };
+}
+
+/* ========================================================================== */
+/* Migración 6: catálogo versión 3                                             */
+/* ========================================================================== */
+
+/**
+ * Publica el catálogo versión 3 y reconstruye lo que depende de él.
+ *
+ * Tres cosas, en este orden y por una razón:
+ *
+ *   1. **sembrar el catálogo**: renombra los generales al texto del área, declara
+ *      la forma de presentación y las subsecciones, crea
+ *      `djj-prohibiciones-cumplimiento` y retira `cert-trabajo` y `rc-iva`;
+ *   2. **sembrar `cargo_bdp`** con los cargos que ya hay en los expedientes, para
+ *      que el desplegable no nazca vacío;
+ *   3. **resincronizar los expedientes ABIERTOS**, por lotes: materializa la
+ *      subsección en cada requisito y recalcula los totales de hojas.
+ *
+ * ── Qué NO hace, y es la parte importante ──────────────────────────────────
+ * No borra requisitos. No cambia un solo estado documental ni una observación. No
+ * degrada nada resuelto: `doc2SincronizarRequisitos_` conserva los requisitos que
+ * ya tienen datos aunque hayan dejado de aplicar (los dos generales retirados,
+ * justamente), y `doc2RecalcularExpediente_` respeta los estados que son decisión
+ * humana (`APROBADO`, `ARCHIVADO`…).
+ *
+ * Los expedientes archivados o eliminados se saltan: resincronizarlos los
+ * reabriría a efectos de cálculo y no hay ninguna necesidad de tocarlos.
+ */
+function doc2MigracionCatalogoV3_(ctx, opciones) {
+  var contexto = ctx || doc2CtxActual_();
+  var o = opciones || {};
+  var simular = o.simular === true;
+  var lote = docInt_(o.lote, DOC2_LIMITS.LOTE_MIGRACION);
+  var desde = Math.max(docInt_(o.desde, 0), 0);
+
+  var expedientes = [];
+  try { expedientes = doc2All_(DOC2_SHEET.EXPEDIENTES, true); } catch (e) { expedientes = []; }
+  var abiertos = [];
+  for (var i = 0; i < expedientes.length; i++) {
+    var estado = String(expedientes[i].estado_expediente || '');
+    if (estado === DOC2_ESTADO_EXPEDIENTE.ARCHIVADO || estado === DOC2_ESTADO_EXPEDIENTE.ELIMINADO_LOGICO) continue;
+    abiertos.push(expedientes[i]);
+  }
+
+  if (simular) {
+    var enCatalogo = 0;
+    try { enCatalogo = doc2Catalogo_(true).length; } catch (e) { enCatalogo = 0; }
+    return {
+      quedan: false, filas: 0,
+      detalle: {
+        catalogoActual: enCatalogo,
+        catalogoObjetivo: DOC2_CATALOGO_SEMILLA.length,
+        versionObjetivo: DOC2_CATALOGO_VERSION,
+        expedientesPorResincronizar: abiertos.length,
+        retirados: ['cert-trabajo', 'rc-iva'],
+        nuevos: ['djj-prohibiciones-cumplimiento']
+      },
+      resumen: 'Se publicaría el catálogo v' + DOC2_CATALOGO_VERSION + ' (' + DOC2_CATALOGO_SEMILLA.length +
+        ' filas: 1 requisito nuevo, 2 retirados sin borrar) y se resincronizarían ' + abiertos.length +
+        ' expediente(s) abiertos. Ningún estado documental cambia.'
+    };
+  }
+
+  var catalogo = null;
+  var auxiliares = null;
+  // La siembra solo hace falta en el primer lote: es una operación de una vez y
+  // repetirla en cada reanudación gastaría minutos del presupuesto de ejecución.
+  if (desde === 0) {
+    catalogo = doc2SeedCatalogo_(contexto);
+    doc2CatalogoReset_();
+    doc2CacheInvalidar_();
+    auxiliares = doc2SeedAuxiliares_();
+    doc2EspejoCatalogoHeredado_();
+  }
+
+  var procesados = 0;
+  var resincronizados = 0;
+  var conservados = 0;
+  var fallos = [];
+  var indice = desde;
+
+  while (indice < abiertos.length && procesados < lote) {
+    var fila = abiertos[indice];
+    indice++;
+    procesados++;
+    try {
+      var sinc = doc2SincronizarRequisitos_(fila.expediente_id, contexto, { silencioso: true });
+      conservados += sinc.conservados.length;
+      doc2RecalcularExpediente_(fila.expediente_id, contexto);
+      resincronizados++;
+    } catch (error) {
+      fallos.push({ expediente: fila.expediente_id, motivo: docClassify_(error).message });
+    }
+  }
+
+  var quedan = indice < abiertos.length;
+  return {
+    quedan: quedan,
+    siguiente: indice,
+    filas: resincronizados,
+    detalle: {
+      catalogo: catalogo,
+      auxiliares: auxiliares,
+      resincronizados: resincronizados,
+      requisitosConservados: conservados,
+      fallos: fallos
+    },
+    resumen: (catalogo ? ('Catálogo v' + DOC2_CATALOGO_VERSION + ': ' + catalogo.creados + ' creado(s), ' +
+      catalogo.actualizados + ' actualizado(s), ' + catalogo.retirados + ' retirado(s). ') : '') +
+      resincronizados + ' expediente(s) resincronizado(s)' +
+      (conservados ? (', ' + conservados + ' requisito(s) heredado(s) conservado(s)') : '') +
+      (fallos.length ? (', ' + fallos.length + ' con error') : '') + '.'
+  };
+}
+
 /* ========================================================================== */
 
 /**

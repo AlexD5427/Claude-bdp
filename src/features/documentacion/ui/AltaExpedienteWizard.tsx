@@ -59,10 +59,18 @@ import {
 import {
   INTENCION_DOCUMENTO,
   ETIQUETA_DOCUMENTO,
+  ETIQUETA_PRESENTACION,
+  LEYENDA_PRESENTACION_CONDICIONAL,
   type EstadoDocumento,
 } from "../domain/vocabulario";
 import { hoy } from "../domain/progreso";
-import type { CatalogoCliente, CatalogoDocumento } from "../api/acciones";
+import { ContadorHojas } from "./ContadorHojas";
+import {
+  subseccionPara,
+  type CatalogoCliente,
+  type CatalogoDocumento,
+  type ExpedienteOperativo,
+} from "../api/acciones";
 
 /* ------------------------------------------------------------------ */
 /* Tipos y utilidades                                                  */
@@ -71,24 +79,48 @@ import type { CatalogoCliente, CatalogoDocumento } from "../api/acciones";
 interface EstadoDoc {
   estado: EstadoDocumento;
   observaciones: string;
+  /** Hojas del documento en papel. `null` = sin contar (distinto de cero). */
+  hojasFisicas: number | null;
   prorrogaActiva: boolean;
   prorrogaFecha: string;
   prorrogaMotivo: string;
 }
 
 function docInicial(): EstadoDoc {
-  return { estado: "PENDIENTE", observaciones: "", prorrogaActiva: false, prorrogaFecha: "", prorrogaMotivo: "" };
+  return {
+    estado: "PENDIENTE",
+    observaciones: "",
+    hojasFisicas: null,
+    prorrogaActiva: false,
+    prorrogaFecha: "",
+    prorrogaMotivo: "",
+  };
 }
 
 type PasoId = "identidad" | "generales" | "categoria" | "especificos" | "revision";
+
+/**
+ * Expediente que ya existe con el mismo carnet.
+ *
+ * El backend lo manda dentro del error de conflicto para que esta pantalla pueda
+ * ofrecer «abrirlo» en vez de dejar a la persona con un mensaje y un formulario
+ * lleno que no lleva a ninguna parte.
+ */
+export interface ExpedienteDuplicado {
+  expedienteId: string;
+  identificador: string;
+  nombre: string;
+  cargo: string;
+  agencia: string;
+  estado: string;
+  fechaIngreso: string;
+}
 
 interface Paso {
   id: PasoId;
   titulo: string;
   descripcion: string;
 }
-
-const IDENTIFICADOR_RE = /^\s*\d{5,}\s*[-–]\s*\d+\s*[-–]\s*\d{4}\s*$/;
 
 interface Identidad {
   identificador: string;
@@ -153,17 +185,32 @@ export function AltaExpedienteWizard({
   onCreado,
   onError,
   onAviso,
+  onAbrirExistente,
 }: {
   abierta: boolean;
   onCerrar: () => void;
-  onCreado: (expedienteId: string, requisitos: number) => void;
+  /**
+   * `detalle` llega relleno cuando el backend resolvió el alta en una sola
+   * llamada: permite abrir el expediente SIN volver a esperar a la red.
+   */
+  onCreado: (expedienteId: string, requisitos: number, detalle: ExpedienteOperativo | null) => void;
   onError: (mensaje: string, pista?: string) => void;
   /** Avisos no bloqueantes (por ejemplo, un valor añadido al catálogo auxiliar). */
   onAviso?: (intencion: "info" | "exito" | "aviso" | "peligro", texto: string, pista?: string) => void;
+  /** Abre un expediente que ya existía, cuando el carnet está repetido. */
+  onAbrirExistente?: (expedienteId: string) => void;
 }) {
   return (
     <AnimatePresence>
-      {abierta && <WizardCuerpo onCerrar={onCerrar} onCreado={onCreado} onError={onError} onAviso={onAviso} />}
+      {abierta && (
+        <WizardCuerpo
+          onCerrar={onCerrar}
+          onCreado={onCreado}
+          onError={onError}
+          onAviso={onAviso}
+          onAbrirExistente={onAbrirExistente}
+        />
+      )}
     </AnimatePresence>
   );
 }
@@ -173,13 +220,18 @@ function WizardCuerpo({
   onCreado,
   onError,
   onAviso,
+  onAbrirExistente,
 }: {
   onCerrar: () => void;
-  onCreado: (expedienteId: string, requisitos: number) => void;
+  onCreado: (expedienteId: string, requisitos: number, detalle: ExpedienteOperativo | null) => void;
   onError: (mensaje: string, pista?: string) => void;
   onAviso?: (intencion: "info" | "exito" | "aviso" | "peligro", texto: string, pista?: string) => void;
+  onAbrirExistente?: (expedienteId: string) => void;
 }) {
-  const { catalogo } = useConsola();
+  const { catalogo, estado } = useConsola();
+  /* Se pregunta al backend qué sabe hacer. `undefined` (backend anterior a esta
+     versión) cuenta como «no», que es la lectura segura. */
+  const soportaAltaCompleta = estado?.soporta?.altaCompleta === true;
   const reducido = useMovimientoReducido();
 
   const [paso, setPaso] = useState<PasoId>("identidad");
@@ -190,6 +242,7 @@ function WizardCuerpo({
   const [errores, setErrores] = useState<Record<string, string>>({});
   const [guardando, setGuardando] = useState(false);
   const [pidiendoCierre, setPidiendoCierre] = useState(false);
+  const [duplicado, setDuplicado] = useState<ExpedienteDuplicado | null>(null);
   const [clave] = useState(() => `alta_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
 
   const borradorActual: BorradorAlta = { form, categoria, garantia, docs, paso };
@@ -270,10 +323,22 @@ function WizardCuerpo({
   }
 
   /* --- Validación por paso --- */
+  /**
+   * Validación de la identidad.
+   *
+   * ── Por qué el carnet no tiene formato ────────────────────────────────────
+   * Antes se exigía «CI - número de proceso - año». Los carnets reales no caben
+   * en ese molde: hay complementos alfanuméricos («1234567-1A»), extensiones de
+   * departamento, puntos de millar y espacios. El único efecto de la validación
+   * era que quien registraba escribía cualquier cosa que pasara el patrón para
+   * poder continuar, y el dato quedaba peor que sin validar.
+   *
+   * Sigue siendo obligatorio, porque de él dependen la detección de duplicados y
+   * la búsqueda; lo que no se impone es su forma.
+   */
   function validarIdentidad(): boolean {
     const e: Record<string, string> = {};
-    if (!form.identificador.trim()) e.identificador = "Escribe el identificador (CI - N.º de proceso - año).";
-    else if (!IDENTIFICADOR_RE.test(form.identificador)) e.identificador = "Formato esperado: 1234567 - 45 - 2026.";
+    if (!form.identificador.trim()) e.identificador = "Escribe el carnet de identidad.";
     if (!form.nombre.trim()) e.nombre = "Escribe el nombre completo.";
     setErrores(e);
     return Object.keys(e).length === 0;
@@ -322,6 +387,26 @@ function WizardCuerpo({
     setPaso(destino);
   }
 
+  /**
+   * Guarda el expediente.
+   *
+   * ── Una llamada en vez de cuatro (con recaída automática) ─────────────────
+   * El alta hacía `crear` → `obtener` → `requisitos.guardar` → N × `prorroga.crear`.
+   * Cada una es un `POST` a Apps Script con su arranque de contenedor y su
+   * `LockService`: con veinticinco requisitos eran seis viajes y el botón se
+   * quedaba «guardando» ocho o diez segundos, tiempo suficiente para que alguien
+   * lo volviera a pulsar.
+   *
+   * Ahora todo va en la MISMA llamada, y el backend lo aplica dentro de la misma
+   * ejecución (con reversión si algo falla a medias). Pero el frontend de Vercel
+   * se despliega al fusionar y el backend solo cuando una persona publica una
+   * versión nueva de la implementación: hay una ventana en la que esta pantalla
+   * habla con un backend anterior. Por eso se PREGUNTA (`estado.soporta.altaCompleta`)
+   * en vez de suponer, y si la respuesta es no, se recorre la ruta antigua.
+   *
+   * La ruta antigua se conserva completa a propósito. No es código muerto: es la
+   * que se ejecuta el día del despliegue, antes de que alguien publique el `.gs`.
+   */
   async function guardar() {
     if (!validarIdentidad()) {
       setPaso("identidad");
@@ -334,8 +419,9 @@ function WizardCuerpo({
     }
 
     setGuardando(true);
+    setDuplicado(null);
     try {
-      const creado = await docApi.crearExpediente({
+      const identidad = {
         identificador: form.identificador.trim(),
         nombre: form.nombre.trim(),
         cargo: form.cargo.trim(),
@@ -346,52 +432,63 @@ function WizardCuerpo({
         tipoFuncionario: categoria,
         tipoGarantia: esComercial ? garantia : "NINGUNA",
         idempotencyKey: clave,
-      });
+      };
 
-      // Segundo paso: aplicar los estados/observaciones marcados en el asistente.
-      // Se lee el expediente recién creado para conocer el id de cada requisito.
-      const detalle = await docApi.obtenerExpediente(creado.expedienteId);
-      const porCodigo = new Map(detalle.requisitos.map((r) => [r.codigo, r]));
+      /* Solo viaja lo que la persona TOCÓ. Mandar los veinticinco requisitos en
+         PENDIENTE sería mandar el estado por defecto que el backend ya escribe. */
+      const requisitos = Object.entries(docs)
+        .map(([codigo, ed]) => {
+          const cambios: Record<string, unknown> = { codigo };
+          let algo = false;
+          if (ed.estado !== "PENDIENTE") {
+            cambios.estado = ed.estado;
+            algo = true;
+          }
+          if (ed.observaciones.trim() !== "") {
+            cambios.observaciones = ed.observaciones.trim();
+            algo = true;
+          }
+          if (ed.hojasFisicas !== null && ed.hojasFisicas !== undefined) {
+            cambios.hojasFisicas = ed.hojasFisicas;
+            algo = true;
+          }
+          return algo ? cambios : null;
+        })
+        .filter((c): c is Record<string, unknown> => c !== null);
 
-      const cambios: { expedienteDocumentoId: string; version?: number; estado?: string; observaciones?: string }[] = [];
-      for (const [codigo, ed] of Object.entries(docs)) {
-        const req = porCodigo.get(codigo);
-        if (!req) continue; // no aplica a esta rama: se ignora en silencio
-        const cambioEstado = ed.estado !== "PENDIENTE";
-        const cambioObs = ed.observaciones.trim() !== "";
-        if (cambioEstado || cambioObs) {
-          cambios.push({
-            expedienteDocumentoId: req.expedienteDocumentoId,
-            version: req.version,
-            ...(cambioEstado ? { estado: ed.estado } : {}),
-            ...(cambioObs ? { observaciones: ed.observaciones.trim() } : {}),
-          });
-        }
-      }
-      if (cambios.length) await docApi.guardarRequisitos(creado.expedienteId, cambios);
+      const prorrogas = Object.entries(docs)
+        .filter(([, ed]) => ed.prorrogaActiva && ed.prorrogaFecha)
+        .map(([codigo, ed]) => ({
+          codigo,
+          fechaProrroga: ed.prorrogaFecha,
+          motivo: ed.prorrogaMotivo.trim() || "Prórroga registrada al abrir el expediente.",
+        }));
 
-      // Tercer paso: registrar prórrogas indicadas (una por una: cada una audita).
-      for (const [codigo, ed] of Object.entries(docs)) {
-        if (!ed.prorrogaActiva || !ed.prorrogaFecha) continue;
-        const req = porCodigo.get(codigo);
-        if (!req || !req.permiteProrroga) continue;
-        try {
-          await docApi.crearProrroga({
-            expedienteDocumentoId: req.expedienteDocumentoId,
-            fechaProrroga: ed.prorrogaFecha,
-            motivo: ed.prorrogaMotivo.trim() || "Prórroga registrada al abrir el expediente.",
-          });
-        } catch (e) {
-          // Una prórroga que falla no debe tumbar el alta: se avisa y se sigue.
-          const f = e as { message?: string };
-          onError(`El expediente se creó, pero una prórroga no se registró: ${f.message ?? ""}`);
-        }
+      if (soportaAltaCompleta) {
+        const creado = await docApi.crearExpediente({ ...identidad, requisitos, prorrogas });
+        avisarFallidosParciales(creado.aplicado?.fallidos);
+        clearDraft();
+        onCreado(creado.expedienteId, creado.requisitos ?? codigosAplicables.length, creado.detalle ?? null);
+        return;
       }
 
-      clearDraft();
-      onCreado(creado.expedienteId, creado.requisitos ?? codigosAplicables.length);
+      await guardarPorRutaAntigua(identidad, requisitos, prorrogas);
     } catch (error) {
-      const fallo = error as { message?: string; pista?: string; campos?: Record<string, string> };
+      const fallo = error as {
+        message?: string;
+        pista?: string;
+        campos?: Record<string, string>;
+        detalle?: { duplicado?: ExpedienteDuplicado };
+      };
+      /* Un duplicado NO es un error cualquiera: hay un expediente que la persona
+         probablemente quiere abrir, y un formulario lleno que no se puede perder.
+         Se ofrece el atajo y el formulario se queda intacto. */
+      if (fallo.detalle?.duplicado) {
+        setDuplicado(fallo.detalle.duplicado);
+        setPaso("identidad");
+        setErrores({ identificador: "Ya hay un expediente con este carnet." });
+        return;
+      }
       if (fallo.campos && Object.keys(fallo.campos).length) {
         setErrores(fallo.campos);
         if (fallo.campos.identificador || fallo.campos.nombre) setPaso("identidad");
@@ -400,6 +497,62 @@ function WizardCuerpo({
     } finally {
       setGuardando(false);
     }
+  }
+
+  /** Avisa de las prórrogas o los requisitos que el backend no pudo aplicar. */
+  function avisarFallidosParciales(fallidos: unknown[] | undefined) {
+    if (!fallidos || !fallidos.length) return;
+    const primero = fallidos[0] as { motivo?: string };
+    onAviso?.(
+      "aviso",
+      `El expediente se creó, pero ${fallidos.length} dato${fallidos.length === 1 ? "" : "s"} no se pudo guardar: ${primero.motivo ?? ""}`,
+      "Revísalo en el expediente y vuelve a marcarlo.",
+    );
+  }
+
+  /**
+   * Alta por la ruta de cuatro pasos.
+   *
+   * Es la que existía y sigue funcionando contra un backend anterior a esta
+   * versión. Traduce los códigos de catálogo a `expedienteDocumentoId` leyendo el
+   * expediente recién creado, que es lo que obligaba al segundo viaje.
+   */
+  async function guardarPorRutaAntigua(
+    identidad: Record<string, unknown>,
+    requisitos: Record<string, unknown>[],
+    prorrogas: { codigo: string; fechaProrroga: string; motivo: string }[],
+  ) {
+    const creado = await docApi.crearExpediente(identidad);
+    const detalle = await docApi.obtenerExpediente(creado.expedienteId);
+    const porCodigo = new Map(detalle.requisitos.map((r) => [r.codigo, r]));
+
+    const cambios: Record<string, unknown>[] = [];
+    for (const cambio of requisitos) {
+      const req = porCodigo.get(String(cambio.codigo));
+      if (!req) continue; // no aplica a esta rama: se ignora en silencio
+      const { codigo: _codigo, ...resto } = cambio;
+      cambios.push({ expedienteDocumentoId: req.expedienteDocumentoId, version: req.version, ...resto });
+    }
+    if (cambios.length) await docApi.guardarRequisitos(creado.expedienteId, cambios);
+
+    for (const prorroga of prorrogas) {
+      const req = porCodigo.get(prorroga.codigo);
+      if (!req || !req.permiteProrroga) continue;
+      try {
+        await docApi.crearProrroga({
+          expedienteDocumentoId: req.expedienteDocumentoId,
+          fechaProrroga: prorroga.fechaProrroga,
+          motivo: prorroga.motivo,
+        });
+      } catch (e) {
+        // Una prórroga que falla no debe tumbar el alta: se avisa y se sigue.
+        const f = e as { message?: string };
+        onError(`El expediente se creó, pero una prórroga no se registró: ${f.message ?? ""}`);
+      }
+    }
+
+    clearDraft();
+    onCreado(creado.expedienteId, creado.requisitos ?? codigosAplicables.length, null);
   }
 
   function intentarCerrar() {
@@ -428,6 +581,36 @@ function WizardCuerpo({
           </Boton>
           <Boton variante="suave" onClick={descartarBorrador}>
             Empezar de cero
+          </Boton>
+        </span>
+      </Aviso>
+    </div>
+  ) : null;
+
+  /* Aviso de carnet repetido: lleva el atajo para abrir el expediente que ya
+     existe. El formulario NO se limpia —lo que se escribió sigue ahí— porque un
+     duplicado suele ser «esta persona ya estaba registrada», no «has escrito
+     algo mal», y perder veinte decisiones por eso es inaceptable. */
+  const cintaDuplicado = duplicado ? (
+    <div className="mx-auto mb-4 w-full max-w-3xl">
+      <Aviso intencion="aviso" titulo="Ya existe un expediente con ese carnet">
+        <span className="block">
+          <strong className="font-bold">{duplicado.nombre || duplicado.identificador}</strong>
+          {duplicado.cargo ? ` · ${duplicado.cargo}` : ""}
+          {duplicado.agencia ? ` · ${duplicado.agencia}` : ""}
+          {duplicado.fechaIngreso ? ` · ingreso ${fechaLegible(duplicado.fechaIngreso)}` : ""}.
+        </span>
+        <span className="mt-1 block italic">
+          Nada de lo que has escrito se ha perdido: sigue en el formulario por si el carnet estaba mal.
+        </span>
+        <span className="mt-2 flex flex-wrap gap-2">
+          {onAbrirExistente && (
+            <Boton variante="primario" onClick={() => onAbrirExistente(duplicado.expedienteId)}>
+              Abrir el expediente existente
+            </Boton>
+          )}
+          <Boton variante="suave" onClick={() => setDuplicado(null)}>
+            Corregir el carnet
           </Boton>
         </span>
       </Aviso>
@@ -509,36 +692,51 @@ function WizardCuerpo({
         onClick={intentarCerrar}
         aria-hidden
       />
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Nuevo expediente documental"
-        className="doc-console fixed inset-0 z-[101] flex flex-col sm:inset-3 sm:rounded-[var(--doc-radius-lg,20px)] glass-heavy sm:border sm:border-[color:var(--doc-border)]"
-        initial={reducido ? undefined : { opacity: 0, y: 24, scale: 0.985 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={reducido ? undefined : { opacity: 0, y: 16, scale: 0.99, transition: { duration: DURACION.rapida, ease: CURVA.salidaQuint } }}
-        transition={resorte(reducido)}
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      >
-        <Encabezado pasos={pasos} indice={indice} onIr={irA} onCerrar={intentarCerrar} />
+      {/*
+        Superficie CENTRAL, no pantalla completa.
+        ─────────────────────────────────────────
+        El asistente ocupaba `inset-0` (todo) y en escritorio eso hace tres cosas
+        malas: pierde el contexto de la lista que había detrás, estira las líneas
+        de texto a mil quinientos píxeles —ilegibles— y hace creer que se ha
+        cambiado de pantalla en lugar de abrir un formulario. Ahora es una hoja
+        centrada con aire alrededor, ancho máximo generoso y altura acotada, que
+        se desplaza dentro de sí misma.
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+        En móvil sí ocupa todo: ahí el aire alrededor es espacio robado.
+      */}
+      <div className="pointer-events-none fixed inset-0 z-[101] flex items-stretch justify-center p-0 sm:items-center sm:p-6 md:p-10">
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Nuevo expediente documental"
+          className="doc-console glass-heavy pointer-events-auto flex w-full max-w-[68rem] flex-col overflow-hidden sm:rounded-[28px] sm:border sm:border-[color:var(--doc-border)] sm:shadow-[0_40px_120px_-40px_rgba(2,12,28,0.7)]"
+          initial={reducido ? undefined : { opacity: 0, y: 24, scale: 0.985 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={reducido ? undefined : { opacity: 0, y: 16, scale: 0.99, transition: { duration: DURACION.rapida, ease: CURVA.salidaQuint } }}
+          transition={resorte(reducido)}
+          style={{ height: "100%", maxHeight: "min(56rem, 100%)", paddingBottom: "env(safe-area-inset-bottom)" }}
+        >
+          <Encabezado pasos={pasos} indice={indice} onIr={irA} onCerrar={intentarCerrar} />
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-7">
           {cintaBorrador}
+          {cintaDuplicado}
           {/* Sin `mode="wait"`: si un paso no reporta el fin de su salida, el
               siguiente no se montaría nunca y el asistente quedaría en blanco. */}
           {contenido}
         </div>
 
-        <Pie
-          indice={indice}
-          total={pasos.length}
-          enConstruccion={enConstruccion}
-          guardando={guardando}
-          onRetroceder={retroceder}
-          onAvanzar={avanzar}
-          onGuardar={guardar}
-        />
-      </motion.div>
+          <Pie
+            indice={indice}
+            total={pasos.length}
+            enConstruccion={enConstruccion}
+            guardando={guardando}
+            onRetroceder={retroceder}
+            onAvanzar={avanzar}
+            onGuardar={guardar}
+          />
+        </motion.div>
+      </div>
 
       <Confirmacion
         abierta={pidiendoCierre}
@@ -696,17 +894,28 @@ function PasoIdentidad({
 }) {
   const agencias = catalogo?.auxiliares.agencia_bdp ?? [];
   const gerencias = catalogo?.auxiliares.gerencia_bdp ?? [];
+  // `cargo_bdp` puede no venir si el backend desplegado es anterior a esta
+  // versión: se degrada a lista vacía y el campo sigue admitiendo escritura libre.
+  const cargos = catalogo?.auxiliares.cargo_bdp ?? [];
 
   return (
     <div className="space-y-5">
-      <Encabezadillo titulo="¿Quién ingresa?" detalle="El identificador y el nombre son obligatorios; el resto ayuda a clasificar y a reportar." />
+      <Encabezadillo
+        titulo="¿Quién ingresa?"
+        detalle="El carnet de identidad y el nombre son obligatorios; el resto ayuda a clasificar y a reportar."
+      />
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Campo etiqueta="Identificador" requerido error={errores.identificador} ayuda="Formato del área: CI - número de proceso - año.">
+        <Campo
+          etiqueta="Carnet de identidad"
+          requerido
+          error={errores.identificador}
+          ayuda="Escríbelo como aparece en el documento; se admite cualquier formato."
+        >
           <Entrada
             value={form.identificador}
             onChange={(e) => poner("identificador", e.target.value)}
-            placeholder="1234567 - 45 - 2026"
+            placeholder="Por ejemplo 1234567 o 1234567-1A"
             data-foco-inicial
             autoFocus
           />
@@ -714,8 +923,15 @@ function PasoIdentidad({
         <Campo etiqueta="Nombre completo" requerido error={errores.nombre}>
           <Entrada value={form.nombre} onChange={(e) => poner("nombre", e.target.value)} placeholder="Nombres y apellidos" />
         </Campo>
-        <Campo etiqueta="Cargo">
-          <Entrada value={form.cargo} onChange={(e) => poner("cargo", e.target.value)} placeholder="Ej. Oficial de Negocios" />
+        <Campo etiqueta="Cargo" ayuda="Del libro: hoja Auxiliar, columna cargo_bdp. Se puede añadir uno nuevo.">
+          <SelectorAuxiliar
+            valor={form.cargo}
+            onChange={(v) => poner("cargo", v)}
+            opciones={cargos}
+            columna="cargo_bdp"
+            placeholder={cargos.length ? "Busca el cargo" : "Escribe el cargo y añádelo"}
+            onAviso={onAviso}
+          />
         </Campo>
         <Campo etiqueta="Agencia" ayuda="Del libro: hoja Auxiliar, columna agencia_bdp. Se puede añadir una nueva.">
           <SelectorAuxiliar
@@ -796,6 +1012,46 @@ function SelectorFecha({ valor, onChange, reducido }: { valor: string; onChange:
 /* Pasos 2 y 4 — listas de documentos con chips                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Parte una lista de documentos del catálogo en sus subsecciones.
+ *
+ * Usa `subseccionPara`, la misma función que resuelve la subsección en el visor y
+ * en los reportes. Los que no declaran subsección —los dieciséis generales— caen
+ * en un bloque de título vacío que se pinta sin cabecera.
+ *
+ * El orden es el de aparición en el catálogo, que es el de la lista de papel del
+ * área: reordenar aquí obligaría a leer buscando.
+ */
+function porSubseccion(
+  documentos: CatalogoDocumento[],
+  tipoGarantia: string,
+): { titulo: string; bloques: { subgrupo: string; documentos: CatalogoDocumento[] }[] }[] {
+  const orden: string[] = [];
+  const mapa = new Map<string, CatalogoDocumento[]>();
+  for (const doc of documentos) {
+    const titulo = subseccionPara(doc, tipoGarantia);
+    if (!mapa.has(titulo)) {
+      mapa.set(titulo, []);
+      orden.push(titulo);
+    }
+    mapa.get(titulo)!.push(doc);
+  }
+  return orden.map((titulo) => {
+    const lista = mapa.get(titulo)!;
+    const ordenBloques: string[] = [];
+    const bloques = new Map<string, CatalogoDocumento[]>();
+    for (const doc of lista) {
+      const subgrupo = doc.subgrupo || "";
+      if (!bloques.has(subgrupo)) {
+        bloques.set(subgrupo, []);
+        ordenBloques.push(subgrupo);
+      }
+      bloques.get(subgrupo)!.push(doc);
+    }
+    return { titulo, bloques: ordenBloques.map((subgrupo) => ({ subgrupo, documentos: bloques.get(subgrupo)! })) };
+  });
+}
+
 function PasoDocumentos({
   titulo,
   descripcion,
@@ -803,6 +1059,7 @@ function PasoDocumentos({
   docs,
   onDoc,
   reducido,
+  tipoGarantia = "NINGUNA",
 }: {
   titulo: string;
   descripcion: string;
@@ -810,15 +1067,62 @@ function PasoDocumentos({
   docs: Record<string, EstadoDoc>;
   onDoc: (codigo: string, patch: Partial<EstadoDoc>) => void;
   reducido: boolean;
+  tipoGarantia?: string;
 }) {
+  const grupos = useMemo(() => porSubseccion(documentos, tipoGarantia), [documentos, tipoGarantia]);
+  // La leyenda del asterisco solo aparece si hay algún «Sí*» a la vista: una
+  // nota al pie que explica algo que no está en pantalla es ruido.
+  const hayCondicional = documentos.some((d) => d.presentacionFisica === "CONDICIONAL");
+  let contador = 0;
+
   return (
     <div className="space-y-4">
-      <Encabezadillo titulo={titulo} detalle={descripcion} />
-      <ul className="space-y-2.5">
-        {documentos.map((doc, i) => (
-          <FilaDocumento key={doc.codigo} doc={doc} estado={docs[doc.codigo] ?? docInicial()} onDoc={onDoc} reducido={reducido} orden={i} />
-        ))}
-      </ul>
+      {/* Sin título cuando la lista se reutiliza dentro de otro paso que ya tiene
+          su propia cabecera (los requisitos de la categoría). */}
+      {titulo && <Encabezadillo titulo={titulo} detalle={descripcion} />}
+      {grupos.map((grupo) => (
+        <section key={grupo.titulo || "__sueltos"} className="space-y-2.5">
+          {grupo.titulo && <TituloSubseccion titulo={grupo.titulo} total={grupo.bloques.reduce((n, b) => n + b.documentos.length, 0)} />}
+          {grupo.bloques.map((bloque) => (
+            <div key={bloque.subgrupo || "__unico"} className={bloque.subgrupo ? "doc-sunken rounded-[var(--doc-radius,14px)] p-3" : ""}>
+              {bloque.subgrupo && (
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--doc-text-muted)" }}>
+                  {bloque.subgrupo}
+                </p>
+              )}
+              <ul className="space-y-2.5">
+                {bloque.documentos.map((doc) => (
+                  <FilaDocumento
+                    key={doc.codigo}
+                    doc={doc}
+                    estado={docs[doc.codigo] ?? docInicial()}
+                    onDoc={onDoc}
+                    reducido={reducido}
+                    orden={contador++}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </section>
+      ))}
+      {hayCondicional && (
+        <p className="doc-prose border-t border-[color:var(--doc-border)] pt-3 text-[11px] italic" style={{ color: "var(--doc-text-muted)" }}>
+          {LEYENDA_PRESENTACION_CONDICIONAL}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Cabecera de una subsección de garantía o de cumplimiento. */
+function TituloSubseccion({ titulo, total }: { titulo: string; total: number }) {
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[color:var(--doc-border)] pb-1.5">
+      <h4 className="doc-balance text-sm font-bold text-[color:var(--doc-text)]">{titulo}</h4>
+      <span className="text-[11px] font-semibold tabular-nums" style={{ color: "var(--doc-text-muted)" }}>
+        {total} documento{total === 1 ? "" : "s"}
+      </span>
     </div>
   );
 }
@@ -852,13 +1156,34 @@ function FilaDocumento({
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-[color:var(--doc-text)]">
+          {/* El nombre completo, sin recortar: los textos del área tienen
+              doscientas cincuenta letras y son la definición del requisito.
+              Truncarlos con puntos suspensivos obliga a adivinar qué se pide. */}
+          <p className="doc-prose text-sm font-semibold leading-snug text-[color:var(--doc-text)]">
             {doc.nombre}
-            {doc.obligatorio ? <span className="ml-1 align-super text-[10px]" style={{ color: "var(--doc-danger)" }} aria-hidden>*</span> : null}
+            {doc.obligatorio ? (
+              <span className="ml-1 align-super text-[10px] font-bold" style={{ color: "var(--doc-danger)" }} aria-hidden>
+                *
+              </span>
+            ) : null}
           </p>
-          {doc.descripcion && <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">{doc.descripcion}</p>}
+          {doc.descripcion && (
+            <p className="doc-prose mt-0.5 text-[11px] italic text-[color:var(--doc-text-muted)]">{doc.descripcion}</p>
+          )}
+          <EtiquetasPresentacion doc={doc} />
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* El contador aparece porque el CATÁLOGO dice que este documento se
+              entrega en papel. La interfaz no tiene ninguna lista de códigos
+              físicos: declarar un requisito físico nuevo le da su contador. */}
+          {doc.requiereConteoHojas && (
+            <ContadorHojas
+              valor={estado.hojasFisicas}
+              onChange={(hojas) => onDoc(doc.codigo, { hojasFisicas: hojas })}
+              nombreDocumento={doc.nombre}
+              deshabilitado={estado.estado === "NO_APLICA"}
+            />
+          )}
           {opciones.map((op) => (
             <ChipEstadoSeleccionable key={op} estado={op} activo={estado.estado === op} onClick={() => onDoc(doc.codigo, { estado: op })} />
           ))}
@@ -947,6 +1272,45 @@ function FilaDocumento({
         )}
       </AnimatePresence>
     </motion.li>
+  );
+}
+
+/**
+ * Cómo se entrega el documento: física y digital.
+ *
+ * Sale del catálogo, no de una tabla escrita en el código. El «Sí*» de la tabla
+ * del área es el estado `CONDICIONAL`, y su explicación va una sola vez al pie de
+ * la sección: repetirla en las nueve filas la convierte en ruido.
+ *
+ * El color no comunica solo: cada etiqueta lleva su palabra («Papel», «Digital»)
+ * y su valor («Sí», «Sí*», «N/A»).
+ */
+function EtiquetasPresentacion({ doc }: { doc: CatalogoDocumento }) {
+  const fisica = doc.presentacionFisica;
+  const digital = doc.presentacionDigital;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide">
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5"
+        style={
+          fisica === "NO"
+            ? { background: "var(--doc-surface-sunken)", color: "var(--doc-text-muted)" }
+            : { background: "var(--doc-accent-bg)", color: "var(--doc-accent-fg)" }
+        }
+      >
+        Papel: {ETIQUETA_PRESENTACION[fisica]}
+      </span>
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5"
+        style={
+          digital === "NO"
+            ? { background: "var(--doc-surface-sunken)", color: "var(--doc-text-muted)" }
+            : { background: "var(--doc-info-bg)", color: "var(--doc-info-fg)" }
+        }
+      >
+        Digital: {ETIQUETA_PRESENTACION[digital]}
+      </span>
+    </p>
   );
 }
 
@@ -1222,11 +1586,15 @@ function PasoEspecificos({
           Esta categoría no añade requisitos a los generales.
         </Aviso>
       ) : (
-        <ul className="space-y-2.5">
-          {documentos.map((doc, i) => (
-            <FilaDocumento key={doc.codigo} doc={doc} estado={docs[doc.codigo] ?? docInicial()} onDoc={onDoc} reducido={reducido} orden={i} />
-          ))}
-        </ul>
+        <PasoDocumentos
+          titulo=""
+          descripcion=""
+          documentos={documentos}
+          docs={docs}
+          onDoc={onDoc}
+          reducido={reducido}
+          tipoGarantia={garantia || "NINGUNA"}
+        />
       )}
     </div>
   );
