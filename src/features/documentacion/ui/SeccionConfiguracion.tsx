@@ -149,7 +149,7 @@ export function SeccionConfiguracion({ avisar }: Props) {
                       {rama.tipoGarantia !== "NINGUNA" ? ` · ${rama.tipoGarantia}` : ""}
                     </span>
                     {rama.habilitada ? (
-                      <span className="text-ink-soft">
+                      <span className="text-[color:var(--doc-text-muted)]">
                         {rama.total} requisitos · {rama.obligatorios} obligatorios
                       </span>
                     ) : (
@@ -174,7 +174,7 @@ export function SeccionConfiguracion({ avisar }: Props) {
           titulo="Ajustes locales del módulo"
           descripcion="Presentación, conexión del almacén local, respaldo espejo y mantenimiento del libro heredado."
         >
-          <p className="mb-3 text-xs text-ink-soft">
+          <p className="mb-3 text-xs text-[color:var(--doc-text-muted)]">
             Estos ajustes afectan a la vista local y a la sincronización del almacén de este equipo. La configuración del modelo
             normalizado —plazos, permisos, catálogo— está en las otras pestañas.
           </p>
@@ -191,7 +191,7 @@ export function SeccionConfiguracion({ avisar }: Props) {
 function Fila({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] uppercase tracking-wide text-ink-faint">{etiqueta}</dt>
+      <dt className="text-[10px] uppercase tracking-wide text-[color:var(--doc-text-faint)]">{etiqueta}</dt>
       <dd className="truncate text-ink" title={valor}>
         {valor}
       </dd>
@@ -348,8 +348,8 @@ function PestanaCatalogo({ avisar }: Props) {
         />
       ),
     },
-    { clave: "codigo", encabezado: "Código", secundaria: true, render: (fila) => <span className="text-[11px] text-ink-faint">{fila.codigo}</span> },
-    { clave: "seccion", encabezado: "Sección", render: (fila) => <span className="text-xs text-ink-soft">{fila.seccion}</span> },
+    { clave: "codigo", encabezado: "Código", secundaria: true, render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-faint)]">{fila.codigo}</span> },
+    { clave: "seccion", encabezado: "Sección", render: (fila) => <span className="text-xs text-[color:var(--doc-text-muted)]">{fila.seccion}</span> },
     {
       clave: "obligatorio",
       encabezado: "Obligatorio",
@@ -678,10 +678,10 @@ function PestanaPermisos({ avisar }: Props) {
             <table className="w-full border-collapse text-xs">
               <thead>
                 <tr className="text-left">
-                  <th scope="col" className="pb-2 pr-3 text-[10px] uppercase tracking-wide text-ink-faint">
+                  <th scope="col" className="pb-2 pr-3 text-[10px] uppercase tracking-wide text-[color:var(--doc-text-faint)]">
                     Rol
                   </th>
-                  <th scope="col" className="pb-2 text-[10px] uppercase tracking-wide text-ink-faint">
+                  <th scope="col" className="pb-2 text-[10px] uppercase tracking-wide text-[color:var(--doc-text-faint)]">
                     Capacidades
                   </th>
                 </tr>
@@ -692,7 +692,7 @@ function PestanaPermisos({ avisar }: Props) {
                     <th scope="row" className="py-1.5 pr-3 text-left font-medium text-ink">
                       {rolFila}
                     </th>
-                    <td className="py-1.5 text-ink-soft">{(capacidades as string[]).join(" · ")}</td>
+                    <td className="py-1.5 text-[color:var(--doc-text-muted)]">{(capacidades as string[]).join(" · ")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -728,8 +728,8 @@ function PestanaAutomatizaciones({ avisar }: Props) {
               <li key={regla.codigo} className="doc-sunken flex flex-wrap items-start justify-between gap-2 p-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-ink">{regla.codigo}</p>
-                  <p className="mt-0.5 text-[11px] text-ink-soft">{regla.descripcion}</p>
-                  <p className="mt-0.5 text-[10px] text-ink-faint">
+                  <p className="mt-0.5 text-[11px] text-[color:var(--doc-text-muted)]">{regla.descripcion}</p>
+                  <p className="mt-0.5 text-[10px] text-[color:var(--doc-text-faint)]">
                     {regla.evento} → {regla.accion}
                   </p>
                 </div>
@@ -875,8 +875,8 @@ function PestanaMantenimiento({ avisar }: Props) {
 
         {!!informe.length && (
           <div className="doc-sunken mt-3 p-3">
-            <p className="mb-1 text-[11px] uppercase tracking-wide text-ink-faint">Resultado</p>
-            <ul className="space-y-1 text-xs text-ink-soft">
+            <p className="mb-1 text-[11px] uppercase tracking-wide text-[color:var(--doc-text-faint)]">Resultado</p>
+            <ul className="space-y-1 text-xs text-[color:var(--doc-text-muted)]">
               {informe.filter(Boolean).map((linea, i) => (
                 <li key={i}>{linea}</li>
               ))}
@@ -898,7 +898,7 @@ function PestanaMantenimiento({ avisar }: Props) {
                     <ChipEstado estado={hallazgo.severidad} intencion={severidades[hallazgo.severidad] ?? "info"} />
                     <span className="text-xs font-semibold text-ink">{hallazgo.titulo}</span>
                   </div>
-                  <p className="mt-1 text-[11px] text-ink-soft">{hallazgo.detalle}</p>
+                  <p className="mt-1 text-[11px] text-[color:var(--doc-text-muted)]">{hallazgo.detalle}</p>
                   {hallazgo.accion && (
                     <p className="doc-prose mt-1 text-[11px]" style={{ color: "var(--doc-info-fg)" }}>
                       Se corrige con «{hallazgo.accion}»

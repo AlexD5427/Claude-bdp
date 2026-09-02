@@ -545,7 +545,7 @@ function PanelCalendario({
                     className="doc-tap doc-dia relative grid h-9 place-items-center rounded-lg text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-30"
                     style={{
                       color: elegido
-                        ? "#04121f"
+                        ? "var(--doc-sobre-info)"
                         : !delMes
                           ? "var(--doc-text-faint)"
                           : finDeSemana

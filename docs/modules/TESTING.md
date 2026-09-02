@@ -63,3 +63,34 @@ the final run.
    change points, publish again (major).
 5. Use **Importar desde Excel** with a small CSV; map columns; review issues;
    create a draft; confirm it opens unpublished in the builder.
+
+## Suites del catálogo v3 (2026-09)
+
+| Archivo | Pruebas | Qué vigila |
+| --- | --- | --- |
+| `__tests__/contraste.test.ts` | 25 | Cada token de tinta y de estado en los dos temas, midiendo el **CSS real** (no una copia de los valores). Incluye la regresión que impide volver a heredar `var(--ink-*)` en `--doc-text-muted` y `--doc-text-faint`, que es lo que dejaba el texto de ayuda a 2,99:1 en tema claro. |
+| `__tests__/hojasYSubsecciones.test.ts` | 16 | Que el contador de hojas se **deduzca** de la presentación física documento a documento (imposible un digital con contador), el asterisco como dato, el cero frente al vacío, la validación, el `N/A` que conserva el conteo, la llegada a `PAGINAS` y al `DETALLE JSON`, y el documento compartido entre Tipo 1 y Tipo 3. |
+| `__tests__/identificadorYAlta.test.ts` | 13 | Siete formatos reales de carnet, la obligatoriedad, el duplicado con los datos del expediente existente, la búsqueda por el carnet escrito de otra forma, la idempotencia, el alta en una sola llamada, la reversión y los topes de la lectura por lotes. |
+| `__tests__/cacheYCola.test.ts` | 15 | Coalescencia, idempotencia en el reintento, lo que **no** se reintenta, la supervivencia a un recargado, el desalojo del menos usado, el borrado al cambiar de perfil, la precarga que no repite lo fresco y la reconciliación que no pisa lo que se está escribiendo. |
+
+### Por qué hacen falta dos pruebas de contraste
+
+`contraste.test.ts` mide los **tokens**; `qa/sonda-contraste.mjs` mide el
+**texto que se pinta**. Las dos son necesarias, y esta iteración lo demostró: la
+prueba de tokens estaba verde mientras la sonda encontraba **29 textos por debajo
+de AA** en el navegador. Eran dos casos que un token no puede ver:
+
+- 77 usos de `text-ink-faint` / `text-ink-soft` —la escala **global**— repartidos
+  en cinco componentes del módulo, a 4,26:1;
+- el color del botón primario escrito a mano (`#04121f`), que en tema oscuro sobra
+  y en tema claro daba **3,53:1** en «Guardar», «Continuar» y «Nuevo expediente».
+
+Los dos están corregidos y la sonda mide ahora **1712 textos con 0 incidencias**.
+
+### Una prueba no se debilita para que pase
+
+Las 52 pruebas que rompieron al publicar el catálogo v3 se **reescribieron**
+explicando el cambio de contrato, no se ajustaron los números en silencio. Cuando
+una usaba `cert-trabajo` como «un general que admite prórroga» —código retirado—
+se cambió el **dato** por `titulo-legalizado`, que cumple ese papel en el proceso
+vigente, y se dejó una nota del porqué. La expectativa es la misma.

@@ -84,7 +84,7 @@ export function SeccionSolicitudes({ onAbrirExpediente, avisar }: PropsSeccion) 
       render: (fila) => (
         <div className="min-w-0">
           <p className="truncate font-medium text-ink">{fila.expediente?.nombre ?? "—"}</p>
-          <p className="truncate text-[11px] text-ink-faint">{fila.expediente?.identificador ?? fila.expedienteId}</p>
+          <p className="truncate text-[11px] text-[color:var(--doc-text-faint)]">{fila.expediente?.identificador ?? fila.expedienteId}</p>
         </div>
       ),
     },
@@ -113,7 +113,7 @@ export function SeccionSolicitudes({ onAbrirExpediente, avisar }: PropsSeccion) 
     {
       clave: "plazo",
       encabezado: "Plazo",
-      render: (fila) => <span className={fila.vencida ? "text-rose-300" : "text-ink-soft"}>{textoPlazo(fila.fechaLimite)}</span>,
+      render: (fila) => <span className={fila.vencida ? "text-rose-300" : "text-[color:var(--doc-text-muted)]"}>{textoPlazo(fila.fechaLimite)}</span>,
     },
     {
       clave: "prioridad",
@@ -247,7 +247,7 @@ export function SeccionRevision({ onAbrirExpediente, avisar }: PropsSeccion) {
       render: (fila) => (
         <div className="min-w-0">
           <p className="truncate font-medium text-ink">{fila.persona}</p>
-          <p className="truncate text-[11px] text-ink-faint">
+          <p className="truncate text-[11px] text-[color:var(--doc-text-faint)]">
             {fila.identificador} · {fila.agencia || "—"}
           </p>
         </div>
@@ -278,7 +278,7 @@ export function SeccionRevision({ onAbrirExpediente, avisar }: PropsSeccion) {
       clave: "actualizado",
       encabezado: "Entregado",
       secundaria: true,
-      render: (fila) => <span className="text-[11px] text-ink-soft">{fechaHora(fila.actualizadoEn)}</span>,
+      render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-muted)]">{fechaHora(fila.actualizadoEn)}</span>,
     },
     {
       clave: "acciones",
@@ -420,11 +420,11 @@ export function SeccionAprobaciones({ onAbrirExpediente, avisar }: PropsSeccion)
       render: (fila) => (
         <div className="min-w-0">
           <p className="truncate font-medium text-ink">{fila.expediente?.nombre ?? "—"}</p>
-          <p className="truncate text-[11px] text-ink-faint">{fila.expediente?.identificador ?? fila.expedienteId}</p>
+          <p className="truncate text-[11px] text-[color:var(--doc-text-faint)]">{fila.expediente?.identificador ?? fila.expedienteId}</p>
         </div>
       ),
     },
-    { clave: "flujo", encabezado: "Flujo", secundaria: true, render: (fila) => <span className="text-xs text-ink-soft">{fila.flujo} · nivel {fila.nivel}</span> },
+    { clave: "flujo", encabezado: "Flujo", secundaria: true, render: (fila) => <span className="text-xs text-[color:var(--doc-text-muted)]">{fila.flujo} · nivel {fila.nivel}</span> },
     { clave: "aprobador", encabezado: "Aprobador", render: (fila) => <span className="text-xs text-ink">{fila.aprobador}</span> },
     {
       clave: "estado",
@@ -440,7 +440,7 @@ export function SeccionAprobaciones({ onAbrirExpediente, avisar }: PropsSeccion)
     {
       clave: "plazo",
       encabezado: "Plazo",
-      render: (fila) => <span className={fila.vencida ? "text-rose-300" : "text-ink-soft"}>{fila.fechaLimite ? textoPlazo(fila.fechaLimite) : "—"}</span>,
+      render: (fila) => <span className={fila.vencida ? "text-rose-300" : "text-[color:var(--doc-text-muted)]"}>{fila.fechaLimite ? textoPlazo(fila.fechaLimite) : "—"}</span>,
     },
     {
       clave: "acciones",
@@ -528,7 +528,7 @@ export function SeccionProrrogas({ onAbrirExpediente, avisar }: PropsSeccion) {
       render: (fila) => (
         <div className="min-w-0">
           <p className="truncate font-medium text-ink">{fila.expediente?.nombre ?? "—"}</p>
-          <p className="truncate text-[11px] text-ink-faint">{fila.expediente?.identificador ?? fila.expedienteId}</p>
+          <p className="truncate text-[11px] text-[color:var(--doc-text-faint)]">{fila.expediente?.identificador ?? fila.expedienteId}</p>
         </div>
       ),
     },
@@ -560,12 +560,12 @@ export function SeccionProrrogas({ onAbrirExpediente, avisar }: PropsSeccion) {
       clave: "fecha",
       encabezado: "Vence",
       render: (fila) => (
-        <span className={fila.situacion === "vencida" ? "text-rose-300" : "text-ink-soft"} title={fechaCorta(fila.fechaProrroga)}>
+        <span className={fila.situacion === "vencida" ? "text-rose-300" : "text-[color:var(--doc-text-muted)]"} title={fechaCorta(fila.fechaProrroga)}>
           {textoPlazo(fila.fechaProrroga)}
         </span>
       ),
     },
-    { clave: "motivo", encabezado: "Motivo", secundaria: true, render: (fila) => <span className="text-[11px] text-ink-soft">{fila.motivo}</span> },
+    { clave: "motivo", encabezado: "Motivo", secundaria: true, render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-muted)]">{fila.motivo}</span> },
     {
       clave: "acciones",
       encabezado: "",
@@ -679,13 +679,13 @@ export function SeccionTareas({ onAbrirExpediente, avisar }: PropsSeccion) {
       render: (fila) => (
         <div className="min-w-0">
           <p className="truncate text-xs text-ink">{fila.titulo}</p>
-          <p className="truncate text-[11px] text-ink-faint">
+          <p className="truncate text-[11px] text-[color:var(--doc-text-faint)]">
             {fila.expediente?.nombre ?? fila.expedienteId} · {fila.tipo}
           </p>
         </div>
       ),
     },
-    { clave: "responsable", encabezado: "Responsable", secundaria: true, render: (fila) => <span className="text-xs text-ink-soft">{fila.responsableId || "—"}</span> },
+    { clave: "responsable", encabezado: "Responsable", secundaria: true, render: (fila) => <span className="text-xs text-[color:var(--doc-text-muted)]">{fila.responsableId || "—"}</span> },
     {
       clave: "estado",
       encabezado: "Estado",
@@ -706,7 +706,7 @@ export function SeccionTareas({ onAbrirExpediente, avisar }: PropsSeccion) {
     {
       clave: "plazo",
       encabezado: "Plazo",
-      render: (fila) => <span className={fila.vencida ? "text-rose-300" : "text-ink-soft"}>{fila.fechaLimite ? textoPlazo(fila.fechaLimite) : "—"}</span>,
+      render: (fila) => <span className={fila.vencida ? "text-rose-300" : "text-[color:var(--doc-text-muted)]"}>{fila.fechaLimite ? textoPlazo(fila.fechaLimite) : "—"}</span>,
     },
     {
       clave: "acciones",

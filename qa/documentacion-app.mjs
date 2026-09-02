@@ -382,12 +382,59 @@ async function escenarioAlta(pagina) {
   await nuevo.click();
   await pagina.waitForTimeout(1200);
 
-  const anio = new Date().getFullYear();
-  await pagina.getByPlaceholder("1234567 - 45 - 2026").fill(`9988776 - 77 - ${anio}`);
+  /* El carnet se escribe con puntos y complemento a propósito: es el formato que
+     la validación anterior rechazaba y el que el área usa de verdad. */
+  await pagina.getByPlaceholder(/Por ejemplo 1234567/).fill("9.988.776-1A");
   await pagina.getByPlaceholder("Nombres y apellidos").fill("Prueba Navegador Comercial");
+
+  /* Cargo desde `cargo_bdp`: se escribe media palabra y se elige de la lista.
+     Es la comprobación de que la columna nueva llega hasta el formulario. */
+  const campoCargo = pagina.locator('button:has-text("Busca el cargo"), button:has-text("Escribe el cargo")').first();
+  if (await campoCargo.count()) {
+    await campoCargo.click();
+    await pagina.waitForTimeout(400);
+    const buscador = pagina.getByPlaceholder(/Buscar cargo/).first();
+    if (await buscador.count()) {
+      await buscador.fill("negoc");
+      await pagina.waitForTimeout(500);
+      /* Se acota al panel del selector: `getByRole("option")` a secas también
+         encuentra los `<option>` nativos de los `<select>` de la página. */
+      const opcion = pagina.locator('[role="listbox"] button[role="option"]').first();
+      const hayOpcion = await opcion.count();
+      console.log(`  ${hayOpcion ? "✓" : "✗"} el campo Cargo filtra la lista de cargo_bdp al escribir`);
+      if (hayOpcion) await opcion.click();
+      else await pagina.keyboard.press("Escape");
+      await pagina.waitForTimeout(400);
+    }
+  }
+
   await pagina.screenshot({ path: `${SALIDA}/alta-1-identidad.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
   await pagina.waitForTimeout(900);
+
+  /* Contador de hojas: SOLO en los documentos de papel.
+     Es la comprobación de que la interfaz lo deduce del catálogo y no de una
+     lista propia: si alguien cableara los códigos, aquí saldrían dieciséis. */
+  const contadores = await pagina.locator('.doc-console input[aria-label^="Hojas del documento"]').count();
+  const filas = await pagina.locator(".doc-console li.doc-raised").count();
+  const esperados = 5; // de los 16 generales, cinco se entregan en papel
+  const esperadosFilas = 16; // los dos retirados NO se ofrecen en un alta nueva
+  console.log(
+    `  ${contadores === esperados ? "✓" : "✗"} ${contadores} contadores de hojas (se esperaban ${esperados})`,
+  );
+  console.log(
+    `  ${filas === esperadosFilas ? "✓" : "✗"} ${filas} requisitos generales (se esperaban ${esperadosFilas}: los dos retirados no aparecen)`,
+  );
+
+  // Se anota un conteo con el teclado, que es como se hace de verdad.
+  if (contadores > 0) {
+    const primero = pagina.locator('.doc-console input[aria-label^="Hojas del documento"]').first();
+    await primero.fill("12");
+    await pagina.waitForTimeout(250);
+    const leido = await primero.inputValue();
+    console.log(`  ${leido === "12" ? "✓" : "✗"} el contador acepta escribir directamente (leído: "${leido}")`);
+  }
+
   await pagina.screenshot({ path: `${SALIDA}/alta-2-generales.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
   await pagina.waitForTimeout(900);
@@ -398,6 +445,25 @@ async function escenarioAlta(pagina) {
   await pagina.screenshot({ path: `${SALIDA}/alta-3-categoria.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
   await pagina.waitForTimeout(900);
+
+  /* Subsecciones del Tipo 2, con sus dos garantes familiares separados.
+     Es la comprobación de que el catálogo manda: los títulos NO están escritos
+     en ningún componente, salen de la columna `subseccion`. */
+  /* `innerText` aplica `text-transform`, así que los sub-bloques —que se pintan
+     en versalitas— llegan en mayúsculas. Se compara sin distinguir caja: lo que
+     se está verificando es que el texto ESTÁ, no cómo lo pinta el CSS. */
+  const cuerpo = (await pagina.evaluate(() => document.body.innerText)).toLowerCase();
+  const contiene = (t) => cuerpo.includes(t.toLowerCase());
+  for (const titulo of ["1 Garante que demuestre ingresos", "2 Garantes Familiares"]) {
+    console.log(`  ${contiene(titulo) ? "✓" : "✗"} se muestra la subsección «${titulo}»`);
+  }
+  for (const persona of ["Garante familiar 1", "Garante familiar 2"]) {
+    console.log(`  ${contiene(persona) ? "✓" : "✗"} los dos garantes se distinguen: «${persona}»`);
+  }
+  // Y los de garantía son todos digitales: ni un contador de hojas aquí.
+  const contadoresGarantia = await pagina.locator('.doc-console input[aria-label^="Hojas del documento"]').count();
+  console.log(`  ${contadoresGarantia === 0 ? "✓" : "✗"} los requisitos de garantía no llevan contador de hojas (${contadoresGarantia})`);
+
   await pagina.screenshot({ path: `${SALIDA}/alta-4-especificos.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
   await pagina.waitForTimeout(900);
@@ -409,6 +475,23 @@ async function escenarioAlta(pagina) {
   const texto = await pagina.evaluate(() => document.body.innerText);
   const ok = /Prueba Navegador Comercial|expediente/i.test(texto);
   console.log(`  ${ok ? "✓" : "✗"} el alta terminó sin error visible`);
+
+  /* El asistente ya NO ocupa toda la pantalla.
+     Se mide sobre la caja real: una superficie central deja aire a los lados, y
+     eso es lo que hace legible una línea de texto en un monitor de oficina. */
+  const geometria = await pagina.evaluate(() => {
+    const hoja = document.querySelector('[aria-label="Nuevo expediente documental"]');
+    if (!hoja) return null;
+    const r = hoja.getBoundingClientRect();
+    return { ancho: Math.round(r.width), ventana: window.innerWidth, izquierda: Math.round(r.left) };
+  });
+  if (geometria) {
+    const centrada = geometria.izquierda > 20 && geometria.ancho < geometria.ventana - 40;
+    console.log(
+      `  ${centrada ? "✓" : "✗"} el asistente es una superficie central (${geometria.ancho}px de ${geometria.ventana}px, margen ${geometria.izquierda}px)`,
+    );
+  }
+
   return ok;
 }
 

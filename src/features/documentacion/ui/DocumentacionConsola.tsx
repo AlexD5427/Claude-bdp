@@ -46,6 +46,9 @@ import { SeccionAprobaciones, SeccionProrrogas, SeccionRevision, SeccionSolicitu
 import { SeccionAuditoria, SeccionExportaciones, SeccionNotificaciones, SeccionReportes } from "./SeccionReportes";
 import { SeccionConfiguracion } from "./SeccionConfiguracion";
 import { VistaLocal } from "./VistaLocal";
+import { PantallaCargaDocumentacion, usarPantallaCarga } from "./PantallaCarga";
+import { configurarPrecarga, vaciar as vaciarCacheExpedientes } from "../state/cacheExpedientes";
+import { vaciarCola } from "../state/colaSalida";
 
 export function DocumentacionConsola() {
   const consola = useConsola();
@@ -78,6 +81,58 @@ export function DocumentacionConsola() {
   const definicion = secciones.find((s) => s.id === seccionActiva);
 
   const conectado = consola.conexion === "conectado";
+
+  /**
+   * Pantalla de carga del módulo.
+   *
+   * «Listo» es tener resuelta la conexión, no tenerla CONECTADA: si el backend no
+   * está configurado o no responde, lo que hay que mostrar es la explicación de
+   * eso, no un logotipo girando. Y la pantalla tiene su propio tope duro, así que
+   * ni siquiera un backend colgado la deja para siempre.
+   */
+  const conexionResuelta = consola.conexion !== "comprobando";
+  const catalogoListo = !conectado || consola.catalogo !== null;
+  const { visible: cargando } = usarPantallaCarga(conexionResuelta && catalogoListo);
+
+  /**
+   * Precarga en segundo plano.
+   *
+   * Se declara CÓMO se traen los expedientes y se elige la ruta según lo que el
+   * backend desplegado sepa hacer: por lotes cuando existe `expedientes.detalle`
+   * (una llamada para ocho), y de uno en uno si el `.gs` publicado es anterior.
+   */
+  const soportaLotes = consola.estado?.soporta?.detalleMultiple === true;
+  useEffect(() => {
+    if (!conectado) {
+      configurarPrecarga(null);
+      return;
+    }
+    configurarPrecarga(async (ids) => {
+      if (soportaLotes) {
+        const res = await docApi.detalleExpedientes(ids, { reintentos: 0 });
+        return res.expedientes;
+      }
+      const sueltos = await Promise.all(
+        ids.map((id) =>
+          docApi.obtenerExpediente(id, { historial: 12, auditoria: 0 }, { reintentos: 0 }).catch(() => null),
+        ),
+      );
+      return sueltos.filter((d): d is NonNullable<typeof d> => d !== null);
+    });
+    return () => configurarPrecarga(null);
+  }, [conectado, soportaLotes]);
+
+  /**
+   * Al cambiar de perfil se BORRA todo lo guardado en este equipo.
+   *
+   * La caché tiene nombres, carnets y el estado documental de personas reales. No
+   * puede sobrevivir al cambio de quien usa el equipo, y la cola de salida
+   * tampoco: reintentaría escrituras firmadas por el actor anterior.
+   */
+  useEffect(() => {
+    void vaciarCacheExpedientes();
+    vaciarCola();
+  }, [current?.id]);
 
   /**
    * Contadores de la navegación.
@@ -126,6 +181,15 @@ export function DocumentacionConsola() {
         }
       />
     ) : undefined;
+
+  if (cargando) {
+    return (
+      <>
+        <PantallaCargaDocumentacion />
+        <Notitas notitas={notitas} onQuitar={quitar} />
+      </>
+    );
+  }
 
   return (
     <>

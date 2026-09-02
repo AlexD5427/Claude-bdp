@@ -547,9 +547,23 @@ export function Boton({
     "doc-tap doc-no-print inline-flex items-center justify-center gap-1.5 rounded-[var(--doc-radius-sm)] px-3 py-2 text-xs font-semibold transition-[background-color,color,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-50";
 
   const estilos: Record<string, CSSProperties> = {
-    primario: { background: "var(--doc-info)", color: "#04121f" },
+    /*
+     * El texto del botón sale de un TOKEN, no de un hexadecimal fijo.
+     *
+     * ── El fallo que corrige ─────────────────────────────────────────────────
+     * Era `#04121f`: un azul casi negro, elegido para el tema oscuro, donde
+     * `--doc-info` es un cian claro (`#22d3ee`) y el contraste sale de sobra. En
+     * el tema claro `--doc-info` es `#0e7490` —un cian OSCURO— y ese mismo texto
+     * casi negro daba **3,53:1**, por debajo del 4,5:1 de WCAG AA. Y no es un
+     * texto cualquiera: es «Guardar», «Continuar» y «Nuevo expediente», los
+     * botones que se pulsan veinte veces por expediente.
+     *
+     * Lo encontró `qa/sonda-contraste.mjs` midiendo la pantalla real; la prueba
+     * de tokens no podía verlo, porque el color estaba escrito aquí.
+     */
+    primario: { background: "var(--doc-info)", color: "var(--doc-sobre-info)" },
     suave: { background: "var(--doc-surface-raised)", color: "var(--doc-text)", boxShadow: "inset 0 0 0 1px var(--doc-border)" },
-    peligro: { background: "var(--doc-danger)", color: "#1b0710" },
+    peligro: { background: "var(--doc-danger)", color: "var(--doc-sobre-danger)" },
     fantasma: { color: "var(--doc-text-muted)" },
   };
 

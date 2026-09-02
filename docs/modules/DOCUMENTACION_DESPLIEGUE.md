@@ -293,3 +293,52 @@ del área sin ayuda técnica.
 - [ ] Los errores dicen qué hacer, no sólo qué falló.
 - [ ] Las secciones no disponibles se anuncian como «en construcción» en lugar de
       fallar.
+
+---
+
+## Puesta en marcha del esquema 5 · catálogo v3 (2026-09)
+
+> Los pasos completos, con la lista de comprobación y el plan de reversión, están
+> al principio de
+> [`DOCUMENTACION_2026-09_MODULO_INTEGRAL.md`](DOCUMENTACION_2026-09_MODULO_INTEGRAL.md).
+> Aquí queda el resumen operativo.
+
+### Lo que hay que hacer, en orden
+
+1. **Pegar los 22 archivos `.gs`.** No solo los que cambiaron: Apps Script
+   concatena todos los archivos en un único espacio global y el orden del prefijo
+   numérico decide qué se declara antes. Una mezcla de versiones produce un
+   `undefined` silencioso a mitad de una operación, no un error claro.
+2. **Menú Documentación:** Respaldar → Instalar o actualizar → **Simular
+   migración** → Migrar.
+3. **Publicar una VERSIÓN NUEVA de la implementación.** Guardar el archivo **no
+   basta**: la aplicación web sirve la última versión *publicada*.
+   `Implementar › Gestionar implementaciones › Editar › Versión nueva`, ejecutar
+   «Como yo», acceso «Cualquier usuario».
+4. **Pegar la URL `…/exec`** en *Documentación › Configuración › Conexión y
+   esquema › Guardar y probar*.
+5. **Escribir los cargos** en la columna `cargo_bdp` de la hoja `Auxiliar`. El
+   backend crea la cabecera y la siembra con los cargos que ya aparecen en los
+   expedientes; la lista completa del banco la pega una persona.
+
+### Lee la simulación antes de migrar
+
+`5.0.2-identificadores` puede avisar de **parejas con la misma clave**: dos
+expedientes que hasta ahora eran distintos y ahora comparten carnet (por ejemplo
+`1234567` y `1.234.567`). La migración **no los fusiona** —es una decisión
+humana— y te los nombra. Míralos.
+
+### Compatibilidad entre despliegues
+
+El frontend se publica al fusionar; el backend, solo cuando alguien publica una
+versión. Las dos direcciones de la ventana están cubiertas:
+
+| Situación | Qué pasa |
+| --- | --- |
+| Frontend nuevo + backend viejo | `estado.soporta` no llega, el asistente usa la ruta de cuatro llamadas y `cargo_bdp` sale vacío (el campo sigue admitiendo escritura libre) |
+| Frontend viejo + backend nuevo | El catálogo v3 le da 16 generales, que es lo que el área pidió; los campos que no conoce los ignora |
+
+### Variables de entorno en Vercel
+
+**Ninguna nueva.** La URL del backend vive en los ajustes locales del módulo
+(`bdp-documentacion`), en el navegador de cada persona.

@@ -76,6 +76,12 @@ var DOC2_MIGRACIONES = [
     nombre: 'Publicar el catálogo versión 3: 16 generales, subsecciones y retiro de dos requisitos',
     porLotes: true,
     ejecutar: function (ctx, opciones) { return doc2MigracionCatalogoV3_(ctx, opciones); }
+  },
+  {
+    version: '5.0.2-identificadores',
+    nombre: 'Poner al día la clave de comparación del carnet de identidad',
+    porLotes: true,
+    ejecutar: function (ctx, opciones) { return doc2MigracionIdentificadores_(ctx, opciones); }
   }
 ];
 
@@ -913,6 +919,119 @@ function doc2MigracionResumenes_(ctx, opciones) {
 
 /* ========================================================================== */
 /* Instalación completa del modelo normalizado                                 */
+/* ========================================================================== */
+/* Migración 7: clave de comparación del carnet                                */
+/* ========================================================================== */
+
+/**
+ * Recalcula `identificador_normalizado` con la regla vigente.
+ *
+ * ── Por qué hace falta ─────────────────────────────────────────────────────
+ * Desde que el campo admite el carnet tal como está en el documento, la clave de
+ * comparación descarta TODA la puntuación: sin eso, «9.876.543» y «9876543» eran
+ * dos personas distintas para el módulo y el informe mensual contaba dos
+ * incorporaciones donde hubo una. Las filas escritas antes conservan la clave
+ * antigua, y esta migración las pone al día.
+ *
+ * ── Por qué la unicidad NO depende de esta migración ───────────────────────
+ * `doc2BuscarPorIdentificador_` recalcula la clave desde el texto ORIGINAL, que
+ * es inmutable, en vez de fiarse de la columna. Así la detección de duplicados
+ * funciona correctamente aunque nadie haya ejecutado esto todavía. Lo que la
+ * migración arregla es lo que SÍ lee la columna: los filtros y el orden.
+ *
+ * ── Las colisiones se REPORTAN, no se fusionan ────────────────────────────
+ * Puede que dos expedientes que antes eran distintos ahora tengan la misma
+ * clave: «1234567» y «1.234.567». Fusionarlos automáticamente sería decidir que
+ * son la misma persona, y eso no lo puede decidir una migración —pueden ser dos
+ * carnets legítimamente parecidos, o un error de tecleo que hay que corregir a
+ * mano. Se dejan los dos, se deja la clave nueva en los dos, y se devuelven en
+ * `colisiones` para que una persona los mire.
+ */
+function doc2MigracionIdentificadores_(ctx, opciones) {
+  var contexto = ctx || doc2CtxActual_();
+  var o = opciones || {};
+  var simular = o.simular === true;
+  var lote = docInt_(o.lote, DOC2_LIMITS.LOTE_MIGRACION);
+  var desde = Math.max(docInt_(o.desde, 0), 0);
+
+  var filas = [];
+  try { filas = doc2All_(DOC2_SHEET.EXPEDIENTES, true); } catch (e) { filas = []; }
+
+  // Índice de claves nuevas para detectar colisiones. Se construye entero antes
+  // de tocar nada: en un recorrido por lotes, una colisión puede estar entre un
+  // expediente de este lote y otro del siguiente.
+  var porClave = {};
+  var colisiones = [];
+  for (var i = 0; i < filas.length; i++) {
+    var clave = doc2NormalizarIdentificador_(filas[i].identificador);
+    if (!clave) continue;
+    if (porClave[clave]) {
+      colisiones.push({
+        clave: clave,
+        expedientes: [
+          { expedienteId: porClave[clave].expediente_id, identificador: porClave[clave].identificador, nombre: porClave[clave].nombre },
+          { expedienteId: filas[i].expediente_id, identificador: filas[i].identificador, nombre: filas[i].nombre }
+        ]
+      });
+    } else {
+      porClave[clave] = filas[i];
+    }
+  }
+
+  var porCambiar = [];
+  for (var c = 0; c < filas.length; c++) {
+    var nueva = doc2NormalizarIdentificador_(filas[c].identificador);
+    if (!nueva) continue;
+    if (String(filas[c].identificador_normalizado || '') === nueva) continue;
+    porCambiar.push(filas[c]);
+  }
+
+  if (simular) {
+    return {
+      quedan: false, filas: 0,
+      detalle: {
+        expedientes: filas.length,
+        porActualizar: porCambiar.length,
+        colisiones: colisiones,
+        ejemplos: porCambiar.slice(0, 5).map(function (f) {
+          return { identificador: f.identificador, antes: f.identificador_normalizado, despues: doc2NormalizarIdentificador_(f.identificador) };
+        })
+      },
+      resumen: 'Se actualizaría la clave de ' + porCambiar.length + ' de ' + filas.length + ' expediente(s)' +
+        (colisiones.length ? (' y quedarían ' + colisiones.length + ' pareja(s) con la MISMA clave, que hay que revisar a mano') : '') +
+        '. Ningún carnet se modifica: solo su clave de comparación.'
+    };
+  }
+
+  var procesados = 0;
+  var actualizados = 0;
+  var indice = desde;
+  while (indice < porCambiar.length && procesados < lote) {
+    var fila = porCambiar[indice];
+    indice++;
+    procesados++;
+    try {
+      doc2Update_(DOC2_SHEET.EXPEDIENTES, fila.expediente_id, {
+        identificador_normalizado: doc2NormalizarIdentificador_(fila.identificador)
+      }, contexto);
+      actualizados++;
+    } catch (error) {
+      docWarn_('No se pudo actualizar la clave de un expediente.', {
+        expediente: fila.expediente_id, motivo: docClassify_(error).message
+      });
+    }
+  }
+
+  return {
+    quedan: indice < porCambiar.length,
+    siguiente: indice,
+    filas: actualizados,
+    detalle: { actualizados: actualizados, colisiones: colisiones },
+    resumen: actualizados + ' clave(s) de carnet puesta(s) al día' +
+      (colisiones.length ? ('. ATENCIÓN: ' + colisiones.length + ' pareja(s) de expedientes comparten ahora la misma clave y hay que revisarlas a mano (ninguno se fusionó)') : '') + '.'
+  };
+}
+
 /* ========================================================================== */
 /* Migración 5: columnas de presentación y conteo de hojas                     */
 /* ========================================================================== */

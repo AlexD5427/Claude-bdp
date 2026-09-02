@@ -286,8 +286,9 @@ function docTestModelo_() {
   docCheck_('un rol inventado cae en invitado',
     doc2CapacidadesDe_('duenio-del-banco').length === doc2CapacidadesDe_('invitado').length);
 
-  // Cuatro del esquema 4 mas dos del esquema 5 (columnas nuevas y catalogo v3).
-  docCheckEq_('hay seis migraciones declaradas', DOC2_MIGRACIONES.length, 6);
+  // Cuatro del esquema 4 y tres del esquema 5 (columnas nuevas, catalogo v3 y
+  // la clave de comparacion del carnet).
+  docCheckEq_('hay siete migraciones declaradas', DOC2_MIGRACIONES.length, 7);
   docCheckEq_('y la primera es la estructural', DOC2_MIGRACIONES[0].version, '4.0.0-estructura');
 }
 

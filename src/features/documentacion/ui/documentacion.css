@@ -96,6 +96,18 @@
 
   --doc-focus: #38bdf8;
 
+  /* ---- Tinta SOBRE un color de estado ----
+     Qué color de texto va encima de `--doc-info` o `--doc-danger` cuando se usan
+     como FONDO (los botones sólidos, las marcas de selección).
+
+     No es una constante: depende del tema, porque el color de fondo depende del
+     tema. En oscuro `--doc-info` es un cian claro y encima va tinta oscura; en
+     claro es un cian oscuro y encima va blanco. Tenerlo escrito a mano en el
+     componente daba 3,53:1 en tema claro justo en «Guardar» y «Continuar». ---- */
+  --doc-sobre-info: #04121f;
+  --doc-sobre-danger: #1b0710;
+  --doc-sobre-success: #04121f;
+
   /* ---- Forma ---- */
   --doc-radius-sm: 0.75rem;
   --doc-radius-md: 1rem;
@@ -164,6 +176,11 @@
   --doc-offline-bg: rgba(100, 116, 139, 0.16);
 
   --doc-focus: #0369a1;
+
+  /* Sobre los colores de estado del tema claro —que son oscuros— va blanco. */
+  --doc-sobre-info: #ffffff;
+  --doc-sobre-danger: #ffffff;
+  --doc-sobre-success: #ffffff;
 
   --doc-shadow-sm: 0 1px 2px rgba(8, 47, 95, 0.08);
   --doc-shadow-md: 0 10px 28px rgba(8, 47, 95, 0.12);

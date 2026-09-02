@@ -242,8 +242,28 @@ function doc2AplicarAltaCompleta_(expedienteId, datos, contexto) {
   if (cambios.length) {
     var lote = doc2ActualizarRequisitosEnLote_(expedienteId, cambios, contexto);
     resultado.aplicados = lote.aplicados;
-    resultado.fallidos = lote.fallidos;
     resultado.resumen = lote.resumen;
+    /*
+     * ── Aquí el alta es ESTRICTA, y a propósito ─────────────────────────────
+     * `doc2ActualizarRequisitosEnLote_` es tolerante: valida cada cambio por
+     * separado y devuelve los que fallan sin tumbar los que valían. Es lo
+     * correcto cuando alguien está editando un expediente que ya existe: un
+     * cambio rechazado no debe hacerle perder los otros cinco.
+     *
+     * En un ALTA no. La persona todavía no tiene el expediente delante, y un
+     * expediente creado al que le falta la mitad de lo que marcó es peor que uno
+     * que no se creó: no hay forma de saber qué quedó fuera. Así que se lanza y
+     * el llamador revierte.
+     */
+    if (lote.fallidos.length) {
+      var primero = lote.fallidos[0];
+      throw docError_(DOC_CODE.VALIDATION_ERROR,
+        'No se pudo registrar «' + (primero.codigo || primero.requisito) + '»: ' + primero.motivo,
+        {
+          hint: 'Corrige ese requisito y vuelve a guardar. El expediente no se creó.',
+          details: { fields: doc2Campo_('requisitos', primero.motivo), fallidos: lote.fallidos }
+        });
+    }
   }
 
   // Prórrogas: una por una porque cada una audita y valida su fecha. Fallan de
@@ -367,11 +387,28 @@ function doc2DetalleMultiple_(ids, ctx, opciones) {
   };
 }
 
-/** Busca un expediente por identificador normalizado. */
-function doc2BuscarPorIdentificador_(normalizado) {
+/**
+ * Busca un expediente por identificador, normalizando las DOS partes.
+ *
+ * ── Por qué no basta comparar contra la columna guardada ────────────────────
+ * `identificador_normalizado` se calculó con la regla que estaba vigente el día
+ * en que se escribió esa fila. Cuando la regla se endurece —y aquí lo hizo, para
+ * que «9.876.543» y «9876543» dejaran de ser dos personas—, las filas antiguas
+ * conservan la clave vieja y la comparación falla justo donde importa: al
+ * detectar un duplicado.
+ *
+ * La solución es no fiarse de la columna y recalcular desde el texto ORIGINAL,
+ * que es inmutable. La columna sigue existiendo (la usan los filtros y el orden)
+ * y la migración `5.0.2-identificadores` la pone al día, pero la unicidad no
+ * depende de que esa migración se haya ejecutado.
+ */
+function doc2BuscarPorIdentificador_(valor) {
   var filas = doc2All_(DOC2_SHEET.EXPEDIENTES, true);
-  var clave = doc2NormalizarIdentificador_(normalizado);
+  var clave = doc2NormalizarIdentificador_(valor);
+  if (!clave) return null;
   for (var i = 0; i < filas.length; i++) {
+    if (doc2NormalizarIdentificador_(filas[i].identificador) === clave) return filas[i];
+    // Reserva: una fila cuyo texto original se perdiera pero conserve la clave.
     if (String(filas[i].identificador_normalizado) === clave) return filas[i];
   }
   return null;
@@ -799,6 +836,20 @@ function doc2ValidarHojasFisicas_(fila, valor) {
       });
   }
   return entero;
+}
+
+/**
+ * Conteo de hojas tal como lo recibe el cliente: número o `null`.
+ *
+ * `null` significa «sin anotar» y `0` significa «se contó y no había hojas». Son
+ * dos hechos distintos y el informe los cuenta aparte, así que la conversión
+ * tiene que respetar el cero.
+ */
+function doc2HojasVista_(valor) {
+  if (valor === null || valor === undefined) return null;
+  var texto = String(valor).trim();
+  if (texto === '') return null;
+  return docInt_(texto, 0);
 }
 
 /** ¿Trae este cambio un conteo de hojas? Acepta las dos formas de nombrarlo. */
@@ -1246,9 +1297,15 @@ function doc2ExpedienteOperativo_(idOIdentificador, ctx, opciones) {
       orden: docInt_(r.orden, 0),
       estado: r.estado_documental,
       observaciones: r.observaciones || '',
-      // Vacío (no cero) cuando nadie lo ha anotado: la interfaz distingue «cero
-      // hojas» de «sin contar» y no puede hacerlo si el backend manda un 0.
-      hojasFisicas: String(r.hojas_fisicas || '').trim() === '' ? null : docInt_(r.hojas_fisicas, 0),
+      /*
+       * Vacío (no cero) cuando nadie lo ha anotado.
+       *
+       * La comparación es EXPLÍCITA contra null, undefined y cadena vacía, no un
+       * `|| ''`: en JavaScript el cero es falso, así que `r.hojas_fisicas || ''`
+       * convertía un conteo real de CERO hojas en «sin contar». Justo la
+       * distinción que esta columna existe para poder hacer.
+       */
+      hojasFisicas: doc2HojasVista_(r.hojas_fisicas),
       presentacionFisica: (def && def.presentacion_fisica) || DOC2_PRESENTACION.NO,
       presentacionDigital: (def && def.presentacion_digital) || DOC2_PRESENTACION.SI,
       requiereConteoHojas: !!(def && def.requiere_conteo_hojas === true),
@@ -1536,8 +1593,19 @@ function doc2ListarExpedientes_(filtros, ctx) {
       if (indiceSolicitudesVencidas && !indiceSolicitudesVencidas[String(fila.expediente_id)]) return false;
       if (indiceTareasVencidas && !indiceTareasVencidas[String(fila.expediente_id)]) return false;
       if (texto) {
-        var heno = docKey_([fila.identificador, fila.nombre, fila.cargo, fila.agencia, fila.gerencia, fila.responsable_id].join(' '));
-        if (heno.indexOf(texto) < 0) return false;
+        /*
+         * El pajar incluye el carnet SIN puntuación además del original.
+         *
+         * Desde que el campo admite «7.654.321-2B», buscar «7654321» no lo
+         * encontraba: el texto guardado tiene puntos y el que se teclea no. Se
+         * añade la forma normalizada al pajar y se busca también la consulta
+         * normalizada, así que las dos direcciones funcionan: escribir con puntos
+         * encuentra lo guardado sin ellos, y al revés.
+         */
+        var heno = docKey_([fila.identificador, fila.nombre, fila.cargo, fila.agencia, fila.gerencia, fila.responsable_id].join(' ')) +
+          ' ' + doc2NormalizarIdentificador_(fila.identificador);
+        var agujaLimpia = doc2NormalizarIdentificador_(texto);
+        if (heno.indexOf(texto) < 0 && !(agujaLimpia && heno.indexOf(agujaLimpia) >= 0)) return false;
       }
       return true;
     }
@@ -1658,6 +1726,15 @@ function doc2FraseHistorial_(fila) {
 
 /** Auditoría técnica de un expediente. Solo la ve quien tiene la capacidad. */
 function doc2AuditoriaDe_(expedienteId, limite) {
+  /*
+   * Pedir CERO eventos significa «no me la traigas».
+   *
+   * La lectura por lotes de la precarga lo usa: la auditoría técnica es lo más
+   * pesado del payload y lo menos útil para pintar una ficha rápido. Antes el
+   * tope se forzaba a un mínimo de 1 y siempre volvía un evento, que además es un
+   * dato personal que no hacía falta guardar en la caché del navegador.
+   */
+  if (docInt_(limite, 40) <= 0) return [];
   var filas = doc2By_(DOC2_SHEET.AUDITORIA, 'expediente_id', expedienteId, true);
   filas.sort(function (a, b) { return String(b.created_at) > String(a.created_at) ? 1 : -1; });
   var tope = Math.min(Math.max(docInt_(limite, 40), 1), 500);

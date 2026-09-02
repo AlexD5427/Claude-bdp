@@ -91,6 +91,55 @@ describe("asistente de nuevo expediente · integración con el backend", () => {
     expect(codigos).not.toContain("garante-fam1-ci"); // ese es de la rama 2
   });
 
+  it("Escape cierra el asistente, y con datos escritos pide confirmación", async () => {
+    const usuario = userEvent.setup();
+    const cerrar = vi.fn();
+    const vista = render(<AltaExpedienteWizard abierta onCerrar={cerrar} onCreado={() => {}} onError={() => {}} />);
+
+    // Sin nada escrito, Escape cierra directamente.
+    await usuario.keyboard("{Escape}");
+    await waitFor(() => expect(cerrar).toHaveBeenCalledTimes(1));
+    /* Se desmonta antes de la segunda parte: dos asistentes montados a la vez
+       escucharían los dos el mismo Escape, y el primero contaminaría la cuenta. */
+    vista.unmount();
+
+    cerrar.mockClear();
+    render(<AltaExpedienteWizard abierta onCerrar={cerrar} onCreado={() => {}} onError={() => {}} />);
+    await usuario.type(screen.getByPlaceholderText("Nombres y apellidos"), "Alguien Escribiendo");
+
+    /*
+     * Con datos escritos NO se cierra de golpe: aparece la confirmación del
+     * módulo. `window.confirm` está prohibido aquí —bloquea el hilo y el
+     * navegador permite silenciarlo, y entonces el panel deja de poder cerrarse—.
+     */
+    await usuario.keyboard("{Escape}");
+    expect(cerrar).not.toHaveBeenCalled();
+    expect(await screen.findByText(/¿Cerrar el asistente\?/)).toBeInTheDocument();
+  });
+
+  it("los dos generales retirados no se ofrecen en un alta nueva", async () => {
+    const usuario = userEvent.setup();
+    render(<AltaExpedienteWizard abierta onCerrar={() => {}} onCreado={() => {}} onError={() => {}} />);
+
+    await usuario.type(screen.getByPlaceholderText("Por ejemplo 1234567 o 1234567-1A"), "4443332");
+    await usuario.type(screen.getByPlaceholderText("Nombres y apellidos"), "Sin Retirados");
+    await usuario.click(screen.getByRole("button", { name: /Continuar/i }));
+
+    // Se espera a que el paso de generales esté pintado.
+    await screen.findByText(/^Fotografía en formato digital 4X4/);
+
+    /*
+     * El catálogo devuelve las 39 filas, inactivas incluidas: la administración
+     * del catálogo las necesita. El asistente tiene que filtrar por `activo`, y
+     * si no lo hace pide justo los dos requisitos que el área retiró.
+     */
+    expect(screen.queryByText(/Certificados de trabajo/i)).toBeNull();
+    expect(screen.queryByText(/RC-IVA/i)).toBeNull();
+
+    // Y siguen siendo dieciséis: ni uno más, ni uno menos.
+    expect(screen.getAllByRole("button", { name: "Entregado" }).length).toBe(16);
+  });
+
   it("auditoría añade solo la declaración de impedimento", async () => {
     const usuario = userEvent.setup();
     const creado = vi.fn();

@@ -237,14 +237,14 @@ describe("documentación · migración: importación de datos", () => {
     seedLegacyBook(h, 2026);
     const antes = h.ok("documentacion.migraciones.estado");
     expect(antes.aplicadas).toEqual([]);
-    // Seis: las cuatro del esquema 4 más las dos del esquema 5 (columnas de
-    // presentación y conteo de hojas, y publicación del catálogo v3).
-    expect(antes.pendientes.length).toBe(6);
+    // Siete: las cuatro del esquema 4 más las tres del esquema 5 (columnas de
+    // presentación y conteo de hojas, catálogo v3 y clave del carnet).
+    expect(antes.pendientes.length).toBe(7);
 
     h.pedir("documentacion.instalar", { conRespaldo: false });
     const despues = h.ok("documentacion.migraciones.estado");
     expect(despues.pendientes).toEqual([]);
-    expect(despues.aplicadas.length).toBe(6);
+    expect(despues.aplicadas.length).toBe(7);
   });
 
   it("el respaldo previo guarda los expedientes del libro antes de tocar nada", () => {

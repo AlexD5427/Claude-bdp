@@ -256,16 +256,16 @@ export function VistaLocal() {
       {/* Barra de herramientas ---------------------------------------- */}
       <div className="flex flex-wrap items-center justify-between gap-3 no-print">
         <div className="glass flex min-w-[14rem] flex-1 items-center gap-2 rounded-2xl px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-cyan-400/70">
-          <Search className="h-4 w-4 shrink-0 text-ink-soft" />
+          <Search className="h-4 w-4 shrink-0 text-[color:var(--doc-text-muted)]" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar por nombre, cargo u oficina…"
-            className="w-full bg-transparent text-sm text-ink placeholder:text-ink-faint outline-none"
+            className="w-full bg-transparent text-sm text-ink placeholder:text-[color:var(--doc-text-faint)] outline-none"
           />
           {query && (
             <button type="button" onClick={() => setQuery("")} aria-label="Limpiar búsqueda">
-              <X className="h-3.5 w-3.5 text-ink-faint hover:text-ink" />
+              <X className="h-3.5 w-3.5 text-[color:var(--doc-text-faint)] hover:text-ink" />
             </button>
           )}
         </div>
@@ -289,7 +289,7 @@ export function VistaLocal() {
                 aria-label={v.titulo}
                 onClick={() => setSettings({ vista: v.id })}
                 className={`relative grid h-8 w-9 place-items-center rounded-full transition-colors ${
-                  activa ? "text-white" : "text-ink-soft hover:text-ink"
+                  activa ? "text-white" : "text-[color:var(--doc-text-muted)] hover:text-ink"
                 }`}
               >
                 {activa && (
@@ -455,7 +455,7 @@ export function VistaLocal() {
             <p className="text-sm font-bold text-ink">
               {dueToday.length} aviso(s) programado(s) para hoy
             </p>
-            <p className="text-xs text-ink-soft wrap-words">
+            <p className="text-xs text-[color:var(--doc-text-muted)] wrap-words">
               {settings.requireConfirmation
                 ? "Revise la vista previa y confirme el envío de cada recordatorio."
                 : "Se enviarán recordatorios de documentación pendiente."}
@@ -507,7 +507,7 @@ export function VistaLocal() {
               {g.titulo && (
                 <h3 className="mb-2.5 flex items-center gap-2 text-sm font-black text-ink">
                   {g.titulo}
-                  <span className="rounded-full fill-soft px-2 py-0.5 text-[0.7rem] font-bold text-ink-soft">
+                  <span className="rounded-full fill-soft px-2 py-0.5 text-[0.7rem] font-bold text-[color:var(--doc-text-muted)]">
                     {g.items.length}
                   </span>
                 </h3>
@@ -585,7 +585,7 @@ function Kpi({
       <p className={`text-xl font-black leading-none ${tono}`}>
         <CountUp value={valor} sufijo={sufijo} />
       </p>
-      <p className="mt-1 text-[0.65rem] font-semibold uppercase tracking-wide text-ink-faint">
+      <p className="mt-1 text-[0.65rem] font-semibold uppercase tracking-wide text-[color:var(--doc-text-faint)]">
         {etiqueta}
       </p>
     </div>
@@ -595,7 +595,7 @@ function Kpi({
 function Fila({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="mb-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-ink-faint">
+      <p className="mb-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-[color:var(--doc-text-faint)]">
         {titulo}
       </p>
       <div className="flex flex-wrap gap-1.5">{children}</div>
@@ -619,7 +619,7 @@ function Chip({
       className={`rounded-full px-3 py-1.5 text-xs font-bold ring-1 transition ${
         activo
           ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white ring-white/30"
-          : "fill-softer text-ink-soft ring-[color:var(--hairline)] hover:fill-soft"
+          : "fill-softer text-[color:var(--doc-text-muted)] ring-[color:var(--hairline)] hover:fill-soft"
       }`}
     >
       {texto}
@@ -672,7 +672,7 @@ function DossierCard({
         <Avatar name={dossier.nombre} seed={dossier.identificador} size={compacta ? "sm" : "md"} />
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-base font-bold text-ink">{dossier.nombre}</h3>
-          <p className="truncate text-xs text-ink-soft">
+          <p className="truncate text-xs text-[color:var(--doc-text-muted)]">
             {dossier.cargo || "Cargo no especificado"}
           </p>
         </div>
@@ -691,7 +691,7 @@ function DossierCard({
 
       <div className="mt-3">
         <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="font-semibold text-ink-soft">Avance</span>
+          <span className="font-semibold text-[color:var(--doc-text-muted)]">Avance</span>
           <span className="font-black text-ink">
             <CountUp value={r.completionPct} sufijo="%" />
           </span>
@@ -707,7 +707,7 @@ function DossierCard({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2 text-[0.7rem]">
-        <span className="inline-flex items-center gap-1 rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
+        <span className="inline-flex items-center gap-1 rounded-full fill-softer px-2.5 py-0.5 font-semibold text-[color:var(--doc-text-muted)] ring-1 ring-[color:var(--hairline)]">
           <FileStack className="h-3 w-3" />
           {r.presentados}/{r.applicable} docs
         </span>
@@ -717,7 +717,7 @@ function DossierCard({
           </span>
         )}
         {r.nextReminder && (
-          <span className="inline-flex items-center gap-1 rounded-full fill-softer px-2.5 py-0.5 font-semibold text-ink-soft ring-1 ring-[color:var(--hairline)]">
+          <span className="inline-flex items-center gap-1 rounded-full fill-softer px-2.5 py-0.5 font-semibold text-[color:var(--doc-text-muted)] ring-1 ring-[color:var(--hairline)]">
             <CalendarClock className="h-3 w-3" />
             {r.nextReminder.toLocaleDateString("es-BO", { day: "2-digit", month: "short" })}
           </span>
@@ -778,7 +778,7 @@ function TablaExpedientes({
       <div className="overflow-x-auto">
         <table className="w-full min-w-[52rem] text-left text-sm">
           <thead>
-            <tr className="border-b border-[color:var(--hairline)] text-[0.7rem] uppercase tracking-wide text-ink-faint">
+            <tr className="border-b border-[color:var(--hairline)] text-[0.7rem] uppercase tracking-wide text-[color:var(--doc-text-faint)]">
               <th className={`px-4 ${alto} font-bold`}>Nombre</th>
               <th className={`px-3 ${alto} font-bold`}>Cargo</th>
               <th className={`px-3 ${alto} font-bold`}>Oficina</th>
@@ -802,9 +802,9 @@ function TablaExpedientes({
                   className="cursor-pointer border-b border-[color:var(--hairline)] transition-colors last:border-0 hover:fill-soft"
                 >
                   <td className={`px-4 ${alto} font-semibold text-ink`}>{d.nombre}</td>
-                  <td className={`px-3 ${alto} text-ink-soft`}>{d.cargo || "—"}</td>
-                  <td className={`px-3 ${alto} text-ink-soft`}>{d.agencia || "—"}</td>
-                  <td className={`px-3 ${alto} text-ink-soft`}>{d.fechaIngreso || "—"}</td>
+                  <td className={`px-3 ${alto} text-[color:var(--doc-text-muted)]`}>{d.cargo || "—"}</td>
+                  <td className={`px-3 ${alto} text-[color:var(--doc-text-muted)]`}>{d.agencia || "—"}</td>
+                  <td className={`px-3 ${alto} text-[color:var(--doc-text-muted)]`}>{d.fechaIngreso || "—"}</td>
                   <td className={`px-3 ${alto}`}>
                     <div className="flex items-center gap-2">
                       <span className="h-1.5 w-16 overflow-hidden rounded-full fill-soft">
@@ -869,14 +869,14 @@ function Tablero({
         <div key={c.id} className="glass rounded-3xl p-3">
           <div className="mb-2.5 flex items-center justify-between">
             <h3 className={`text-sm font-black ${c.tono}`}>{c.titulo}</h3>
-            <span className="rounded-full fill-soft px-2 py-0.5 text-[0.7rem] font-bold text-ink-soft">
+            <span className="rounded-full fill-soft px-2 py-0.5 text-[0.7rem] font-bold text-[color:var(--doc-text-muted)]">
               {c.items.length}
             </span>
           </div>
 
           <div className="space-y-2">
             {c.items.length === 0 && (
-              <p className="rounded-2xl border border-dashed border-[color:var(--hairline)] px-3 py-4 text-center text-[0.7rem] text-ink-faint">
+              <p className="rounded-2xl border border-dashed border-[color:var(--hairline)] px-3 py-4 text-center text-[0.7rem] text-[color:var(--doc-text-faint)]">
                 Sin expedientes
               </p>
             )}
@@ -898,7 +898,7 @@ function Tablero({
                     <Avatar name={d.nombre} seed={d.identificador} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-bold text-ink">{d.nombre}</p>
-                      <p className="truncate text-[0.65rem] text-ink-faint">{d.cargo || "—"}</p>
+                      <p className="truncate text-[0.65rem] text-[color:var(--doc-text-faint)]">{d.cargo || "—"}</p>
                     </div>
                     <button
                       type="button"
@@ -907,7 +907,7 @@ function Tablero({
                         e.stopPropagation();
                         onCompose(d.identificador);
                       }}
-                      className="no-print grid h-6 w-6 shrink-0 place-items-center rounded-full text-ink-faint transition hover:text-ink"
+                      className="no-print grid h-6 w-6 shrink-0 place-items-center rounded-full text-[color:var(--doc-text-faint)] transition hover:text-ink"
                     >
                       <Mail className="h-3 w-3" />
                     </button>

@@ -726,7 +726,7 @@ function NuevaProrroga({
           <Campo etiqueta="Motivo" requerido ayuda="Es lo que justifica el plazo si alguien lo audita.">
             <AreaTexto value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={3} />
           </Campo>
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-[11px] text-[color:var(--doc-text-faint)]">
             Una prórroga nueva sustituye a la vigente. Los días restantes se calculan solos: no se guarda ningún contador.
           </p>
         </div>
@@ -812,7 +812,7 @@ function Solicitudes({
             />
           }
         >
-          {solicitud.descripcion && <p className="mb-2 text-xs text-ink-soft">{solicitud.descripcion}</p>}
+          {solicitud.descripcion && <p className="mb-2 text-xs text-[color:var(--doc-text-muted)]">{solicitud.descripcion}</p>}
           <ul className="mb-3 space-y-1 text-xs">
             {solicitud.items.map((item) => (
               <li key={item.solicitudDocumentoId} className="flex items-center justify-between gap-2">
@@ -823,7 +823,7 @@ function Solicitudes({
               </li>
             ))}
           </ul>
-          <p className="text-[11px] text-ink-faint">
+          <p className="text-[11px] text-[color:var(--doc-text-faint)]">
             {solicitud.recordatorios} recordatorio(s) · responsable {solicitud.responsableId || "sin asignar"} · creada{" "}
             {fechaCorta(solicitud.fechaSolicitud)}
           </p>
@@ -897,9 +897,9 @@ function Revisiones({ datos }: { datos: ExpedienteOperativo }) {
               />
               <span className="text-xs text-ink">{revision.nombre}</span>
             </div>
-            {revision.motivoEtiqueta && <p className="mt-1 text-[11px] text-ink-soft">Motivo: {revision.motivoEtiqueta}</p>}
-            {revision.comentario && <p className="mt-0.5 text-xs text-ink-soft">{revision.comentario}</p>}
-            <p className="mt-0.5 text-[11px] text-ink-faint">
+            {revision.motivoEtiqueta && <p className="mt-1 text-[11px] text-[color:var(--doc-text-muted)]">Motivo: {revision.motivoEtiqueta}</p>}
+            {revision.comentario && <p className="mt-0.5 text-xs text-[color:var(--doc-text-muted)]">{revision.comentario}</p>}
+            <p className="mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">
               {revision.revisor} · {fechaHora(revision.fecha)} · versión {revision.versionRevisada}
             </p>
           </li>
@@ -968,8 +968,8 @@ function Aprobaciones({
             />
           }
         >
-          {aprobacion.comentario && <p className="text-xs text-ink-soft">{aprobacion.comentario}</p>}
-          {aprobacion.fechaDecision && <p className="text-[11px] text-ink-faint">Resuelta {fechaHora(aprobacion.fechaDecision)}</p>}
+          {aprobacion.comentario && <p className="text-xs text-[color:var(--doc-text-muted)]">{aprobacion.comentario}</p>}
+          {aprobacion.fechaDecision && <p className="text-[11px] text-[color:var(--doc-text-faint)]">Resuelta {fechaHora(aprobacion.fechaDecision)}</p>}
 
           {capacidades.aprobar && aprobacion.estado === "PENDIENTE" && (
             <div className="mt-2 space-y-2">
@@ -1054,8 +1054,8 @@ function Prorrogas({
             </div>
           }
         >
-          <p className="text-xs text-ink-soft">{prorroga.motivo}</p>
-          <p className="mt-1 text-[11px] text-ink-faint">
+          <p className="text-xs text-[color:var(--doc-text-muted)]">{prorroga.motivo}</p>
+          <p className="mt-1 text-[11px] text-[color:var(--doc-text-faint)]">
             Solicitada por {prorroga.solicitadaPor || "—"}
             {prorroga.aprobadaPor ? ` · aprobada por ${prorroga.aprobadaPor}` : ""}
             {prorroga.fechaOriginal ? ` · fecha original ${fechaCorta(prorroga.fechaOriginal)}` : ""}
@@ -1169,8 +1169,8 @@ function Tareas({
             />
           }
         >
-          {tarea.descripcion && <p className="text-xs text-ink-soft">{tarea.descripcion}</p>}
-          {tarea.origenTipo && <p className="mt-1 text-[11px] text-ink-faint">Origen: {tarea.origenTipo}</p>}
+          {tarea.descripcion && <p className="text-xs text-[color:var(--doc-text-muted)]">{tarea.descripcion}</p>}
+          {tarea.origenTipo && <p className="mt-1 text-[11px] text-[color:var(--doc-text-faint)]">Origen: {tarea.origenTipo}</p>}
           {capacidades.tareas && tarea.estado !== "COMPLETADA" && tarea.estado !== "CANCELADA" && (
             <div className="mt-2 flex flex-wrap gap-2">
               <Boton
@@ -1278,10 +1278,10 @@ function Comentarios({
         {datos.comentarios.map((comentario) => (
           <li key={comentario.comentarioId} className="doc-surface doc-print-keep p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-[color:var(--doc-text-faint)]">
                 {comentario.visibilidad} · {comentario.tipo}
               </span>
-              <span className="text-[11px] text-ink-faint">
+              <span className="text-[11px] text-[color:var(--doc-text-faint)]">
                 {comentario.creadoPor} · {fechaHora(comentario.creadoEn)}
                 {comentario.editadoEn && " · editado"}
               </span>
@@ -1318,7 +1318,7 @@ function Historial({ datos }: { datos: ExpedienteOperativo }) {
         {datos.historial.map((entrada) => (
           <li key={entrada.historialId} className="doc-print-keep border-l-2 border-[color:var(--doc-border)] pl-3 text-xs">
             <p className="text-ink">{entrada.texto}</p>
-            <p className="text-[11px] text-ink-faint">
+            <p className="text-[11px] text-[color:var(--doc-text-faint)]">
               {entrada.actor} · {fechaHora(entrada.fecha)}
               {entrada.motivo ? ` · ${entrada.motivo}` : ""}
             </p>
@@ -1340,10 +1340,10 @@ function Auditoria({ datos }: { datos: ExpedienteOperativo }) {
               <span className="font-semibold text-ink">{evento.tipo}</span>
               <span style={{ color: evento.resultado === "ok" ? TONO.exito.texto : TONO.aviso.texto }}>{evento.resultado}</span>
             </div>
-            <p className="text-ink-soft">
+            <p className="text-[color:var(--doc-text-muted)]">
               {evento.actor} · {evento.origen} · {fechaHora(evento.fecha)}
             </p>
-            <p className="truncate text-ink-faint" title={evento.requestId}>
+            <p className="truncate text-[color:var(--doc-text-faint)]" title={evento.requestId}>
               solicitud {evento.requestId}
             </p>
           </li>

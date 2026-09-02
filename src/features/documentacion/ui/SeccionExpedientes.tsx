@@ -30,7 +30,7 @@
  *   panel del expediente; donde no hay soporte, se abre como siempre.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Columns3,
   Filter,
@@ -102,6 +102,7 @@ import { conTransicionDeVista, vistaDeExpediente } from "./DocViewTransitions";
 import { incidenciaDe } from "./DocAttentionPanel";
 import { AltaExpedienteWizard } from "./AltaExpedienteWizard";
 import { useDatos, type EstadoDatos } from "./useDatos";
+import { cancelarPrecarga, guardar as guardarEnCache, precargar } from "../state/cacheExpedientes";
 
 interface Props {
   onAbrir: (expedienteId: string) => void;
@@ -214,6 +215,20 @@ export function SeccionExpedientes({ onAbrir, avisar, altaAbierta = false, onCer
   const filtrosGuardados = useDatos(() => docApi.listarFiltros(), [], { activo: conexion === "conectado" });
 
   const expedientes = listado.datos?.expedientes ?? [];
+
+  /*
+   * Precarga de la página visible.
+   *
+   * Se pide el detalle de lo que está en pantalla en tiempo ocioso, para que
+   * abrir un expediente sea instantáneo. `cancelarPrecarga` al cambiar de página
+   * es lo que evita que tres cambios seguidos dejen tres precargas peleándose por
+   * la red mientras la persona espera la página que sí pidió.
+   */
+  useEffect(() => {
+    if (conexion !== "conectado" || !expedientes.length) return;
+    precargar(expedientes.map((e) => e.expedienteId));
+    return () => cancelarPrecarga();
+  }, [conexion, expedientes]);
   const resumen = listado.datos?.resumen;
   const activos = filtrosActivos({ ...filtros, texto: textoRetrasado });
   const chips = chipsDeFiltros(filtros);
@@ -672,14 +687,22 @@ export function SeccionExpedientes({ onAbrir, avisar, altaAbierta = false, onCer
       <AltaExpedienteWizard
         abierta={altaAbierta}
         onCerrar={() => onCerrarAlta?.()}
-        onCreado={(expedienteId, requisitos) => {
+        onCreado={(expedienteId, requisitos, detalle) => {
           onCerrarAlta?.();
           listado.recargar();
+          // El alta en una sola llamada devuelve el expediente ya montado. Se
+          // siembra en la caché para que el visor lo pinte SIN esperar otra
+          // llamada: acabamos de escribirlo, es el dato más fresco que existe.
+          if (detalle) guardarEnCache(detalle);
           avisar("exito", `Expediente creado con ${requisitos} requisitos.`);
           onAbrir(expedienteId);
         }}
         onError={(mensaje, pista) => avisar("peligro", mensaje, pista)}
         onAviso={(intencion, texto, pista) => avisar(intencion, texto, pista)}
+        onAbrirExistente={(expedienteId) => {
+          onCerrarAlta?.();
+          onAbrir(expedienteId);
+        }}
       />
 
       <SolicitudMasiva

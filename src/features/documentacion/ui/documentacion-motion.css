@@ -381,3 +381,46 @@
     animation: none !important;
   }
 }
+
+/* =============================================================
+   Entrada escalonada de una LISTA, en CSS.
+
+   ── Por qué no framer-motion aquí ────────────────────────────
+   Un `motion.li` por fila crea un resorte por fila: con los
+   veinticinco requisitos de un Tipo 2 son veinticinco motores de
+   física corriendo a la vez, cada uno con su suscripción y su
+   `requestAnimationFrame`. En un equipo sin GPU decente eso se
+   nota como un tirón al abrir el paso, y el resultado visual es
+   idéntico a una animación de compositor de doce líneas de CSS.
+
+   framer-motion se reserva para lo puntual y coreografiado (la
+   hoja del asistente, el panel del expediente): ahí su capacidad
+   de interrumpir y reanudar sí aporta. Una lista no necesita eso.
+
+   El retardo se pasa como `--doc-fila-retardo` desde el estilo en
+   línea, que es lo único que varía por fila y no obliga a generar
+   una clase por índice.
+   ============================================================= */
+
+.doc-fila-entra {
+  animation: doc-fila-entra 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: var(--doc-fila-retardo, 0ms);
+}
+
+@keyframes doc-fila-entra {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* `content-visibility` deja que el navegador se salte el diseño y el
+   pintado de las filas que están fuera de la ventana. `contain-intrinsic-size`
+   le da una altura estimada para que la barra de desplazamiento no
+   salte mientras las descubre. */
+.doc-fila-diferida {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-fila-entra { animation: none; }
+}

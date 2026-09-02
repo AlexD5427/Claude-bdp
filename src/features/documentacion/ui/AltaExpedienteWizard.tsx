@@ -22,7 +22,7 @@
  *    `idempotencyKey` por apertura evita el alta doble ante un doble clic.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -270,12 +270,66 @@ function WizardCuerpo({
 
   useEffect(() => bloquearScroll(), []);
 
+  /**
+   * Escape cierra el asistente.
+   *
+   * ── Por qué faltaba y por qué importa ─────────────────────────────────────
+   * El asistente solo se podía cerrar con la X o pulsando fuera. Es un diálogo
+   * modal (`aria-modal="true"`) y la convención —y lo que espera cualquiera que
+   * trabaja con teclado— es que Escape lo cierre. Lo detectó
+   * `qa/sonda-contraste.mjs`, que se quedaba atascada intentándolo.
+   *
+   * ── El detalle de los dos `useRef` ────────────────────────────────────────
+   * El manejador vive en una referencia y el efecto NO depende de él. Si
+   * dependiera, se volvería a montar en cada pulsación de tecla del formulario
+   * —el manejador se recrea al cambiar `docs` o `form`— y añadir y quitar un
+   * escuchador global cuarenta veces por frase es exactamente el patrón que en
+   * este módulo ya causó que en las observaciones «entrara una sola letra».
+   *
+   * Los componentes de dentro (el selector auxiliar, el calendario) detienen la
+   * propagación de su propio Escape, así que cerrar un desplegable no cierra el
+   * asistente entero con el formulario a medio llenar.
+   */
+  const alEscape = useRef<() => void>(() => {});
+  alEscape.current = intentarCerrar;
+  useEffect(() => {
+    const escuchar = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      alEscape.current();
+    };
+    document.addEventListener("keydown", escuchar);
+    return () => document.removeEventListener("keydown", escuchar);
+  }, []);
+
   const cat: Categoria | null = categoria ? categoriaDe(categoria) : null;
   const esComercial = categoria === "COMERCIAL";
   const enConstruccion = Boolean(cat && !cat.activa);
 
   const documentos = catalogo?.documentos ?? [];
-  const generales = useMemo(() => documentos.filter((d) => d.seccion === "generales"), [documentos]);
+  /**
+   * Los generales VIGENTES.
+   *
+   * ── El fallo que corrige el `d.activo` ────────────────────────────────────
+   * El catálogo devuelve las 39 filas, inactivas incluidas: la administración del
+   * catálogo necesita verlas todas. Filtrar solo por sección dejaba dieciocho
+   * generales en el asistente, con «Certificados de trabajo» y el RC-IVA entre
+   * ellos: exactamente los dos que el área retiró. Alguien los habría seguido
+   * pidiendo, que es lo contrario de lo que la retirada buscaba.
+   *
+   * Se filtra además por vigencia, porque un requisito puede estar activo y con
+   * fecha de fin pasada, y el motor del backend ya lo descarta: si aquí no se
+   * hiciera lo mismo, el formulario pediría algo que el expediente no va a tener.
+   */
+  const generales = useMemo(() => {
+    const hoyISO = hoy();
+    return documentos.filter(
+      (d) =>
+        d.seccion === "generales" &&
+        d.activo &&
+        (!d.vigenciaHasta || d.vigenciaHasta >= hoyISO) &&
+        (!d.vigenciaDesde || d.vigenciaDesde <= hoyISO),
+    );
+  }, [documentos]);
 
   /** Códigos aplicables a la rama elegida, según el backend. */
   const codigosAplicables = useMemo(() => {
@@ -815,7 +869,7 @@ function Encabezado({
                   className="grid h-4 w-4 place-items-center rounded-full text-[9px]"
                   style={{
                     background: activo ? "var(--doc-info)" : hecho ? "var(--doc-success)" : "var(--doc-surface-sunken)",
-                    color: activo || hecho ? "#04121f" : "var(--doc-text-faint)",
+                    color: activo || hecho ? "var(--doc-sobre-info)" : "var(--doc-text-faint)",
                   }}
                 >
                   {hecho ? <Check className="h-2.5 w-2.5" aria-hidden /> : i + 1}
@@ -1148,11 +1202,17 @@ function FilaDocumento({
   const diasProrroga = estado.prorrogaActiva && estado.prorrogaFecha ? diasDesdeHoy(estado.prorrogaFecha) : null;
 
   return (
-    <motion.li
-      initial={reducido ? false : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaExpo, delay: Math.min(orden * 0.02, 0.2) }}
-      className="doc-raised rounded-[var(--doc-radius,14px)] p-3.5"
+    /*
+     * `<li>` normal con animación CSS, no `motion.li`.
+     *
+     * Un expediente Tipo 2 tiene veinticinco requisitos: veinticinco resortes de
+     * framer-motion corriendo a la vez para una entrada escalonada que el
+     * compositor resuelve solo. `content-visibility` remata la jugada saltándose
+     * el diseño de las filas que están fuera de la ventana.
+     */
+    <li
+      className={`doc-raised doc-fila-diferida rounded-[var(--doc-radius,14px)] p-3.5${reducido ? "" : " doc-fila-entra"}`}
+      style={reducido ? undefined : { ["--doc-fila-retardo" as string]: `${Math.min(orden * 20, 200)}ms` }}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -1271,7 +1331,7 @@ function FilaDocumento({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.li>
+    </li>
   );
 }
 
@@ -1482,7 +1542,7 @@ function TarjetaCategoria({
         )}
       </span>
       {activa && (
-        <motion.span layoutId="cat-check" className="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full" style={{ background: categoria.color, color: "#04121f" }}>
+        <motion.span layoutId="cat-check" className="absolute right-3 top-3 grid h-5 w-5 place-items-center rounded-full" style={{ background: categoria.color, color: "var(--doc-sobre-info)" }}>
           <Check className="h-3 w-3" aria-hidden />
         </motion.span>
       )}
@@ -1513,7 +1573,7 @@ function TarjetaGarantia({
       }}
     >
       <span className="inline-flex items-center gap-1.5 text-[11px] font-bold" style={{ color: activa ? color : "var(--doc-text-muted)" }}>
-        <span className="grid h-5 w-5 place-items-center rounded-full text-[10px]" style={{ background: activa ? color : "var(--doc-surface-sunken)", color: activa ? "#04121f" : "var(--doc-text-faint)" }}>
+        <span className="grid h-5 w-5 place-items-center rounded-full text-[10px]" style={{ background: activa ? color : "var(--doc-surface-sunken)", color: activa ? "var(--doc-sobre-info)" : "var(--doc-text-faint)" }}>
           {garantia.etiqueta.replace("Tipo ", "")}
         </span>
         {garantia.etiqueta}

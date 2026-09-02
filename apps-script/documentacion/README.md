@@ -263,3 +263,84 @@ eso las importaciones, las migraciones y las exportaciones van por lotes con
 punto de control, y los respaldos que no caben en una celda se recortan avisando.
 Las cuotas diarias de Google aplican al correo, no a la lectura y escritura de la
 hoja; el correo esta apagado por defecto.
+
+---
+
+## Esquema 5 · catálogo v3 (2026-09)
+
+### Columnas nuevas
+
+| Hoja | Columnas | Para qué |
+| --- | --- | --- |
+| `CatalogoDocumentos` | `subseccion`, `subgrupo`, `presentacion_fisica`, `presentacion_digital`, `requiere_conteo_hojas` | Bloques con título por rama y forma de entrega |
+| `ExpedienteDocumentos` | `subseccion`, `hojas_fisicas` | La subsección **ya resuelta** para la rama, y las hojas del documento en papel |
+| `Expedientes` | `total_hojas_fisicas`, `total_documentos_fisicos` | Resúmenes materializados que piden la lista, el informe y la columna `PAGINAS` |
+| `Auxiliar` | `cargo_bdp` | Los cargos del banco (la lista la pega una persona) |
+
+Las añade `doc2EnsureSheets_`, que compara las columnas declaradas con las que hay
+y **añade las que faltan al final**, sin reordenar ni borrar. Por eso la migración
+`5.0.0-hojas-fisicas` son treinta líneas: reutiliza la parte peligrosa en lugar de
+duplicarla.
+
+### Migraciones nuevas
+
+| Versión | Por lotes | Qué hace |
+| --- | --- | --- |
+| `5.0.0-hojas-fisicas` | no | Añade las columnas. **No toca un solo dato.** |
+| `5.0.1-catalogo-v3` | sí | Publica el catálogo, siembra `cargo_bdp` y resincroniza los expedientes **abiertos** (los archivados se saltan: resincronizarlos los reabriría a efectos de cálculo) |
+| `5.0.2-identificadores` | sí | Recalcula la clave de comparación del carnet y **reporta las colisiones sin fusionarlas** |
+
+### `requiere_conteo_hojas` se DEDUCE
+
+```javascript
+function doc2EsFisico_(presentacion) {
+  var valor = docKey_(presentacion);
+  return valor === DOC2_PRESENTACION.SI || valor === DOC2_PRESENTACION.CONDICIONAL;
+}
+```
+
+Si se declarara a mano, nada impediría un documento digital con contador ni uno de
+papel sin él. Derivándolo, las dos incoherencias son imposibles, y declarar un
+requisito de papel nuevo le da su contador sin tocar la interfaz.
+
+### `subseccion` admite un mapa por rama
+
+`garante-inmueble` y `garante-folio` aplican al Tipo 1 **y** al Tipo 3, pero en
+Tipo 1 son del garante y en Tipo 3 del propio postulante:
+
+```javascript
+subseccion: {
+  COMERCIAL_1: '1 Garante con Bien Inmueble',
+  COMERCIAL_3: 'Postulante con inmueble propio'
+}
+```
+
+Se guarda como JSON en la celda y `doc2Aplicables_` lo resuelve **sobre una
+copia**: las filas del catálogo se devuelven por referencia desde una caché por
+petición, y mutarlas envenenaría la siguiente consulta de la misma petición.
+
+### Acciones nuevas
+
+- `documentacion.expedientes.detalle` — detalle de varios expedientes en una
+  llamada, para la precarga. Tope de `LOTE_MASIVO` ids, sin auditoría, y un id
+  inaccesible vuelve en `fallidos` sin tumbar el lote.
+- `documentacion.expediente.crear` — acepta `requisitos` y `prorrogas` en la misma
+  llamada y devuelve el `detalle` completo. **Estricto**: si un requisito falla,
+  lanza y no queda expediente a medias.
+- `documentacion.estado` — devuelve `soporta`, el mapa de lo que este backend sabe
+  hacer, para que el frontend pregunte en vez de suponer durante la ventana entre
+  los dos despliegues.
+
+### Retirar un requisito
+
+`retirado: true` en la semilla deja `activo = FALSE` y una fecha de fin de
+vigencia. **No borra la fila.** El motor de aplicabilidad solo mira los activos, y
+la migración **rescata** los retirados que el libro sí tenía registrados (con
+estado, observación **o prórroga**), marcados como «Requisito heredado (ya no se
+exige)».
+
+> **Dos fallos de conservación de datos corregidos aquí.**
+> `tieneDatos` no miraba las prórrogas: un requisito pendiente con un plazo
+> concedido se archivaba al recalcular la aplicabilidad, y el plazo desaparecía de
+> la vista aunque su fila siguiera en la hoja. Y la migración no materializaba los
+> retirados con historia, así que un «no aplica» de 2024 se habría perdido.

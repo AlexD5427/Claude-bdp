@@ -53,8 +53,27 @@ function doc2StableId_(prefijo, semilla) {
 }
 
 /** Clave normalizada de un identificador humano («CI - proceso - año»). */
+/**
+ * Clave de comparación de un carnet de identidad.
+ *
+ * ── Por qué se quita TODO lo que no es alfanumérico ─────────────────────────
+ * Desde que el campo admite el carnet tal como está en el documento, la MISMA
+ * persona puede escribirse de seis formas: `9876543`, `9 876 543`, `9.876.543`,
+ * `9-876-543`, `CI 9876543`… Antes solo se quitaban los espacios, así que las
+ * tres primeras colapsaban y las demás no: el módulo aceptaba varios expedientes
+ * de la misma persona y el informe mensual contaba varias incorporaciones donde
+ * hubo una. Con la validación de formato eso quedaba tapado; sin ella, quedaba a
+ * la vista.
+ *
+ * Se conservan letras y dígitos porque los complementos alfanuméricos («1234567-1A»)
+ * distinguen carnets de verdad. Lo que se descarta es la PUNTUACIÓN, que nunca
+ * distingue nada: nadie tiene dos carnets iguales salvo por un punto.
+ *
+ * El texto original NO se toca: se guarda aparte, tal como se escribió, porque es
+ * el que la persona reconoce y el que va al libro anual.
+ */
 function doc2NormalizarIdentificador_(valor) {
-  return docKey_(valor).replace(/\s+/g, '');
+  return docKey_(valor).replace(/[^0-9A-Z]/g, '');
 }
 
 /* ========================================================================== */
@@ -112,19 +131,42 @@ function doc2Lista_(valor) {
  * llena: un formulario que recibe «faltan datos» no puede marcar el campo, y uno
  * que recibe `{ nombre: "..." }` sí.
  */
+/**
+ * Nombre que una persona reconoce para cada campo obligatorio.
+ *
+ * ── Por qué hace falta ─────────────────────────────────────────────────────
+ * «Faltan datos obligatorios» es cierto e inútil. Quien registra necesita saber
+ * QUÉ falta, y el nombre técnico de la columna (`identificador`) no se lo dice.
+ * El público de estos mensajes son reclutadores, no quien escribió la hoja.
+ */
+var DOC2_ETIQUETA_CAMPO = {
+  identificador: 'el carnet de identidad',
+  nombre: 'el nombre completo',
+  cargo: 'el cargo',
+  agencia: 'la agencia',
+  gerencia: 'la gerencia',
+  fecha_ingreso: 'la fecha de ingreso',
+  motivo: 'el motivo',
+  titulo: 'el título',
+  responsable_id: 'el responsable'
+};
+
 function doc2ExigirCampos_(datos, requeridos) {
   var fallos = {};
+  var faltan = [];
   var hay = false;
   for (var i = 0; i < requeridos.length; i++) {
     var campo = requeridos[i];
     var valor = datos ? datos[campo] : null;
     if (valor === null || valor === undefined || String(valor).trim() === '') {
+      var etiqueta = DOC2_ETIQUETA_CAMPO[campo] || ('el dato "' + campo + '"');
       fallos[campo] = 'Este dato es obligatorio.';
+      faltan.push(etiqueta);
       hay = true;
     }
   }
   if (hay) {
-    throw docError_(DOC_CODE.VALIDATION_ERROR, 'Faltan datos obligatorios.', {
+    throw docError_(DOC_CODE.VALIDATION_ERROR, 'Falta ' + faltan.join(' y ') + '.', {
       hint: 'Completa los campos marcados y vuelve a guardar.',
       details: { fields: fallos }
     });

@@ -387,12 +387,12 @@ export function SeccionExportaciones({ avisar }: Props) {
             <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden /> Exportar a Excel
           </Boton>
           {progreso && (
-            <p className="text-xs text-ink-soft" role="status" aria-live="polite">
+            <p className="text-xs text-[color:var(--doc-text-muted)]" role="status" aria-live="polite">
               {progreso.hechos} de {progreso.total} expedientes procesados…
             </p>
           )}
         </div>
-        <p className="mt-2 text-[11px] text-ink-faint">
+        <p className="mt-2 text-[11px] text-[color:var(--doc-text-faint)]">
           El libro incluye Resumen, Expedientes, Requisitos, Prórrogas, Solicitudes, Revisiones, Aprobaciones, Tareas e Historial
           autorizado. Los valores que empiezan por «=» se escriben como texto para que el archivo no ejecute nada al abrirse.
         </p>
@@ -408,7 +408,7 @@ export function SeccionExportaciones({ avisar }: Props) {
                   <span className="text-ink">
                     {String(registro.tipo)} · {String(registro.expedientes)} expediente(s)
                   </span>
-                  <span className="text-ink-soft">
+                  <span className="text-[color:var(--doc-text-muted)]">
                     {String(registro.solicitadaPor)} · {fechaHora(String(registro.creadoEn))}
                   </span>
                   <ChipEstado
@@ -453,13 +453,13 @@ export function SeccionNotificaciones({ avisar, onAbrirExpediente }: Props) {
       encabezado: "Aviso",
       render: (fila) => (
         <div className="min-w-0">
-          <p className={`truncate text-xs ${fila.leida ? "text-ink-soft" : "font-semibold text-ink"}`}>{fila.titulo}</p>
-          <p className="truncate text-[11px] text-ink-faint">{fila.mensaje}</p>
+          <p className={`truncate text-xs ${fila.leida ? "text-[color:var(--doc-text-muted)]" : "font-semibold text-ink"}`}>{fila.titulo}</p>
+          <p className="truncate text-[11px] text-[color:var(--doc-text-faint)]">{fila.mensaje}</p>
         </div>
       ),
     },
-    { clave: "tipo", encabezado: "Evento", secundaria: true, render: (fila) => <span className="text-[11px] text-ink-soft">{fila.tipo}</span> },
-    { clave: "fecha", encabezado: "Fecha", render: (fila) => <span className="text-[11px] text-ink-soft">{fechaHora(fila.fecha)}</span> },
+    { clave: "tipo", encabezado: "Evento", secundaria: true, render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-muted)]">{fila.tipo}</span> },
+    { clave: "fecha", encabezado: "Fecha", render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-muted)]">{fechaHora(fila.fecha)}</span> },
     {
       clave: "canal",
       encabezado: "Canal",
@@ -528,7 +528,7 @@ export function SeccionNotificaciones({ avisar, onAbrirExpediente }: Props) {
           <BellOff className="h-3.5 w-3.5" aria-hidden /> Marcar todas leídas
         </Boton>
         {lista.datos && (
-          <span className="text-xs text-ink-soft">
+          <span className="text-xs text-[color:var(--doc-text-muted)]">
             <Bell className="mr-1 inline h-3.5 w-3.5" aria-hidden />
             {lista.datos.noLeidas} sin leer
           </span>
@@ -592,11 +592,11 @@ export function SeccionAuditoria({ onAbrirExpediente }: Props) {
   }
 
   const columnas: ColumnaTabla<NonNullable<typeof lista.datos>["eventos"][number]>[] = [
-    { clave: "fecha", encabezado: "Fecha", render: (fila) => <span className="text-[11px] text-ink-soft">{fechaHora(fila.fecha)}</span> },
+    { clave: "fecha", encabezado: "Fecha", render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-muted)]">{fechaHora(fila.fecha)}</span> },
     { clave: "evento", encabezado: "Evento", render: (fila) => <span className="text-xs text-ink">{fila.tipo}</span> },
-    { clave: "entidad", encabezado: "Entidad", secundaria: true, render: (fila) => <span className="text-[11px] text-ink-soft">{fila.entidadTipo}</span> },
-    { clave: "actor", encabezado: "Actor", render: (fila) => <span className="text-xs text-ink-soft">{fila.actor}</span> },
-    { clave: "origen", encabezado: "Origen", secundaria: true, render: (fila) => <span className="text-[11px] text-ink-soft">{fila.origen}</span> },
+    { clave: "entidad", encabezado: "Entidad", secundaria: true, render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-muted)]">{fila.entidadTipo}</span> },
+    { clave: "actor", encabezado: "Actor", render: (fila) => <span className="text-xs text-[color:var(--doc-text-muted)]">{fila.actor}</span> },
+    { clave: "origen", encabezado: "Origen", secundaria: true, render: (fila) => <span className="text-[11px] text-[color:var(--doc-text-muted)]">{fila.origen}</span> },
     {
       clave: "resultado",
       encabezado: "Resultado",
@@ -609,7 +609,7 @@ export function SeccionAuditoria({ onAbrirExpediente }: Props) {
       encabezado: "Solicitud",
       secundaria: true,
       render: (fila) => (
-        <span className="truncate text-[10px] text-ink-faint" title={fila.requestId}>
+        <span className="truncate text-[10px] text-[color:var(--doc-text-faint)]" title={fila.requestId}>
           {fila.requestId.slice(0, 18)}
         </span>
       ),

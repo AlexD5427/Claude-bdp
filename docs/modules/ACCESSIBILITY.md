@@ -74,3 +74,57 @@ following provisions.
 
 - Full audit with an automated checker (axe) and manual SR testing across the
   builder is recommended before candidate-facing release.
+
+## Catálogo v3 (2026-09)
+
+### Contraste: dos redes, porque una no basta
+
+`__tests__/contraste.test.ts` mide los **tokens** contra el fondo de referencia
+que el propio CSS declara (`--doc-medicion-fondo`), en los dos temas, leyendo el
+CSS real y recorriendo la cascada como la recorre el navegador. Falla por debajo
+de 4,5:1 (texto normal) o 3:1 (texto grande) con el número medido en el mensaje.
+
+`qa/sonda-contraste.mjs` mide el **texto que se pinta**, en Chromium, resolviendo
+el color y el fondo efectivos con `getComputedStyle` y componiendo las capas
+translúcidas. **1396 textos, 0 incidencias.**
+
+La segunda encontró lo que la primera no podía ver:
+
+| Qué | Dónde | Antes | Después |
+| --- | --- | --- | --- |
+| `text-ink-faint` / `text-ink-soft` (escala **global**) | 77 usos en 5 componentes del módulo | 4,26:1 | tokens del módulo |
+| Color del botón primario escrito a mano (`#04121f`) | «Guardar», «Continuar», «Nuevo expediente» | **3,53:1** en tema claro | `--doc-sobre-info`, por tema |
+
+> **Lección.** Un token correcto no garantiza texto legible. El color se escapa
+> por dos vías: una clase de utilidad que apunta a otra escala, y un hexadecimal
+> escrito en el componente «porque se veía bien». Las dos existían aquí.
+
+### Teclado
+
+- **El asistente de alta responde a Escape** (con confirmación si hay datos
+  escritos). No lo hacía: solo se cerraba con la X o pulsando fuera. Lo detectó la
+  sonda de contraste, que se quedaba atascada intentándolo.
+  El manejador vive en un `useRef` y el efecto no depende de él: si dependiera, se
+  remontaría en cada pulsación del formulario, que es el patrón que en este módulo
+  ya causó que en las observaciones «entrara una sola letra».
+- **El selector auxiliar** (Agencia, Gerencia, Cargo) navega con flechas,
+  `Inicio`/`Fin`, `Página arriba`/`abajo` —imprescindible con trescientos
+  cargos—, `Enter` para elegir y `Escape` para cerrar. `Escape` **detiene la
+  propagación**: cerrar el desplegable no cierra el asistente con el formulario a
+  medio llenar.
+- `role="option"` y el `id` van en el **botón**, no en el `<li>`: es lo que exige
+  ARIA (la opción es lo seleccionable) y lo que hace que `aria-activedescendant`
+  apunte al elemento que de verdad responde al clic.
+- **El contador de hojas** se ajusta con flechas arriba/abajo y admite escritura
+  directa. No es un `type="number"`: el nativo cambia el valor cuando la rueda del
+  ratón pasa por encima, y en una lista de veinticinco requisitos que se recorre
+  desplazándose eso altera en silencio un dato ya anotado.
+
+### El color nunca comunica solo
+
+- La forma de entrega lleva **palabra y valor**: «Papel: Sí\*», «Digital: Sí»,
+  «Papel: N/A». El asterisco es el estado `CONDICIONAL` del catálogo, con su
+  leyenda al pie de la sección — una sola vez, no repetida nueve veces.
+- El contador de hojas lleva su icono, su etiqueta accesible («Hojas del documento
+  físico: REJAP») y la palabra «hojas» junto al número.
+- Los títulos de subsección son **texto**, con su recuento de documentos al lado.

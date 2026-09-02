@@ -507,3 +507,85 @@ Dicho de frente, para que nadie lo descubra en producción:
 - **El expediente laboral** se prepara con un contrato documentado, pero no hay
   destino real al que enviarlo.
 - **Sin IA.** El resumen del expediente es una plantilla determinista.
+
+---
+
+## Catálogo v3 · lo que cambió para el área (2026-09)
+
+Ver el detalle técnico en
+[`DOCUMENTACION_2026-09_MODULO_INTEGRAL.md`](DOCUMENTACION_2026-09_MODULO_INTEGRAL.md),
+que empieza con los **PASOS MANUALES**.
+
+### Los documentos generales son 16
+
+Son exactamente los de la lista de papel del área, con su texto literal. Los dos
+que sobraban se **retiraron**: no se piden en un expediente nuevo, y los
+expedientes antiguos que los tenían los siguen mostrando marcados como heredados.
+
+| Retirado | Por qué sigue en el catálogo |
+| --- | --- |
+| `cert-trabajo` · Certificados de trabajo | Los expedientes de 2024 y 2025 lo tienen registrado, a veces con una prórroga concedida |
+| `rc-iva` · Certificado de saldo a favor (RC-IVA) | Igual |
+
+### Recuentos por rama
+
+| Rama | Requisitos |
+| --- | --- |
+| Funcionario general | 16 |
+| Comercial · Tipo 1 (garantía real) | 21 |
+| Comercial · Tipo 2 (garante con ingresos) | 25 |
+| Comercial · Tipo 3 (inmueble propio) | 21 |
+| Auditoría interna | 17 |
+| Cumplimiento / UIF | 19 |
+
+### Las hojas del papel se cuentan
+
+Nueve requisitos se entregan en papel y llevan un contador al lado. La lista no
+está escrita en ningún sitio de la interfaz: el catálogo dice si el documento es
+de papel y de ahí sale el contador.
+
+`antecedentes-felcc` · `rejap` · `titulo-legalizado` · `seguro-accidentes` ·
+`seguro-vida` · `impedimento-auditor` · `djj-prohibiciones-cumplimiento` ·
+`lgi-ft` · `examen-uif`
+
+El total viaja a la columna **`PAGINAS`** del libro anual —que existía y estaba
+siempre a cero—, al informe mensual y a las exportaciones. Las columnas **A a W**
+del Excel del área no se tocan.
+
+### El asterisco de la tabla
+
+En la columna *Física*, «SÍ\*» significa «sí, pero solo en los casos que indique
+el área». Es un valor del catálogo (`CONDICIONAL`), se pinta con su asterisco y
+lleva una leyenda al pie de la sección que lo explica. Lo llevan los antecedentes
+FELCC y el REJAP.
+
+### El primer campo es el carnet de identidad
+
+Se escribe **como aparece en el documento**: con puntos, con guiones, con
+complemento alfanumérico, con extensión de departamento. Sigue siendo obligatorio.
+
+Si el carnet ya existe, el módulo dice de quién es el expediente y ofrece
+**abrirlo**; lo que llevabas escrito no se pierde. Y dos formas de escribir el
+mismo carnet son la misma persona: `9876543`, `9.876.543` y `9-876-543` no crean
+tres expedientes.
+
+### Agencia, Gerencia y Cargo
+
+Las tres salen de la hoja `Auxiliar` del libro, cada una de su columna
+(`agencia_bdp`, `gerencia_bdp`, `cargo_bdp`). Se busca escribiendo, se elige con
+las flechas o con el ratón, y se puede **añadir un valor nuevo sin salir del
+formulario**. Nunca se quita nada.
+
+> Si ves aparecer agencias que llevaban tiempo sin salir en el desplegable, es lo
+> correcto: estaban escritas en la hoja y el módulo no las leía. Ver el fallo de
+> la hoja `Auxiliar` en el documento técnico.
+
+### Subsecciones con título
+
+Las ramas de garantía se organizan en bloques con título, y en el Tipo 2 los dos
+garantes familiares se presentan **por separado** («Garante familiar 1» y
+«Garante familiar 2»), para que no se suba dos veces la cédula del primero.
+
+Un detalle del proceso que el sistema respeta: el *Bien Inmueble* y el *folio*
+aparecen en «1 Garante con Bien Inmueble» en el Tipo 1 y en «Postulante con
+inmueble propio» en el Tipo 3. Es el mismo documento con dos dueños distintos.
