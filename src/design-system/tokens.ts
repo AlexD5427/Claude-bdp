@@ -27,36 +27,53 @@ interface IntentStyle {
   text: string;
 }
 
+/**
+ * Intenciones semánticas, con contraste real en los DOS temas.
+ *
+ * ── El fallo que esto corrige ───────────────────────────────────────────────
+ * Los valores anteriores estaban pensados solo para fondo oscuro:
+ * `text-cyan-200`, `text-emerald-200`, `text-amber-200`… Sobre el blanco del
+ * tema claro, un tono 200 da una relación de contraste de entre 1.6:1 y 2.2:1,
+ * cuando WCAG AA exige 4.5:1 en texto normal. El chip se leía en oscuro y
+ * desaparecía en claro, y no lo detectaba ningún compilador.
+ *
+ * La solución no es elegir un tono intermedio —no existe uno que funcione en los
+ * dos fondos—, sino que CADA TEMA tenga su valor. Se hace con variables CSS
+ * declaradas en `src/index.css` (`--intent-*`), que el tema claro redefine: la
+ * clase de Tailwind pasa a ser una referencia a la variable y el contraste lo
+ * decide el tema. La prueba `contraste.test.ts` calcula la relación de cada par
+ * en los dos temas y falla por debajo del umbral.
+ */
 export const INTENT: Record<Intent, IntentStyle> = {
   neutral: {
-    chip: "bg-[color:var(--fill-2)] text-ink-soft ring-1 ring-[color:var(--hairline)]",
-    dot: "bg-slate-400",
-    text: "text-ink-soft",
+    chip: "bg-[color:var(--intent-neutral-bg)] text-[color:var(--intent-neutral-fg)] ring-1 ring-[color:var(--intent-neutral-ring)]",
+    dot: "bg-[color:var(--intent-neutral-dot)]",
+    text: "text-[color:var(--intent-neutral-fg)]",
   },
   info: {
-    chip: "bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-400/30",
-    dot: "bg-cyan-400",
-    text: "text-cyan-300",
+    chip: "bg-[color:var(--intent-info-bg)] text-[color:var(--intent-info-fg)] ring-1 ring-[color:var(--intent-info-ring)]",
+    dot: "bg-[color:var(--intent-info-dot)]",
+    text: "text-[color:var(--intent-info-fg)]",
   },
   success: {
-    chip: "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30",
-    dot: "bg-emerald-400",
-    text: "text-emerald-300",
+    chip: "bg-[color:var(--intent-success-bg)] text-[color:var(--intent-success-fg)] ring-1 ring-[color:var(--intent-success-ring)]",
+    dot: "bg-[color:var(--intent-success-dot)]",
+    text: "text-[color:var(--intent-success-fg)]",
   },
   warning: {
-    chip: "bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/30",
-    dot: "bg-amber-400",
-    text: "text-amber-300",
+    chip: "bg-[color:var(--intent-warning-bg)] text-[color:var(--intent-warning-fg)] ring-1 ring-[color:var(--intent-warning-ring)]",
+    dot: "bg-[color:var(--intent-warning-dot)]",
+    text: "text-[color:var(--intent-warning-fg)]",
   },
   danger: {
-    chip: "bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/30",
-    dot: "bg-rose-400",
-    text: "text-rose-300",
+    chip: "bg-[color:var(--intent-danger-bg)] text-[color:var(--intent-danger-fg)] ring-1 ring-[color:var(--intent-danger-ring)]",
+    dot: "bg-[color:var(--intent-danger-dot)]",
+    text: "text-[color:var(--intent-danger-fg)]",
   },
   accent: {
-    chip: "bg-indigo-500/15 text-indigo-200 ring-1 ring-indigo-400/30",
-    dot: "bg-indigo-400",
-    text: "text-indigo-300",
+    chip: "bg-[color:var(--intent-accent-bg)] text-[color:var(--intent-accent-fg)] ring-1 ring-[color:var(--intent-accent-ring)]",
+    dot: "bg-[color:var(--intent-accent-dot)]",
+    text: "text-[color:var(--intent-accent-fg)]",
   },
 };
 

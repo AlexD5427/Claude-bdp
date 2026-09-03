@@ -23,6 +23,7 @@ import { configurarCliente, hayBackendConfigurado, mensajeDeError, urlCliente } 
 import { docApi, type CatalogoCliente, type EstadoModulo } from "../api/acciones";
 import { FILTROS_VACIOS, type FiltrosExpedientes } from "../domain/progreso";
 import type { Capacidades, SeccionId } from "../domain/vocabulario";
+import { obtenerPreferencias } from "./preferencias";
 
 /* ------------------------------------------------------------------ */
 /* Estado                                                              */
@@ -205,8 +206,15 @@ export function ponerFiltros(patch: Partial<FiltrosExpedientes>): void {
   }));
 }
 
+/**
+ * Vacía los filtros, menos el orden por defecto.
+ *
+ * «Limpiar filtros» quiere decir «quítame los recortes», no «devuélveme la
+ * lista al revés de como la tengo configurada». El orden es una preferencia de
+ * lectura, no un filtro, y sobrevive a la limpieza.
+ */
 export function limpiarFiltros(): void {
-  consola.set((prev) => ({ ...prev, filtros: { ...FILTROS_VACIOS } }));
+  consola.set((prev) => ({ ...prev, filtros: { ...FILTROS_VACIOS, orden: obtenerPreferencias().orden } }));
 }
 
 export function ponerDensidad(densidad: Densidad): void {

@@ -52,7 +52,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import type { Intent } from "../../../design-system/tokens";
+import { Z, type Intent } from "../../../design-system/tokens";
 import type { Intencion } from "../domain/vocabulario";
 import { bloquearScroll } from "../../../lib/scrollLock";
 import { CURVA, DURACION, resorte, useMovimientoReducido } from "./DocMotion";
@@ -546,10 +546,12 @@ export function Boton({
   const base =
     "doc-tap doc-no-print inline-flex items-center justify-center gap-1.5 rounded-[var(--doc-radius-sm)] px-3 py-2 text-xs font-semibold transition-[background-color,color,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-50";
 
+  /* El texto de los rellenos sólidos viene de un token POR TEMA: con la tinta
+     oscura fija, el botón primario del tema claro daba 3.53:1 (AA exige 4.5). */
   const estilos: Record<string, CSSProperties> = {
-    primario: { background: "var(--doc-info)", color: "#04121f" },
+    primario: { background: "var(--doc-info)", color: "var(--doc-solido-fg)" },
     suave: { background: "var(--doc-surface-raised)", color: "var(--doc-text)", boxShadow: "inset 0 0 0 1px var(--doc-border)" },
-    peligro: { background: "var(--doc-danger)", color: "#1b0710" },
+    peligro: { background: "var(--doc-danger)", color: "var(--doc-solido-peligro-fg)" },
     fantasma: { color: "var(--doc-text-muted)" },
   };
 
@@ -1179,7 +1181,19 @@ export function Lateral({
     // que apilar el panel sobre otra superposición no deja la página trancada.
     const liberarScroll = bloquearScroll();
     const t = setTimeout(() => {
-      contenedor.current?.querySelector<HTMLElement>("[data-foco-inicial], button, [href], input, select, textarea")?.focus();
+      /* Mismo fallo que corregía `HojaCentral`: `querySelector` con una lista
+         separada por comas devuelve el primer elemento en ORDEN DE DOCUMENTO,
+         no el del primer selector, así que el botón de cerrar de la cabecera le
+         robaba el foco al campo marcado con `data-foco-inicial`. Se prueba el
+         marcador primero y no se toca el foco si ya está dentro del panel. */
+      const raiz = contenedor.current;
+      if (!raiz) return;
+      if (raiz.contains(document.activeElement)) return;
+      const preferido = raiz.querySelector<HTMLElement>("[data-foco-inicial]");
+      const alternativo = raiz.querySelector<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+      );
+      (preferido ?? alternativo)?.focus();
     }, 50);
 
     return () => {
@@ -1262,6 +1276,21 @@ export function Lateral({
  * solicitud, lanzar una operación masiva. Muestra el impacto ANTES, porque una
  * confirmación que solo dice «¿seguro?» no informa de nada. Las destructivas se
  * anuncian como `alertdialog`.
+ *
+ * ── El apilamiento no es decorativo ─────────────────────────────────────────
+ * Esta superficie vive en `Z.dialog` (165) y no en un número escrito a mano. El
+ * fallo original de este repositorio fue exactamente ese: la confirmación de
+ * «salir sin guardar» valía 110, el formulario que la abría vivía en 115, y la
+ * confirmación aparecía POR DETRÁS. «Descartar y salir» no se podía pulsar y
+ * Escape solo la cancelaba: la persona quedaba atrapada dentro del formulario
+ * con la única salida de guardar o recargar la página.
+ *
+ * Volvió a ocurrir al convertir el expediente en una hoja central: la hoja se
+ * puso en 120 y la confirmación seguía en 110. Se detectó midiendo con
+ * Playwright —el clic sobre «Cerrar y descartar» lo interceptaba la hoja— y la
+ * lección es la de siempre: una confirmación tiene que estar por encima de
+ * CUALQUIER superficie que la pueda abrir, y ese número lo decide la escala del
+ * sistema de diseño, no cada componente.
  */
 export function Confirmacion({
   abierta,
@@ -1304,7 +1333,8 @@ export function Confirmacion({
     <AnimatePresence>
       {abierta && (
         <motion.div
-          className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          className="fixed inset-0 grid place-items-center bg-slate-950/70 p-4 backdrop-blur-sm"
+          style={{ zIndex: Z.dialog }}
           initial={reducido ? undefined : { opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={reducido ? undefined : { opacity: 0 }}
