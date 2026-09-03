@@ -357,10 +357,14 @@ describe("backend · intentos", () => {
   it("el límite de frecuencia protege el enlace de una avalancha", () => {
     const h = loadInstalledBackend();
     const ev = preparar(h, (doc) => {
-      doc.evaluacion.aplicacion.intentosMaximos = 20;
+      doc.evaluacion.aplicacion.intentosMaximos = 60;
     });
     let limitado = false;
-    for (let i = 0; i < 20; i++) {
+    let antesDelLimite = 0;
+    // Se pasa del cupo a propósito. El cupo se subió a 40 por minuto porque una
+    // convocatoria de veinte personas a la vez es uso normal y agotaba el
+    // anterior; sigue existiendo, y eso es lo que aquí se comprueba.
+    for (let i = 0; i < 60; i++) {
       const res = h.publico("startAttempt", {
         codigo: ev.codigo,
         participante: { nombre: `P${i}`, documento: `DOC${i}` },
@@ -370,8 +374,11 @@ describe("backend · intentos", () => {
         expect(res.error.detalle.limite).toBeGreaterThan(0);
         break;
       }
+      antesDelLimite += 1;
     }
     expect(limitado).toBe(true);
+    // Y una convocatoria de veinte personas a la vez entra sin tropezar.
+    expect(antesDelLimite).toBeGreaterThanOrEqual(20);
   });
 
   it("sin caché disponible el límite de frecuencia no bloquea la prueba", () => {
