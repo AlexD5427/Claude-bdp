@@ -135,6 +135,45 @@ A diferencia de `visual-documentacion.mjs` —que monta solo la consola—,
 superposiciones globales): es el único entorno donde se reproducen los fallos que
 nacen de la convivencia entre módulos.
 
+## Arnés del módulo de Evaluaciones
+
+Una evaluación publicada se comparte con un enlace, y ese enlace lo abre alguien
+de fuera: **el fallo que este arnés persigue solo existe en la diferencia entre
+dos navegadores.** `qa/arnes-evaluaciones.mjs` monta los dos: el del reclutador,
+con su sesión del ATS y la conexión del módulo guardada, y el del postulante, que
+no tiene nada más que un enlace. El backend es el `.gs` real cargado en memoria
+por `scripts/evaluaciones-backend.mjs`, y el registro apunta **qué acciones
+llevaron llave de administración y cuáles no**.
+
+```bash
+npm run build
+node qa/sonda-enlace-publico.mjs                  # el camino completo del postulante
+node qa/sonda-enlace-publico.mjs enlace-antiguo   # un enlace sin la referencia del despliegue
+node qa/sonda-enlace-publico.mjs demostracion     # el módulo avisa de que sus enlaces no salen de aquí
+node qa/sonda-enlace-publico.mjs demostracion-propia  # y el reclutador sí puede abrir el suyo
+node qa/sonda-enlace-publico.mjs movil            # la portada en 390 px
+node qa/sonda-enlace-publico.mjs avalancha        # el cupo de inicios agotado por una convocatoria
+```
+
+El escenario `completo` recorre lo que hace una persona real: abre el enlace, lee
+la portada, escribe su nombre y su documento, responde, envía, y después se
+comprueba **en el libro** que el intento quedó registrado con su nombre. De paso
+verifica que ninguna acción del postulante viajó con la llave y que en su
+navegador no quedó guardada ninguna.
+
+Con el código anterior, ese escenario terminaba así —y es la reproducción exacta
+de lo que reportó el área—:
+
+```
+· primeros 200 caracteres: No se pudo abrir la evaluación
+  No existe ninguna evaluación con ese código.
+· llamadas al backend: ping, listEvaluations      ← ninguna del postulante
+```
+
+La última línea es el diagnóstico: el navegador del postulante no llamó a nadie,
+se contestó a sí mismo desde un almacén local vacío. El arreglo está explicado en
+[`docs/evaluaciones/ENLACE_PUBLICO.md`](../docs/evaluaciones/ENLACE_PUBLICO.md).
+
 ## Resultado esperado tras las correcciones
 
 | Sonda                     | Antes                                            | Después                                        |
@@ -147,3 +186,14 @@ nacen de la convivencia entre módulos.
 | `secciones-apagadas`      | comparativa en blanco sin explicación            | aviso con el remedio en el sitio               |
 | `punto-sincronizacion`    | «Sincronizado» sin red                           | «Sin conexión…» en rojo                        |
 | `duplicados-comparables`  | la segunda fila era inalcanzable                 | ambas comparables, sin avisos de React         |
+
+## Resultado esperado de la sonda de Evaluaciones
+
+| Escenario | Antes | Después |
+| --- | --- | --- |
+| `completo` | el postulante recibía «No existe ninguna evaluación con ese código» y su navegador no llamaba a nadie | abre la portada, responde y el intento queda en el libro con su nombre |
+| `enlace-antiguo` | el mismo mensaje, culpando al código | dice que el enlace no indica a qué servidor pertenece y explica el remedio |
+| `demostracion` | se copiaban enlaces que no podían abrir en ningún otro equipo | el módulo lo advierte antes de enviarlos |
+| `demostracion-propia` | — | el enlace local abre, con el cartel de «vista local de demostración» |
+| `movil` | — | portada en 390 px sin desplazamiento horizontal |
+| `avalancha` | ocho de veinte candidatos se quedaban con «se alcanzó el límite» | esperan con cuenta atrás y entran solos |
