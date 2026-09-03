@@ -316,11 +316,16 @@ export async function refrescarNotificaciones(): Promise<void> {
   }
 }
 
-/** Vuelve a pedir el catálogo. Se llama tras editarlo. */
-export async function refrescarCatalogo(): Promise<void> {
+/**
+ * Vuelve a pedir el catálogo. Se llama tras editarlo.
+ *
+ * `forzar` hace que el SERVIDOR relea la hoja en lugar de servir su caché: es lo
+ * que hace falta cuando el área acaba de pegar cargos o agencias a mano.
+ */
+export async function refrescarCatalogo(forzar = false): Promise<void> {
   if (obtenerConsola().conexion !== "conectado") return;
   try {
-    const catalogo = await docApi.catalogo();
+    const catalogo = await docApi.catalogo(forzar);
     guardarCatalogoCache(catalogo);
     consola.set((prev) => ({ ...prev, catalogo }));
   } catch (error) {

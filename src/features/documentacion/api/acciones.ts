@@ -37,12 +37,28 @@ export interface EstadoModulo {
   problema?: string;
 }
 
+/** Cómo se presenta un requisito. `CONDICIONAL` es el «SÍ*» de la tabla del área. */
+export type Presentacion = "SI" | "NO" | "CONDICIONAL";
+
 export interface CatalogoDocumento {
   codigo: string;
   nombre: string;
   descripcion: string;
   textoObservacion: string;
   seccion: string;
+  /**
+   * Título del bloque dentro de la sección, por rama.
+   *
+   * Llega SIN resolver porque el mismo documento puede pertenecer a bloques
+   * distintos según el tipo de garantía (`garante-inmueble` es «1 Garante con
+   * Bien Inmueble» en el Tipo 1 y «Postulante con inmueble propio» en el Tipo 3).
+   * La clave `*` significa «igual en todas las ramas».
+   */
+  subseccion: Record<string, string>;
+  presentacionFisica: Presentacion;
+  presentacionDigital: "SI" | "NO";
+  /** ¿Lleva contador de hojas? Es cierto exactamente en los que tienen físico. */
+  requiereConteoHojas: boolean;
   grupo: string;
   orden: number;
   obligatorio: boolean;
@@ -55,10 +71,35 @@ export interface CatalogoDocumento {
   requiereRevision: boolean;
   requiereAprobacion: boolean;
   activo: boolean;
+  /** Requisito RETIRADO del proceso: solo aparece en expedientes antiguos. */
+  retirado?: boolean;
   versionCatalogo: number;
   vigenciaDesde: string;
   vigenciaHasta: string;
   columnaLibro: string;
+}
+
+/** Columnas de la hoja `Auxiliar` que alimentan los campos con sugerencias. */
+export type ColumnaAuxiliar = "agencia_bdp" | "gerencia_bdp" | "cargo_bdp";
+
+export interface CatalogosAuxiliares {
+  agencia_bdp: string[];
+  gerencia_bdp: string[];
+  cargo_bdp: string[];
+}
+
+export interface RamaAplicabilidad {
+  tipoFuncionario: string;
+  etiqueta: string;
+  tipoGarantia: string;
+  habilitada: boolean;
+  total: number;
+  obligatorios: number;
+  conConteoHojas: number;
+  codigos: string[];
+  /** `codigo -> título de subsección`, ya resuelto para esta rama. */
+  subsecciones: Record<string, string>;
+  nota: string;
 }
 
 export interface CatalogoCliente {
@@ -66,17 +107,8 @@ export interface CatalogoCliente {
   esquema: number;
   documentos: CatalogoDocumento[];
   vocabulario: Record<string, unknown>;
-  auxiliares: { agencia_bdp: string[]; gerencia_bdp: string[] };
-  aplicabilidad: {
-    tipoFuncionario: string;
-    etiqueta: string;
-    tipoGarantia: string;
-    habilitada: boolean;
-    total: number;
-    obligatorios: number;
-    codigos: string[];
-    nota: string;
-  }[];
+  auxiliares: CatalogosAuxiliares;
+  aplicabilidad: RamaAplicabilidad[];
 }
 
 export interface PanelDatos {
@@ -389,7 +421,15 @@ export interface LoteExportacion {
 export const docApi = {
   /* --- Estado y catálogos ------------------------------------------ */
   estado: (o?: OpcionesLlamada) => llamar<EstadoModulo>("documentacion.estado", {}, { reintentos: 1, timeoutMs: 15000, ...o }),
-  catalogo: (o?: OpcionesLlamada) => llamar<CatalogoCliente>("documentacion.catalogo", {}, o),
+  /**
+   * Catálogo, vocabulario, auxiliares y mapa de aplicabilidad.
+   *
+   * `refrescar` fuerza al servidor a releer la hoja en lugar de servir su caché
+   * de diez minutos. Es lo que se usa después de que el área pega valores nuevos
+   * en la hoja `Auxiliar`: sin esto habría que esperar sin saber por qué.
+   */
+  catalogo: (refrescar = false, o?: OpcionesLlamada) =>
+    llamar<CatalogoCliente>("documentacion.catalogo", refrescar ? { refrescar: true } : {}, o),
   vocabulario: (o?: OpcionesLlamada) =>
     llamar<{
       esquema: number;
@@ -403,13 +443,13 @@ export const docApi = {
     }>("documentacion.vocabulario", {}, o),
   guardarCatalogo: (catalogo: unknown[], o?: OpcionesLlamada) =>
     llamar<{ guardados: number; creados: number; rechazados: unknown[] }>("documentacion.catalogo.guardar", { catalogo }, o),
-  auxiliares: (o?: OpcionesLlamada) =>
-    llamar<{ auxiliares: { agencia_bdp: string[]; gerencia_bdp: string[] }; revision: Record<string, unknown> }>(
+  auxiliares: (refrescar = false, o?: OpcionesLlamada) =>
+    llamar<{ auxiliares: CatalogosAuxiliares; revision: Record<string, unknown> }>(
       "documentacion.auxiliares",
-      {},
+      refrescar ? { refrescar: true } : {},
       o,
     ),
-  agregarAuxiliar: (columna: string, valores: string[], o?: OpcionesLlamada) =>
+  agregarAuxiliar: (columna: ColumnaAuxiliar, valores: string[], o?: OpcionesLlamada) =>
     llamar<{ columna: string; agregados: string[]; total: number }>("documentacion.auxiliares.agregar", { columna, valores }, o),
   permisos: (o?: OpcionesLlamada) =>
     llamar<{ rol: string; actor: string; actorId: string; capacidades: Capacidades; matriz: Record<string, string[]>; roles: string[] }>(
@@ -486,14 +526,60 @@ export const docApi = {
   /* --- Expedientes ------------------------------------------------- */
   listarExpedientes: (filtros: Record<string, unknown>, o?: OpcionesLlamada) =>
     llamar<ListadoExpedientes>("documentacion.expedientes.listar", { filtros }, o),
+  /**
+   * ¿Hay ya un expediente con este carnet?
+   *
+   * Consulta ligera: solo dice si existe y cómo se llama. La usa el asistente de
+   * alta mientras se escribe el número. Compara por la clave de identidad —solo
+   * dígitos y letras—, así que reconoce el mismo carnet escrito de otra forma, que
+   * es exactamente lo que la búsqueda por texto no hace.
+   */
+  expedientePorCarnet: (identificador: string, o?: OpcionesLlamada) =>
+    llamar<{
+      encontrado: boolean;
+      expedienteId?: string;
+      identificador?: string;
+      nombre?: string;
+      estado?: string;
+      archivado?: boolean;
+    }>("documentacion.expediente.porCarnet", { identificador }, o),
   obtenerExpediente: (expedienteId: string, extras: Record<string, unknown> = {}, o?: OpcionesLlamada) =>
     llamar<ExpedienteOperativo>("documentacion.expediente.obtener", { expedienteId, ...extras }, o),
+  /**
+   * Alta de expediente.
+   *
+   * El `expediente` puede traer, además de la identidad y la rama, las listas
+   * `requisitos` (con estado, observaciones y hojas físicas) y `prorrogas`. Un
+   * backend que ya las entiende responde `completa: true` y no hay que hacer
+   * nada más; uno anterior las ignora y el asistente completa por la ruta larga.
+   */
   crearExpediente: (expediente: Record<string, unknown>, o?: OpcionesLlamada) =>
-    llamar<{ expedienteId: string; creado: boolean; requisitos?: number; repetido?: boolean }>(
-      "documentacion.expediente.crear",
-      { expediente },
-      o,
-    ),
+    llamar<{
+      expedienteId: string;
+      creado: boolean;
+      requisitos?: number;
+      repetido?: boolean;
+      completa?: boolean;
+      aplicados?: number;
+      prorrogasCreadas?: number;
+      fallidos?: { codigo: string; motivo: string }[];
+    }>("documentacion.expediente.crear", { expediente }, o),
+  /**
+   * Detalle LIGERO de varios expedientes en una sola llamada.
+   *
+   * Es lo que usa la precarga en segundo plano: veinticinco filas de la lista se
+   * traen en dos o tres llamadas en lugar de veinticinco. Trae cabecera,
+   * requisitos y prórrogas; el historial y los comentarios se piden al abrir.
+   */
+  detalleExpedientes: (expedienteIds: string[], o?: OpcionesLlamada) =>
+    llamar<{
+      solicitados: number;
+      devueltos: number;
+      noEncontrados: string[];
+      expedientes: { expediente: ExpedienteCabecera; requisitos: RequisitoVista[]; prorrogas: ProrrogaVista[]; parcial: true }[];
+      capacidades: Capacidades;
+      generado: string;
+    }>("documentacion.expedientes.detalle", { expedienteIds }, o),
   actualizarExpediente: (expedienteId: string, cambios: Record<string, unknown>, version?: number, o?: OpcionesLlamada) =>
     llamar<{ expedienteId: string; cambios: number; sincronizacion?: unknown }>(
       "documentacion.expediente.actualizar",
