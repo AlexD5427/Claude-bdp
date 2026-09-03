@@ -37,6 +37,7 @@ import { Field, TextInput } from "../../../design-system/liquid-glass/fields";
 import {
   AVISO_CONFIGURACION,
   conexionStore,
+  despliegueDeUrl,
   guardarConexion,
   problemaDeConexion,
   type ModoBackend,
@@ -174,14 +175,14 @@ export function ConnectionPanel({ onCambio }: { onCambio?: () => void }) {
           <OpcionModo
             activa={modo === "apps-script"}
             titulo="Backend de Apps Script"
-            descripcion="El libro de cálculo real, con auditoría, resultados compartidos y todo el diagnóstico."
+            descripcion="El libro de cálculo real, con auditoría, resultados compartidos y enlaces que abren en cualquier equipo."
             icono={<Database className="h-4 w-4" />}
             onClick={() => setModo("apps-script")}
           />
           <OpcionModo
             activa={modo === "demostracion"}
             titulo="Demostración local"
-            descripcion="Todo funciona en este navegador, sin desplegar nada. Los datos no se comparten."
+            descripcion="Todo funciona en este navegador, sin desplegar nada. Los datos no se comparten y los enlaces públicos no abren en otros equipos."
             icono={<Info className="h-4 w-4" />}
             onClick={() => setModo("demostracion")}
           />
@@ -211,6 +212,39 @@ export function ConnectionPanel({ onCambio }: { onCambio?: () => void }) {
                     autoComplete="off"
                   />
                 </Field>
+                {/*
+                  Los enlaces públicos llevan dentro la referencia de ESTE
+                  despliegue: es lo que hace que abran en el teléfono de un
+                  postulante, que no tiene esta configuración. Si la dirección no
+                  tiene la forma de un despliegue de Apps Script, la referencia no
+                  se puede extraer y conviene saberlo aquí y no cuando el enlace ya
+                  se envió.
+                */}
+                {url.trim() !== "" && (
+                  <p
+                    className={`flex items-start gap-1.5 rounded-2xl px-3 py-2 text-[0.72rem] ring-1 ${
+                      despliegueDeUrl(url.trim())
+                        ? "bg-emerald-500/10 tone-text-exito ring-emerald-400/30"
+                        : "bg-amber-500/10 tone-text-aviso ring-amber-400/30"
+                    }`}
+                  >
+                    <LinkIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    {despliegueDeUrl(url.trim()) ? (
+                      <span>
+                        Los enlaces públicos llevarán dentro la referencia de este despliegue
+                        {" "}
+                        (<code className="font-mono">{despliegueDeUrl(url.trim())!.id.slice(0, 12)}…</code>), así que
+                        abrirán en cualquier equipo sin configurar nada.
+                      </span>
+                    ) : (
+                      <span>
+                        Esta dirección no tiene la forma de un despliegue de Apps Script
+                        (<code className="font-mono">/macros/s/&lt;id&gt;/exec</code>), así que los enlaces públicos no
+                        podrán llevarla dentro y solo abrirán en navegadores ya configurados.
+                      </span>
+                    )}
+                  </p>
+                )}
                 <Field
                   label="Llave de administración"
                   htmlFor="ev-llave"

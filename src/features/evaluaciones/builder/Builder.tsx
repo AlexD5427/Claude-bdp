@@ -28,7 +28,6 @@ import {
   CloudOff,
   Eye,
   History,
-  Link2,
   Loader2,
   Redo2,
   Save,
@@ -42,7 +41,7 @@ import { TextArea } from "../../../design-system/liquid-glass/fields";
 import type { TalentPermissions } from "../../shared/permissions";
 import { logAudit } from "../../shared/auditTrail";
 import { guardarEvaluacion, publicarEvaluacion, nuevaSolicitudId, revertirVersion } from "../api/client";
-import { enlacePublico } from "../api/connection";
+import { EnlacePublico, EnlacePublicoCompacto } from "../ui/EnlacePublico";
 import { contarContenido, estimarMinutos } from "../domain/factory";
 import { objetivoPuntaje } from "../domain/puntaje";
 import { puedePublicar, revisarDocumento, soloAvisos, soloErrores } from "../domain/validation";
@@ -59,7 +58,6 @@ import { GeneralStep } from "./GeneralStep";
 import { QuestionsStep } from "./QuestionsStep";
 import { ReviewStep } from "./ReviewStep";
 import {
-  BotonCopiar,
   BotonPrimario,
   BotonSecundario,
   EstadoPill,
@@ -306,7 +304,6 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
     // candidato empieza a servir otra versión. Un acuse que se ve —y que dice qué
     // versión— evita la duda de «¿se publicó o no?» y el segundo clic.
     setCelebrar(res.value.version.etiqueta);
-    setTimeout(() => setCelebrar(null), 2600);
     toast.success(
       `Publicada como ${res.value.version.etiqueta}. El enlace público ya sirve esta versión.`,
     );
@@ -394,7 +391,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
             >
               <Redo2 className="h-4 w-4" />
             </BotonSecundario>
-            {publicada && <BotonCopiar texto={enlacePublico(evaluacion.codigo)} etiqueta="Enlace público" />}
+            {publicada && <EnlacePublicoCompacto codigo={evaluacion.codigo} />}
             {editable && (
               <BotonSecundario onClick={() => void guardar()} disabled={!sucio || guardado === "guardando"}>
                 {guardado === "guardando" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -581,14 +578,7 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
               <BotonPrimario onClick={() => onVerResultados(evaluacion.id, evaluacion.titulo, evaluacion.codigo)}>
                 <BarChart3 className="h-4 w-4" /> Abrir resultados
               </BotonPrimario>
-              {publicada && (
-                <p className="flex items-center gap-1.5 text-xs text-ink-faint">
-                  <Link2 className="h-3.5 w-3.5" /> Enlace del candidato:{" "}
-                  <code className="rounded bg-[color:var(--fill-2)] px-1.5 py-0.5 font-mono text-[0.7rem]">
-                    {enlacePublico(evaluacion.codigo)}
-                  </code>
-                </p>
-              )}
+              {publicada && <EnlacePublico codigo={evaluacion.codigo} />}
             </div>
           </GlassPanel>
         )}
@@ -696,40 +686,42 @@ export function Builder({ documento, permisos, actor, onSalir, onDocumento, onVe
         </p>
       </GlassOverlay>
 
-      {/* Acuse de publicación */}
-      <AnimatePresence>
-        {celebrar && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="pointer-events-none fixed inset-0 z-[160] grid place-items-center"
-            role="status"
-            aria-live="polite"
-          >
-            <motion.div
-              initial={{ scale: 0.7, y: 18 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 260, damping: 18 }}
-              className="glass-heavy flex flex-col items-center gap-2 rounded-3xl px-8 py-6 text-center"
-            >
-              <motion.span
-                initial={{ scale: 0.4, rotate: -20 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", stiffness: 320, damping: 14, delay: 0.08 }}
-                className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-glass"
-              >
-                <CheckCircle2 className="h-7 w-7" />
-              </motion.span>
-              <p className="text-lg font-black text-ink">Publicada como {celebrar}</p>
-              <p className="max-w-xs text-xs text-ink-soft">
-                El enlace del candidato ya sirve esta versión. Los intentos que ya empezaron siguen con la suya.
+      {/*
+        Acuse de publicación.
+
+        Antes era un destello de dos segundos y medio que decía «publicada». Ahora
+        se queda hasta que alguien lo cierra, porque tiene algo que decir: el
+        enlace que hay que enviar y el resultado de comprobarlo COMO LO VERÁ EL
+        POSTULANTE. Ese es el momento —y el único— en el que un enlace que no va a
+        funcionar se puede detectar antes de mandarlo a diez personas.
+      */}
+      <GlassOverlay
+        abierto={celebrar !== null}
+        onClose={() => setCelebrar(null)}
+        etiqueta="Evaluación publicada"
+        ancho="max-w-xl"
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-glass">
+              <CheckCircle2 className="h-6 w-6" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-lg font-black text-ink">Publicada como {celebrar}</h3>
+              <p className="text-xs text-ink-soft">
+                Los intentos que ya empezaron siguen con su versión; los nuevos usarán esta.
               </p>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </div>
+          </div>
+          <EnlacePublico codigo={evaluacion.codigo} autoComprobar />
+          <p className="text-[0.72rem] text-ink-faint">
+            Quien reciba este enlace no necesita cuenta ni contraseña: escribe su nombre y su documento y responde.
+          </p>
+          <div className="flex justify-end">
+            <BotonPrimario onClick={() => setCelebrar(null)}>Listo</BotonPrimario>
+          </div>
+        </div>
+      </GlassOverlay>
 
       <GlassDialog
         open={confirmarSalida}

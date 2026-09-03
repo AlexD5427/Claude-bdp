@@ -43,6 +43,7 @@ import {
 } from "../domain/puntaje";
 import type { AccionConstructor, Contenido } from "../state/builderStore";
 import { BotonSecundario, GlassPanel, Pill, SectionTitle } from "../ui/pieces";
+import { EnlacePublico } from "../ui/EnlacePublico";
 
 const CAMPOS_DISPONIBLES = [
   { clave: "nombre", etiqueta: "Nombre completo", fijo: true },
@@ -84,6 +85,19 @@ export function GeneralStep({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      {/*
+        El enlace, arriba y a lo ancho, en cuanto la evaluación está publicada.
+        Es lo primero que alguien busca cuando entra a una evaluación ya publicada
+        —«¿cuál era el enlace?»— y el sitio natural para comprobarlo antes de
+        enviarlo. Cuando todavía es un borrador no se muestra: no hay nada que
+        compartir.
+      */}
+      {evaluacion.estado === "publicada" && evaluacion.codigo && (
+        <div className="lg:col-span-2">
+          <EnlacePublico codigo={evaluacion.codigo} />
+        </div>
+      )}
+
       {/* Identidad */}
       <GlassPanel>
         <SectionTitle

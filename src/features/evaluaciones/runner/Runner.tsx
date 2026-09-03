@@ -31,7 +31,15 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import { abrirEvaluacion, enviarIntento, guardarProgreso, iniciarIntento, latido } from "../api/client";
+import {
+  abrirEvaluacion,
+  enviarIntento,
+  guardarProgreso,
+  iniciarIntento,
+  latido,
+  nuevaSolicitudId,
+} from "../api/client";
+import { resolverConexionPublica, type OrigenConexion } from "../api/connection";
 import { RichText } from "../richtext/RichText";
 import { isRichEmpty } from "../domain/richText";
 import { tipoSpec } from "../domain/questionTypes";
@@ -49,7 +57,12 @@ import { formatearReloj } from "../ui/pieces";
 
 type Fase = "cargando" | "portada" | "prueba" | "enviado" | "error";
 
-/** Código de la evaluación en el hash: `#/evaluacion/EV-XXXX-1234`. */
+/**
+ * Código de la evaluación en el hash: `#/evaluacion/EV-XXXX-1234`.
+ *
+ * Tolera lo que venga detrás (`?b=…`, la referencia del despliegue) porque el
+ * código termina donde termina el conjunto de caracteres válidos.
+ */
 export function codigoDesdeHash(hash: string): string {
   const coincidencia = /#\/?evaluacion\/([A-Za-z0-9-]+)/.exec(hash);
   return coincidencia ? coincidencia[1].toUpperCase() : "";
@@ -61,14 +74,38 @@ export function Runner({ codigo }: { codigo: string }) {
   const [error, setError] = useState<{ mensaje: string; pista: string } | null>(null);
   const [inicio, setInicio] = useState<InicioIntento | null>(null);
   const [resultado, setResultado] = useState<ResultadoCandidato | null>(null);
+  const [origen, setOrigen] = useState<OrigenConexion>("ninguno");
 
   useEffect(() => {
     let vivo = true;
     void (async () => {
+      /*
+       * Primero: ¿con qué servidor hay que hablar?
+       *
+       * Esto es lo que faltaba. El navegador de un postulante no tiene la
+       * configuración del módulo —vive en el `localStorage` del reclutador—, así
+       * que antes se caía al modo demostración, cuyo almacén está vacío, y
+       * contestaba «no existe ninguna evaluación con ese código». El enlace lleva
+       * ahora la referencia del despliegue y se resuelve aquí, antes de la
+       * primera llamada.
+       */
+      const { conexion: destino, origen: procedencia } = resolverConexionPublica(window.location.hash, codigo);
+      if (!vivo) return;
+      setOrigen(procedencia);
+      if (!destino) {
+        setError({
+          mensaje: "Este enlace no indica a qué servidor pertenece la evaluación.",
+          pista:
+            "Pide a quien te lo envió que copie el enlace otra vez desde el módulo de Evaluaciones: los enlaces generados a partir de esta versión llevan esa referencia dentro.",
+        });
+        setFase("error");
+        return;
+      }
+
       const res = await abrirEvaluacion(codigo);
       if (!vivo) return;
       if (!res.ok) {
-        setError({ mensaje: res.error.message, pista: res.error.pista ?? "" });
+        setError({ mensaje: res.error.message, pista: pistaSegunOrigen(res.error.pista ?? "", procedencia) });
         setFase("error");
         return;
       }
@@ -83,6 +120,21 @@ export function Runner({ codigo }: { codigo: string }) {
   return (
     <div className="relative min-h-screen">
       <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
+        {/*
+          El aviso va FUERA de `AnimatePresence`: ese componente en modo «wait»
+          espera un solo hijo, y meterle un hermano condicional deja la
+          transición a medias (la lección está en `App.tsx`, que ya la aprendió).
+        */}
+        {origen === "demostracion" && fase !== "cargando" && (
+          <div
+            className="mb-3 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-xs tone-text-aviso"
+            role="status"
+          >
+            <strong>Vista local de demostración.</strong> Esta evaluación está guardada solo en este navegador, así que
+            este enlace no abrirá en el equipo de nadie más. Para convocar a alguien, configura el backend en
+            Evaluaciones → Conexión y vuelve a publicar.
+          </div>
+        )}
         <AnimatePresence mode="wait">
           {fase === "cargando" && (
             <motion.div key="cargando" className="grid place-items-center py-24" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -96,6 +148,13 @@ export function Runner({ codigo }: { codigo: string }) {
               <h1 className="text-xl font-black text-ink">No se pudo abrir la evaluación</h1>
               <p className="mt-2 text-sm text-ink-soft">{error.mensaje}</p>
               {error.pista && <p className="mt-1 text-xs text-ink-faint">{error.pista}</p>}
+              {origen === "navegador" && (
+                <p className="mt-3 rounded-2xl bg-amber-500/10 px-3 py-2 text-xs tone-text-aviso ring-1 ring-amber-400/30">
+                  Este enlace no traía la referencia del despliegue, así que se está usando la configuración de
+                  <strong> este </strong> navegador. Si eres del equipo: vuelve a copiar el enlace desde el módulo y
+                  reenvíalo; el código de la evaluación no cambia.
+                </p>
+              )}
             </motion.div>
           )}
 
@@ -128,6 +187,42 @@ export function Runner({ codigo }: { codigo: string }) {
   );
 }
 
+/**
+ * Cuenta atrás visible para el reintento automático.
+ *
+ * Vive fuera del componente para que el temporizador no se recree en cada
+ * renderizado, y avisa cada segundo para que la persona vea que algo pasa: una
+ * espera sin cuenta atrás se interpreta como «se colgó».
+ */
+function cuentaAtras(segundos: number, alTerminar: () => void, mostrar: (s: number) => void): void {
+  let restan = segundos;
+  mostrar(restan);
+  const tic = setInterval(() => {
+    restan -= 1;
+    mostrar(restan);
+    if (restan <= 0) {
+      clearInterval(tic);
+      alTerminar();
+    }
+  }, 1000);
+}
+
+/**
+ * Pista del error, matizada por el origen del backend.
+ *
+ * Un «no existe ninguna evaluación con ese código» significa cosas muy distintas
+ * según con quién se esté hablando, y decir la genérica es lo que hacía perder
+ * horas: si el destino salió del propio navegador —porque el enlace era de la
+ * versión anterior— lo más probable es que ese navegador esté mirando un
+ * despliegue distinto (o la demostración local), no que el código esté mal.
+ */
+function pistaSegunOrigen(pista: string, origen: OrigenConexion): string {
+  if (origen === "navegador") {
+    return "El enlace no dice a qué despliegue pertenece, así que se consultó el que tiene configurado este navegador. Pide que te reenvíen el enlace copiado de nuevo desde el módulo.";
+  }
+  return pista;
+}
+
 /* --------------------------------- Portada -------------------------------- */
 
 function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado: (inicio: InicioIntento) => void }) {
@@ -135,6 +230,8 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
   const [consentimiento, setConsentimiento] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [errores, setErrores] = useState<Record<string, string>>({});
+  /** Segundos que faltan para el reintento automático tras una avalancha. */
+  const [esperando, setEsperando] = useState(0);
 
   if (!portada.disponible) {
     return (
@@ -148,7 +245,20 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
 
   const campos = portada.participante?.campos.filter((campo) => campo.activo !== false) ?? [];
 
-  const empezar = async () => {
+  /**
+   * Empieza la prueba.
+   *
+   * ── El reintento, y por qué existe ──────────────────────────────────────────
+   * El backend limita los inicios por minuto y por enlace para que nadie pueda
+   * crear miles de intentos. Cuando una convocatoria entra a la vez —una sala, un
+   * aviso por WhatsApp— ese freno lo toca gente legítima, y «se alcanzó el límite
+   * de inicios por minuto» no es algo que un postulante pueda resolver. Así que no
+   * se le pide nada: se espera y se vuelve a intentar solo, diciendo cuánto falta.
+   *
+   * El mismo `solicitudId` se reutiliza en el reintento: si el primer intento sí
+   * llegó a crearse, el servidor devuelve ese mismo y no se duplica nada.
+   */
+  const empezar = async (solicitudPrevia?: string) => {
     const nuevos: Record<string, string> = {};
     for (const campo of campos) {
       if (campo.obligatorio && !(datos[campo.clave] ?? "").trim()) {
@@ -158,14 +268,24 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
     setErrores(nuevos);
     if (Object.keys(nuevos).length > 0) return;
 
+    const solicitudId = solicitudPrevia ?? nuevaSolicitudId();
     setEnviando(true);
     const res = await iniciarIntento(portada.codigo, datos, {
       consentimiento,
       agenteUsuario: navigator.userAgent.slice(0, 280),
       zonaHoraria: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      solicitudId,
     });
     setEnviando(false);
     if (!res.ok) {
+      // El código del backend (`RATE_LIMITED`) se conserva en `codigoBackend`:
+      // el del `Result` es «provider» y ahí no se distingue una avalancha de un
+      // problema del script.
+      if (res.error.codigoBackend === "RATE_LIMITED") {
+        setErrores({});
+        cuentaAtras(20, () => void empezar(solicitudId), setEsperando);
+        return;
+      }
       const issues = res.error.issues ?? [];
       if (issues.length > 0) {
         const mapa: Record<string, string> = {};
@@ -179,6 +299,7 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
       }
       return;
     }
+    setEsperando(0);
     onIniciado(res.value);
   };
 
@@ -268,14 +389,34 @@ function Portada({ portada, onIniciado }: { portada: PortadaPublica; onIniciado:
           </p>
         )}
 
+        {esperando > 0 && (
+          <p
+            className="mt-3 flex items-center gap-2 rounded-2xl border border-amber-400/40 bg-amber-500/10 px-4 py-2.5 text-xs tone-text-aviso"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            Hay muchas personas entrando a la vez. Se reintenta automáticamente en {esperando} s: no cierres esta
+            página ni vuelvas a pulsar.
+          </p>
+        )}
+
         <button
           type="button"
           onClick={() => void empezar()}
-          disabled={enviando || (portada.participante?.requiereConsentimiento === true && !consentimiento)}
+          disabled={
+            enviando ||
+            esperando > 0 ||
+            (portada.participante?.requiereConsentimiento === true && !consentimiento)
+          }
           className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-6 py-3 text-sm font-black text-white shadow-glass ring-1 ring-white/25 transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-50 disabled:hover:translate-y-0"
         >
-          {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-          Comenzar la evaluación
+          {enviando || esperando > 0 ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <ArrowRight className="h-4 w-4" />
+          )}
+          {esperando > 0 ? `Reintentando en ${esperando} s…` : "Comenzar la evaluación"}
         </button>
         <p className="mt-2 text-center text-[0.7rem] text-ink-faint">
           El tiempo empieza a contar al pulsar el botón.
