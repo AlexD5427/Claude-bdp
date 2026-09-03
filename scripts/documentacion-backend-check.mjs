@@ -102,10 +102,19 @@ const FEATURE_ESPERADOS = [
   "ui/useDatos.ts",
   "ui/SeccionPanel.tsx",
   "ui/SeccionExpedientes.tsx",
-  "ui/ExpedienteLateral.tsx",
+  "ui/ExpedienteVentana.tsx",
+  "ui/HojaCentral.tsx",
+  "ui/DocCargando.tsx",
+  "ui/ContadorHojas.tsx",
+  "ui/SelectorAuxiliar.tsx",
+  "state/cacheExpedientes.ts",
+  "state/salida.ts",
+  "state/precarga.ts",
+  "state/preferencias.ts",
   "ui/SeccionTrabajo.tsx",
   "ui/SeccionReportes.tsx",
   "ui/SeccionConfiguracion.tsx",
+  "ui/PestanaEstaPantalla.tsx",
   "ui/VistaLocal.tsx",
 ];
 const faltanFeature = FEATURE_ESPERADOS.filter((f) => !existsSync(join(DIR_FEATURE, f)));
@@ -255,10 +264,28 @@ if (hojasNormalizadas.length !== 19) {
 }
 
 const columnasAuxiliar = harness.read("DOC2_AUXILIAR_COLUMNS");
-if (!columnasAuxiliar.includes("agencia_bdp") || !columnasAuxiliar.includes("gerencia_bdp")) {
-  fallo("La hoja Auxiliar no declara sus catálogos", `Declara ${columnasAuxiliar.join(", ")}.`);
+const AUXILIAR_ESPERADAS = ["agencia_bdp", "gerencia_bdp", "cargo_bdp"];
+const faltanAuxiliar = AUXILIAR_ESPERADAS.filter((c) => !columnasAuxiliar.includes(c));
+if (faltanAuxiliar.length) {
+  fallo(
+    "La hoja Auxiliar no declara sus catálogos",
+    `Faltan ${faltanAuxiliar.join(", ")}; declara ${columnasAuxiliar.join(", ")}. Sin la cabecera, el desplegable llega vacío.`,
+  );
 } else {
-  ok("la hoja Auxiliar declara agencia_bdp y gerencia_bdp");
+  ok(`la hoja Auxiliar declara ${AUXILIAR_ESPERADAS.join(", ")}`);
+}
+
+/* El selector del frontend tiene que aceptar las mismas columnas: si `columna`
+   sigue siendo una unión de dos literales, el campo Cargo no compila. */
+const selectorTexto = leer(join(DIR_FEATURE, "ui", "SelectorAuxiliar.tsx"));
+const columnasSinSoporte = AUXILIAR_ESPERADAS.filter((c) => !selectorTexto.includes(c));
+if (columnasSinSoporte.length) {
+  fallo(
+    "El selector auxiliar del frontend no conoce todas las columnas",
+    `${columnasSinSoporte.join(", ")}. Revisa src/features/documentacion/ui/SelectorAuxiliar.tsx.`,
+  );
+} else {
+  ok("el selector auxiliar del frontend conoce las tres columnas");
 }
 
 /* ------------------------------------------------------------------ */
@@ -268,16 +295,151 @@ if (!columnasAuxiliar.includes("agencia_bdp") || !columnasAuxiliar.includes("ger
 seccion("Catálogo");
 
 const semilla = harness.read("DOC2_CATALOGO_SEMILLA");
+const retirados = harness.read("doc2CodigosRetirados_()");
 const generales = semilla.filter((d) => d.seccion === "generales");
-if (generales.length !== 18) {
-  fallo("Los documentos generales no son 18", `Hay ${generales.length}.`);
+const generalesVigentes = generales.filter((d) => d.retirado !== true);
+
+/* Los 16 generales de la lista que entregó el área, en su orden y con su
+   redacción. La comprobación es por CÓDIGO: renombrar un código rompería los
+   expedientes guardados, así que lo que se verifica es que la lista vigente sea
+   exactamente esta y en este orden. */
+const GENERALES_VIGENTES = [
+  "foto-4x4",
+  "antecedentes-felcc",
+  "rejap",
+  "ci-copia",
+  "factura-servicios",
+  "croquis-domicilio",
+  "cv",
+  "cv-respaldo",
+  "titulo-legalizado",
+  "cuenta-bancaria",
+  "extracto-gestora",
+  "djj-no-vinculacion",
+  "djj-bienes-rentas",
+  "seguro-accidentes",
+  "seguro-vida",
+  "carnet-heredero",
+];
+const ordenGenerales = generalesVigentes.map((d) => d.codigo);
+if (ordenGenerales.join("|") !== GENERALES_VIGENTES.join("|")) {
+  fallo(
+    "Los 16 documentos generales no coinciden con la lista del área",
+    `Esperado: ${GENERALES_VIGENTES.join(", ")}. Encontrado: ${ordenGenerales.join(", ")}.`,
+  );
 } else {
-  ok("18 documentos generales, en el orden funcional del proceso");
+  ok("16 documentos generales vigentes, en el orden de la lista del área");
 }
-if (semilla.length !== 38) {
-  fallo("El catálogo no tiene 38 documentos", `Tiene ${semilla.length}.`);
+
+const RETIRADOS_ESPERADOS = ["cert-trabajo", "rc-iva"];
+if (RETIRADOS_ESPERADOS.some((c) => !retirados.includes(c)) || retirados.length !== RETIRADOS_ESPERADOS.length) {
+  fallo(
+    "Los generales retirados no son los dos esperados",
+    `Esperado ${RETIRADOS_ESPERADOS.join(", ")}; encontrado ${retirados.join(", ") || "ninguno"}. ` +
+      "Retirar es marcar inactivo, nunca borrar la fila: los expedientes antiguos los referencian.",
+  );
 } else {
-  ok("38 documentos en el catálogo canónico");
+  ok("cert-trabajo y rc-iva están retirados, no borrados");
+}
+
+if (semilla.length !== 39) {
+  fallo("El catálogo no tiene 39 documentos", `Tiene ${semilla.length}.`);
+} else {
+  ok("39 documentos en el catálogo canónico (37 vigentes + 2 retirados)");
+}
+
+/* Recuentos por rama. Es la comprobación que impide que un cambio de
+   aplicabilidad pase inadvertido: el asistente, el visor y los reportes leen
+   todos de aquí, así que si esto se mueve se mueve el módulo entero. */
+const RAMAS_ESPERADAS = [
+  ["GENERAL", "NINGUNA", 16],
+  ["COMERCIAL", "COMERCIAL_1", 21],
+  ["COMERCIAL", "COMERCIAL_2", 25],
+  ["COMERCIAL", "COMERCIAL_3", 21],
+  ["AUDITORIA", "NINGUNA", 17],
+  ["CUMPLIMIENTO", "NINGUNA", 19],
+];
+const desviaciones = [];
+for (const [funcionario, garantia, esperado] of RAMAS_ESPERADAS) {
+  const total = harness.read(`doc2AplicablesDeSemilla_(${JSON.stringify(funcionario)}, ${JSON.stringify(garantia)}).length`);
+  if (total !== esperado) desviaciones.push(`${funcionario}/${garantia}: ${total} en lugar de ${esperado}`);
+}
+if (desviaciones.length) {
+  fallo("Los recuentos por rama no son los acordados con el área", desviaciones.join("; "));
+} else {
+  ok("recuentos por rama: General 16 · T1 21 · T2 25 · T3 21 · Auditoría 17 · Cumplimiento 19");
+}
+
+/* Subsecciones: el caso del documento compartido entre Tipo 1 y Tipo 3 es la
+   trampa de este catálogo y por eso se comprueba explícitamente. */
+const subT1 = harness.read(
+  "doc2ResolverSubseccion_(doc2SemillaPorCodigo_('garante-inmueble').subseccion, 'COMERCIAL_1')",
+);
+const subT3 = harness.read(
+  "doc2ResolverSubseccion_(doc2SemillaPorCodigo_('garante-inmueble').subseccion, 'COMERCIAL_3')",
+);
+if (subT1 === subT3 || !subT1 || !subT3) {
+  fallo(
+    "El documento compartido entre Tipo 1 y Tipo 3 no cambia de subsección",
+    `Tipo 1: "${subT1}"; Tipo 3: "${subT3}". Tienen que ser distintas: pertenece al garante en Tipo 1 y al postulante en Tipo 3.`,
+  );
+} else {
+  ok(`garante-inmueble cambia de subsección por rama ("${subT1}" / "${subT3}")`);
+}
+
+/* Contador de hojas: solo los físicos, y exactamente los nueve acordados. */
+const CON_CONTEO_ESPERADO = [
+  "antecedentes-felcc",
+  "rejap",
+  "titulo-legalizado",
+  "seguro-accidentes",
+  "seguro-vida",
+  "impedimento-auditor",
+  "djj-prohibiciones-cumplimiento",
+  "lgi-ft",
+  "examen-uif",
+];
+const conConteo = harness.read("doc2ConConteoDeHojasEnSemilla_()");
+const sobran = conConteo.filter((c) => !CON_CONTEO_ESPERADO.includes(c));
+const faltanConteo = CON_CONTEO_ESPERADO.filter((c) => !conConteo.includes(c));
+if (sobran.length || faltanConteo.length) {
+  fallo(
+    "El conteo de hojas no está en los documentos correctos",
+    [
+      faltanConteo.length ? `faltan: ${faltanConteo.join(", ")}` : "",
+      sobran.length ? `sobran: ${sobran.join(", ")}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ") + ". Los de garantía nunca llevan contador.",
+  );
+} else {
+  ok(`${conConteo.length} documentos físicos con contador de hojas, ninguno de garantía`);
+}
+
+/* Coherencia de la presentación: nada puede ser ni físico ni digital. */
+const sinPresentacion = semilla.filter(
+  (d) => (d.presentacionFisica ?? "NO") === "NO" && (d.presentacionDigital ?? "SI") === "NO",
+);
+if (sinPresentacion.length) {
+  fallo(
+    "Hay requisitos que no se presentan de ninguna forma",
+    sinPresentacion.map((d) => d.codigo).join(", ") + ". Un requisito así no se puede entregar nunca.",
+  );
+} else {
+  ok("todo requisito declara al menos una forma de presentación");
+}
+
+/* Y el contador solo existe donde hay documento físico. */
+const conteoSinFisico = semilla.filter(
+  (d) => d.requiereConteoHojas === true && (d.presentacionFisica ?? "NO") === "NO",
+);
+if (conteoSinFisico.length) {
+  fallo(
+    "Hay contador de hojas en requisitos que no se presentan en físico",
+    conteoSinFisico.map((d) => d.codigo).join(", ") + ". Un escaneado no tiene hojas que contar.",
+  );
+} else {
+  ok("el contador de hojas solo aparece donde la presentación es física");
 }
 
 const heredado = harness.read("DOC_CATALOGO_SEMILLA");
@@ -294,10 +456,87 @@ if (desalineados.length) {
 }
 
 const conProrroga = semilla.filter((d) => d.prorroga === true).map((d) => d.codigo);
-if (!conProrroga.includes("cert-trabajo") || !conProrroga.includes("titulo-legalizado")) {
-  fallo("Las dos prórrogas del proceso no están habilitadas", `Habilitadas: ${conProrroga.join(", ")}.`);
+const PRORROGAS_ESPERADAS = ["titulo-legalizado", "examen-uif"];
+const prorrogasFaltantes = PRORROGAS_ESPERADAS.filter((c) => !conProrroga.includes(c));
+if (prorrogasFaltantes.length) {
+  fallo(
+    "Las prórrogas del proceso no están habilitadas",
+    `Faltan ${prorrogasFaltantes.join(", ")}; habilitadas: ${conProrroga.join(", ")}. ` +
+      "El título en legalización y los tres meses del examen de la UIF son los dos plazos reales del proceso.",
+  );
 } else {
-  ok("certificados de trabajo y título académico siguen admitiendo prórroga");
+  ok("título académico y examen de la UIF admiten prórroga");
+}
+
+/* ------------------------------------------------------------------ */
+/* 5b. Hojas físicas y subsección más allá del expediente              */
+/* ------------------------------------------------------------------ */
+
+seccion("Hojas físicas y subsección");
+
+/**
+ * El conteo de hojas y la subsección tienen que llegar a TODO lo que sale del
+ * módulo, no solo a la pantalla del expediente.
+ *
+ * El motivo es concreto: el área cruza el legajo digital contra el de papel, y
+ * lo hace con los reportes y las exportaciones. Un conteo que solo existe dentro
+ * de la aplicación obliga a volver expediente por expediente, que es justo lo
+ * que el reporte venía a evitar. Y sin la subsección, un expediente con dos
+ * garantes produce filas indistinguibles.
+ */
+const reportes = leer(join(DIR_GS, "18_Reports.gs"));
+const faltanEnReportes = [];
+if (!/'Subsección', 'Hojas físicas'/.test(reportes)) faltanEnReportes.push("reporte de pendientes");
+if (!/'Sección', 'Subsección', 'Requisito'/.test(reportes)) faltanEnReportes.push("hoja Requisitos de la exportación");
+if (!/doc2PideConteoDeHojas_/.test(reportes)) faltanEnReportes.push("resolución del conteo desde el catálogo");
+if (faltanEnReportes.length) {
+  fallo(
+    "Los reportes del backend no llevan hojas físicas o subsección",
+    `${faltanEnReportes.join("; ")}. Sin esas columnas, el cruce con el legajo de papel vuelve a ser manual.`,
+  );
+} else {
+  ok("los reportes y la exportación completa llevan subsección y hojas físicas");
+}
+
+const informe = leer(join(DIR_FEATURE, "export", "informeMensual.ts"));
+const faltanEnInforme = [];
+if (!/"Subsección", "Documento"/.test(informe)) faltanEnInforme.push("hoja Detalle");
+if (!/hojasSinContar/.test(informe)) faltanEnInforme.push("aviso de entregados sin contar hojas");
+if (!/hojasFisicas: r\.requiereConteoHojas \? \(r\.hojasFisicas \?\? 0\) : null/.test(informe)) {
+  faltanEnInforme.push("distinción entre «no lleva conteo» (null) y «cero hojas»");
+}
+if (faltanEnInforme.length) {
+  fallo("El informe mensual no refleja las hojas físicas", faltanEnInforme.join("; "));
+} else {
+  ok("el informe mensual distingue «no lleva conteo» de «lleva y falta contarlo»");
+}
+
+/**
+ * El modo ligero tiene que apagar las dos cosas que cuestan.
+ *
+ * Esta comprobación existe porque la sonda de rendimiento encontró que no lo
+ * hacía: se le quitaba el desenfoque a `.glass` y se le dejaba la sombra de 30 px
+ * de difusión, y la cabecera pegajosa de la tabla —diez celdas con `blur(8px)`
+ * fijas sobre contenido que se desplaza, el caso más caro que hay— no estaba en
+ * ninguna de las dos listas.
+ */
+const css = leer(join(DIR_FEATURE, "ui", "documentacion.css"));
+const bloqueLigero = css.slice(css.indexOf("MODO LIGERO"));
+const faltanLigero = [];
+if (!/\[data-doc-ligero="si"\] \.doc-table thead th \{/.test(bloqueLigero)) faltanLigero.push("cabecera pegajosa de la tabla");
+/* La sombra se aplana en un selector agrupado que termina en `.glass-heavy`,
+   así que se comprueba que ese selector y la propiedad estén en el mismo bloque. */
+const bloqueSombra = bloqueLigero.slice(bloqueLigero.indexOf('.doc-console .glass-heavy {'));
+if (!bloqueSombra || !/^\.doc-console \.glass-heavy \{[^}]*box-shadow/.test(bloqueSombra)) {
+  faltanLigero.push("sombra proyectada de .glass y .glass-heavy");
+}
+if (faltanLigero.length) {
+  fallo(
+    "El modo ligero deja fuera superficies caras",
+    `${faltanLigero.join("; ")}. Con eso, el interruptor está pero no ahorra nada.`,
+  );
+} else {
+  ok("el modo ligero apaga los desenfoques y las sombras proyectadas del armazón");
 }
 
 /* ------------------------------------------------------------------ */

@@ -184,6 +184,16 @@ var DOC_EXTRA_COLUMNS = [
   { clave: 'pendientes', encabezado: 'DOCS PENDIENTES', ancho: 96, alineacion: 'center', grupo: 'modulo', tipo: 'int' },
   { clave: 'observados', encabezado: 'DOCS OBSERVADOS', ancho: 96, alineacion: 'center', grupo: 'modulo', tipo: 'int' },
   { clave: 'paginas', encabezado: 'PAGINAS', ancho: 80, alineacion: 'center', grupo: 'modulo', tipo: 'int' },
+  /**
+   * Desglose del conteo de hojas, documento por documento.
+   *
+   * La columna `PAGINAS` ya daba el total —y hasta ahora salía siempre en cero,
+   * porque nadie llenaba `pages`—. El total no basta para armar un legajo: hay
+   * que saber cuántas hojas trae cada documento físico. Va después de la W, con
+   * el resto del bloque de gestión: las columnas A-W del Excel del área no se
+   * tocan ni se renumeran.
+   */
+  { clave: 'hojas_detalle', encabezado: 'HOJAS POR DOCUMENTO', ancho: 280, alineacion: 'left', grupo: 'modulo' },
   { clave: 'estado', encabezado: 'ESTADO EXPEDIENTE', ancho: 130, alineacion: 'center', grupo: 'modulo', lista: 'ESTADO' },
   { clave: 'prorroga_hasta', encabezado: 'PRORROGA HASTA', ancho: 118, alineacion: 'center', grupo: 'modulo', formato: 'dd/mm/yyyy' },
   { clave: 'ultimo_aviso', encabezado: 'ULTIMO AVISO', ancho: 140, alineacion: 'center', grupo: 'modulo' },
@@ -393,46 +403,51 @@ function docColumnSpec_(sheetName, columnName) {
  * renombra un documento allí, el módulo lo respeta sin tocar código.
  */
 var DOC_CATALOGO_SEMILLA = [
-  { id: 'foto-4x4', etiqueta: 'Fotografía 4x4 fondo blanco', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'antecedentes-felcc', etiqueta: 'Certificado de antecedentes FELCC', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'rejap', etiqueta: 'Certificado REJAP', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'rejap' },
-  { id: 'ci-copia', etiqueta: 'Fotocopia de Cédula de Identidad', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'factura-servicios', etiqueta: 'Factura de servicios básicos (luz o agua)', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'croquis-domicilio', etiqueta: 'Croquis de domicilio', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'cv', etiqueta: 'Currículum Vitae firmado', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'cv-respaldo', etiqueta: 'Respaldos del Currículum Vitae', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'cert-trabajo', etiqueta: 'Certificados de trabajo anteriores', grupo: 'personal', prorroga: true, obligatorio: true },
-  { id: 'titulo-legalizado', etiqueta: 'Título académico legalizado', grupo: 'personal', prorroga: true, obligatorio: true, columna: 'titulo_legalizado' },
-  { id: 'cuenta-bancaria', etiqueta: 'Número de cuenta bancaria', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'extracto-gestora', etiqueta: 'Extracto de la Gestora Pública', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'djj-no-vinculacion', etiqueta: 'Declaración jurada de no vinculación', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'djj_no_codificacion' },
-  { id: 'djj-bienes-rentas', etiqueta: 'Declaración jurada de bienes y rentas', grupo: 'personal', prorroga: false, obligatorio: true },
-  { id: 'seguro-accidentes', etiqueta: 'Seguro de accidentes personales (Alianza)', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'seguros_alianza' },
-  { id: 'seguro-vida', etiqueta: 'Seguro de desgravamen / Crediseguro', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'crediseguro' },
-  { id: 'rc-iva', etiqueta: 'Formulario RC-IVA (110 / 610)', grupo: 'personal', prorroga: false, obligatorio: false },
-  { id: 'carnet-heredero', etiqueta: 'Carnet de identidad de herederos', grupo: 'personal', prorroga: false, obligatorio: false },
+  { id: 'foto-4x4', etiqueta: 'Fotografia digital 4x4 fondo blanco', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'antecedentes-felcc', etiqueta: 'Certificado de antecedentes policiales FELCC', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'rejap', etiqueta: 'Registro Judicial de Antecedentes Penales REJAP', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'rejap' },
+  { id: 'ci-copia', etiqueta: 'Fotocopia simple o escaneado de Carnet de Identidad', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'factura-servicios', etiqueta: 'Respaldo de servicios basicos con direccion del domicilio', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'croquis-domicilio', etiqueta: 'Croquis domiciliario', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'cv', etiqueta: 'Curriculum Vitae actualizado', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'cv-respaldo', etiqueta: 'Documentos de respaldo del Curriculum Vitae', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'titulo-legalizado', etiqueta: 'Fotocopia legalizada del Titulo academico', grupo: 'personal', prorroga: true, obligatorio: true, columna: 'titulo_legalizado' },
+  { id: 'cuenta-bancaria', etiqueta: 'N de Cuenta Bancaria', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'extracto-gestora', etiqueta: 'Extracto de la Gestora Publica con NUA o CUA', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'djj-no-vinculacion', etiqueta: 'Declaracion Jurada de No vinculacion', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'djj_no_codificacion' },
+  { id: 'djj-bienes-rentas', etiqueta: 'Declaracion Jurada de Bienes y Rentas', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'seguro-accidentes', etiqueta: 'Seguro de Accidentes Personales', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'seguros_alianza' },
+  { id: 'seguro-vida', etiqueta: 'Seguro de Vida Individual', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'crediseguro' },
+  { id: 'carnet-heredero', etiqueta: 'Fotocopia de carnet de heredero de contrato', grupo: 'personal', prorroga: false, obligatorio: false },
 
-  { id: 'garante-ci', etiqueta: 'Cédula de Identidad del garante', grupo: 'garantia', prorroga: false, obligatorio: true, columna: 'contrato_fianza' },
-  { id: 'garante-inmueble', etiqueta: 'Documento del bien inmueble del garante', grupo: 'garantia', prorroga: false, obligatorio: true, columna: 'contrato_fianza' },
-  { id: 'garante-folio', etiqueta: 'Folio real del bien inmueble', grupo: 'garantia', prorroga: false, obligatorio: true, columna: 'vista_informacion_rapida' },
-  { id: 'garante-croquis-negocio', etiqueta: 'Croquis del negocio o domicilio del garante', grupo: 'garantia', prorroga: false, obligatorio: true },
-  { id: 'garante-boletas', etiqueta: 'Boletas de pago del garante', grupo: 'garantia', prorroga: false, obligatorio: false, columna: 'vista_informacion_rapida' },
-  { id: 'garante-form-200-400', etiqueta: 'Formularios 200 / 400 del garante', grupo: 'garantia', prorroga: false, obligatorio: false, columna: 'vista_informacion_rapida' },
-  { id: 'garante-fam1-ci', etiqueta: 'Cédula de Identidad del garante familiar 1', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-fam1-croquis', etiqueta: 'Croquis del garante familiar 1', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-fam2-ci', etiqueta: 'Cédula de Identidad del garante familiar 2', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-fam2-croquis', etiqueta: 'Croquis del garante familiar 2', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-t1-fam-ci', etiqueta: 'CI del garante familiar (Tipo 1)', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-t1-fam-croquis', etiqueta: 'Croquis del garante familiar (Tipo 1)', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-t2-ci', etiqueta: 'Fotocopia de CI del postulante (Tipo 2)', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-t2-croquis', etiqueta: 'Croquis de domicilio del postulante (Tipo 2)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  /* Retirados de la lista vigente. Se conservan porque los expedientes antiguos
+     los referencian por este mismo codigo; `activo: false` los deja fuera de un
+     alta nueva. Ver DOC2_CATALOGO_SEMILLA en 11_Domain.gs. */
+  { id: 'cert-trabajo', etiqueta: 'Certificados de trabajo (retirado)', grupo: 'personal', prorroga: true, obligatorio: false, activo: false },
+  { id: 'rc-iva', etiqueta: 'Certificado de saldo a favor del dependiente RC-IVA (retirado)', grupo: 'personal', prorroga: false, obligatorio: false, activo: false },
+
+  { id: 'garante-ci', etiqueta: 'Fotocopia de CI del garante', grupo: 'garantia', prorroga: false, obligatorio: true, columna: 'contrato_fianza' },
+  { id: 'garante-inmueble', etiqueta: 'Bien Inmueble con o sin hipoteca', grupo: 'garantia', prorroga: false, obligatorio: true, columna: 'contrato_fianza' },
+  { id: 'garante-folio', etiqueta: 'Fotocopia de folio o informacion rapida', grupo: 'garantia', prorroga: false, obligatorio: true, columna: 'vista_informacion_rapida' },
+  { id: 'garante-croquis-negocio', etiqueta: 'Croquis del negocio o fuente laboral', grupo: 'garantia', prorroga: false, obligatorio: true },
+  { id: 'garante-boletas', etiqueta: '3 ultimas boletas de pago (dependiente)', grupo: 'garantia', prorroga: false, obligatorio: false, columna: 'vista_informacion_rapida' },
+  { id: 'garante-form-200-400', etiqueta: 'Formulario 200-400 de las tres ultimas declaraciones juradas', grupo: 'garantia', prorroga: false, obligatorio: false, columna: 'vista_informacion_rapida' },
+  { id: 'garante-fam1-ci', etiqueta: 'Fotocopia de CI del garante familiar 1', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-fam1-croquis', etiqueta: 'Croquis domicilio del garante familiar 1', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-fam2-ci', etiqueta: 'Fotocopia de CI del garante familiar 2', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-fam2-croquis', etiqueta: 'Croquis domicilio del garante familiar 2', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t1-fam-ci', etiqueta: 'Fotocopia de CI del garante familiar (Tipo 1)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t1-fam-croquis', etiqueta: 'Croquis domicilio del garante familiar (Tipo 1)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t2-ci', etiqueta: 'Fotocopia de CI del garante con ingresos (Tipo 2)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t2-croquis', etiqueta: 'Croquis domicilio del garante con ingresos (Tipo 2)', grupo: 'garantia', prorroga: false, obligatorio: false },
   { id: 'garante-t3-ci', etiqueta: 'Fotocopia de CI del postulante (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-t3-fam-ci', etiqueta: 'CI del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
-  { id: 'garante-t3-fam-croquis', etiqueta: 'Croquis del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t3-fam-ci', etiqueta: 'Fotocopia de CI del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
+  { id: 'garante-t3-fam-croquis', etiqueta: 'Croquis domicilio del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
 
-  { id: 'impedimento-auditor', etiqueta: 'Declaración de impedimento de auditor', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
-  { id: 'lgi-ft', etiqueta: 'Capacitación LGI/FT', grupo: 'cumplimiento', prorroga: false, obligatorio: true, columna: 'conozca_funcionario' },
-  { id: 'examen-uif', etiqueta: 'Examen UIF aprobado', grupo: 'cumplimiento', prorroga: true, obligatorio: true }
+  { id: 'impedimento-auditor', etiqueta: 'Declaracion de impedimento para ser Auditor Interno', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
+  { id: 'djj-prohibiciones-cumplimiento', etiqueta: 'Declaracion Jurada de prohibiciones para personal de la Unidad de Cumplimiento', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
+  { id: 'lgi-ft', etiqueta: 'Conocimientos acreditados en prevencion LGI/FT', grupo: 'cumplimiento', prorroga: false, obligatorio: true, columna: 'conozca_funcionario' },
+  { id: 'examen-uif', etiqueta: 'Examen presencial de la UIF', grupo: 'cumplimiento', prorroga: true, obligatorio: true }
 ];
 
 /** Configuración por defecto de la hoja `_CONFIG`. */

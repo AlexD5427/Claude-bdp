@@ -57,8 +57,26 @@ ExportacionesDocumentacion  FiltrosDocumentacion   ConfiguracionDocumentacion
 MigracionesDocumentacion
 ```
 
-Mas `Auxiliar`, con los catalogos sueltos (`agencia_bdp`, `gerencia_bdp`) que
-crecen solos y de los que **nunca se quita un valor** aunque deje de usarse.
+Mas `Auxiliar`, con los catalogos sueltos (`agencia_bdp`, `gerencia_bdp`,
+`cargo_bdp`) que crecen solos y de los que **nunca se quita un valor** aunque deje
+de usarse.
+
+Tres reglas de lectura y escritura de `Auxiliar`, cada una nacida de un fallo real:
+
+1. **La cabecera se localiza normalizada.** «Agencia BDP», `agencia_bdp` y
+   «AGENCIA  BDP» son la misma columna: se comparan sin acentos, sin mayusculas y
+   sin espacios repetidos.
+2. **Se lee hasta `getMaxRows()`, sin detenerse en el primer hueco.** Una fila
+   vacia en medio de la lista no es el final de la lista.
+3. **Se escribe debajo de la ultima fila realmente ocupada de esa columna**
+   (`doc2UltimaFilaDeColumna_`). Antes se usaba el alto de la hoja, asi que anadir
+   una agencia podia **pisar** un valor existente.
+
+`cargo_bdp` la crea la instalacion, pero los valores los pega el area: el backend
+no puede inventar el catalogo de cargos del banco. Un cargo fuera de la lista
+genera el hallazgo `cargo-fuera-catalogo`, que es **siempre advertencia y nunca
+bloqueo**: es un dato que hay que revisar, no un motivo para impedir que se
+registre a alguien que ya empezo a trabajar.
 
 **Pestanas anuales** `CONTROL INGRESOS <ano>`. Columnas A-W identicas al Excel
 original (incluidos el espacio final de `Tipo de Empleado ` y las dos columnas
@@ -68,6 +86,9 @@ y sello de auditoria.
 
 `DETALLE JSON` se sigue escribiendo por compatibilidad, pero ya no es la fuente:
 el checklist real vive en `ExpedienteDocumentos`, una fila por requisito.
+
+La columna de gestion `HOJAS POR DOCUMENTO` (`hojas_detalle`) se anade **despues de
+la ultima existente**; las columnas A-W del Excel original quedan intactas.
 
 **Hojas de sistema heredadas** `AUDITORIA`, `ENTREGA COM+SEGUROS`, `_CATALOGO`,
 `_CONFIG`, `_RESPALDOS`, `_DIARIO`, `_SOLICITUDES`, `_META`. Las que empiezan por
@@ -117,6 +138,7 @@ guardar el archivo no basta.
 | `4.0.1-catalogos` | Siembra el catalogo y los auxiliares desde el libro |
 | `4.0.2-expedientes` | Convierte cada fila anual en expediente + requisitos |
 | `4.0.3-resumenes` | Recalcula avances, estados y colores |
+| `4.1.0-hojas-fisicas` | Anade `subseccion` y `hojas_fisicas` a `ExpedienteDocumentos` y materializa la subseccion por rama |
 
 Tres garantias:
 
@@ -129,6 +151,17 @@ Tres garantias:
   siguiente llamada sigue donde quedo.
 
 Se guarda un respaldo antes de empezar.
+
+> **`4.1.0-hojas-fisicas` no inventa ningun conteo.** Todos los `hojas_fisicas`
+> quedan en cero, que significa «sin contar». Rellenarlos con una estimacion seria
+> fabricar el dato que el area necesita que sea real. Consecuencia practica: tras
+> migrar, todos los documentos fisicos ya entregados apareceran como «sin contar»
+> hasta que alguien los cuente.
+
+> **Los requisitos retirados se conservan.** `cert-trabajo` y `rc-iva` llevan
+> `retirado: true` en el catalogo: no se siembran en expedientes nuevos, pero
+> `doc2AportaDato_` protege los que un expediente antiguo si tenia, con su estado y
+> su historia. Borrarlos convertiria la historia de esos expedientes en huecos.
 
 ## Acciones
 
@@ -255,6 +288,58 @@ Desde el repositorio, `npx vitest run`: el arnes
 dobles de `SpreadsheetApp`, `LockService`, `CacheService` y compania, de modo que
 la instalacion, la migracion y los flujos se ejecutan de verdad en cada
 `git push`.
+
+## Catalogo, presentacion y hojas fisicas
+
+`DOC2_CATALOGO_VERSION = 3`. El catalogo canonico tiene **39 entradas**: 37
+vigentes y 2 retiradas. Cada documento declara, ademas de su aplicabilidad por
+rama:
+
+| Campo | Valores | Para que |
+|---|---|---|
+| `presentacionFisica` | `SI` / `NO` / `CONDICIONAL` | Se archiva en papel |
+| `presentacionDigital` | `SI` / `NO` / `CONDICIONAL` | Llega por correo o WhatsApp |
+| `requiereConteoHojas` | `true` / `false` | Lleva contador de hojas |
+| `subseccion` | texto, o mapa por tipo de garantia | De quien es el documento |
+| `retirado` | `true` | El area dejo de pedirlo |
+
+`CONDICIONAL` existe porque hay documentos que dependen del caso, y forzarlos a
+`SI`/`NO` obligaba a elegir una mentira.
+
+**Nueve** documentos llevan contador de hojas. La validacion esta en
+`doc2ValidarHojasFisicas_`: entero, sin signos ni decimales, maximo
+`DOC2_LIMITS.MAX_HOJAS_FISICAS` = 999. El tope no es decorativo: un dedo pegado en
+el teclado que escriba 99.999 hojas contamina los totales del libro anual con
+cifras que nadie puede explicar.
+
+**La subseccion se resuelve en un solo sitio.** `doc2ResolverSubseccion_` acepta
+las dos formas —texto unico o mapa por rama— y la usan el asistente, la vista del
+expediente, los reportes y las exportaciones. Si cada uno lo resolviera a su
+manera, el mismo documento acabaria bajo dos titulos distintos.
+
+**Quien pide conteo lo dice el catalogo, no la semilla.**
+`doc2PideConteoDeHojas_` lee `CatalogoDocumentos`, que es editable desde la
+configuracion. Consultar la semilla daria la respuesta correcta el dia de la
+instalacion y una respuesta obsoleta a partir del primer cambio.
+
+Recuentos por rama: General **16** · Comercial T1 **21** · T2 **25** · T3 **21** ·
+Auditoria **17** · Cumplimiento **19**. `npm run doc:check` los verifica contra las
+tres capas.
+
+## Alta en una sola llamada
+
+`documentacion.expediente.crear` acepta el expediente, sus requisitos ya marcados
+y sus prorrogas juntos, y devuelve el detalle completo si se pide
+(`devolverDetalle: true`). Antes eran cuatro viajes; con Apps Script y una red de
+agencia eso son entre cuatro y doce segundos, y cualquiera de los tres ultimos
+podia fallar dejando un expediente a medias.
+
+Si algo falla a mitad, `doc2RevertirAltaFallida_` deshace el expediente: es mejor
+no tener nada que tener un expediente sin sus requisitos.
+
+`documentacion.expedientes.detalle` lee **varios** expedientes en una llamada. La
+usa la precarga en segundo plano del frontend, en lotes, con su propio tope y
+devolviendo en `omitidos` lo que no cupo.
 
 ## Limites
 

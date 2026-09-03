@@ -150,6 +150,14 @@ var DOC2_API = {
       });
     }
   },
+  'documentacion.expedientes.detalle': {
+    escribe: false, capacidad: DOC2_CAPACIDAD.VER,
+    fn: function (p, ctx) {
+      return doc2ExpedientesDetalle_(p.expedienteIds || p.ids || [], ctx, {
+        historial: p.historial, auditoria: p.auditoria
+      });
+    }
+  },
   'documentacion.expediente.crear': {
     escribe: true, capacidad: DOC2_CAPACIDAD.EDITAR,
     fn: function (p, ctx) { return doc2CrearExpediente_(p.expediente || p, ctx); }
