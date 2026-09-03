@@ -124,9 +124,19 @@ respaldo propio antes de empezar.
 error**: Apps Script corta a los seis minutos. Vuelva a ejecutar el mismo menú;
 continúa donde quedó. Repita hasta que informe que terminó.
 
-**24.** Abra la hoja `MigracionesDocumentacion`. Debe ver cuatro filas
+**24.** Abra la hoja `MigracionesDocumentacion`. Debe ver cinco filas
 —`4.0.0-estructura`, `4.0.1-catalogos`, `4.0.2-expedientes`,
-`4.0.3-resumenes`— todas en estado completado.
+`4.0.3-resumenes` y `4.1.0-hojas-fisicas`— todas en estado completado.
+
+> **Qué hace y qué no hace `4.1.0-hojas-fisicas`**
+> Añade las columnas `subseccion` y `hojas_fisicas` a `ExpedienteDocumentos`, y
+> materializa la subsección de cada requisito según la rama de su expediente. **No
+> rellena ningún conteo de hojas:** todos quedan en cero, que significa «sin
+> contar». Es una decisión, no un olvido —inventar un conteo sería fabricar el dato
+> que el área necesita que sea real—. La consecuencia práctica es que, tras migrar,
+> todos los documentos físicos ya entregados aparecerán como «sin contar» hasta que
+> alguien los cuente. El filtro «Hojas sin contar» de la pestaña de requisitos
+> sirve exactamente para eso.
 
 **25.** Abra `Expedientes` y revise cinco filas al azar contra la pestaña anual:
 nombre, fecha de ingreso, oficina y avance deben coincidir.
@@ -134,6 +144,42 @@ nombre, fecha de ingreso, oficina y avance deben coincidir.
 **26.** Ejecute el paso 22 **otra vez**. Debe informar que no hay nada que hacer y
 el número de filas de `Expedientes` no debe cambiar. Esto confirma en su propio
 libro la idempotencia que las pruebas comprueban en el repositorio.
+
+---
+
+## Parte 4 bis · La hoja `Auxiliar` y los cargos del banco (paso 26 bis)
+
+Este paso **solo lo puede hacer el área**, y sin él el desplegable de cargo del
+asistente de alta aparece vacío.
+
+**26 bis.1.** Abra la hoja `Auxiliar` del libro. La instalación del modelo (paso
+del menú `Instalar o actualizar modelo`) ha creado una cabecera nueva:
+`cargo_bdp`. Localícela.
+
+**26 bis.2.** **Pegue debajo la lista de cargos del banco**, uno por fila, sin
+dejar filas en blanco al principio. El backend crea la cabecera; los valores no
+los puede inventar.
+
+**26 bis.3.** Compruebe que `agencia_bdp` y `gerencia_bdp` siguen completas. Si
+antes le aparecían truncadas en los desplegables, con el arreglo de lectura de esta
+versión deberían salir enteras: la lectura ya no se detiene en la primera fila
+vacía y localiza la cabecera sin distinguir acentos ni mayúsculas.
+
+**26 bis.4.** `Documentación > Diagnosticar modelo normalizado`. No debe aparecer
+el hallazgo `auxiliar-sin-cabecera`. Si aparece `cargos-vacios`, es que la columna
+`cargo_bdp` existe pero está sin valores: vuelva al paso 26 bis.2.
+
+> **Los tres desplegables ya no pisan nada**
+> Cargo, agencia y gerencia permiten **añadir un valor nuevo** desde el propio
+> módulo. Antes, esa escritura usaba el alto de la hoja para decidir dónde poner el
+> valor y podía sobrescribir uno existente; ahora escribe debajo de la última fila
+> realmente ocupada de su columna.
+
+> **Un cargo fuera de la lista nunca bloquea un alta**
+> Si alguien escribe un cargo que no está en `cargo_bdp`, el diagnóstico lo señala
+> como **advertencia** y el expediente se crea igual. Es un dato que hay que
+> revisar, no un motivo para impedir que se registre a alguien que ya empezó a
+> trabajar.
 
 ---
 
@@ -234,6 +280,17 @@ paso 7 comparando la lista de archivos del editor con la del repositorio.
 3. Las hojas normalizadas pueden quedarse donde están: el código heredado no las
    lee ni las escribe, y así conserva la migración por si se retoma.
 
+> **Las dos palancas son independientes: casi nunca hay que tirar de las dos**
+> Esto es deliberado y conviene saberlo antes de una noche mala:
+>
+> | Qué salió mal | Qué hacer |
+> |---|---|
+> | El backend responde mal o no responde | Vuelva a la **versión anterior de la implementación** en Apps Script. El frontend nuevo sigue funcionando con el backend viejo: la ruta de alta en una sola llamada tiene recaída automática a las cuatro llamadas de antes. |
+> | La interfaz tiene un problema | **Revierta la solicitud de extracción** en GitHub; Vercel republica la anterior. El backend nuevo atiende también al frontend viejo: las columnas nuevas simplemente se ignoran. |
+> | Los datos quedaron mal | `Documentación > Restaurar respaldo`. |
+>
+> Y no hay variables de entorno nuevas en Vercel: no hay nada que revertir allí.
+
 > **Lo que no hay que hacer**
 > No borre las pestañas `CONTROL INGRESOS <año>` en ningún escenario. Son las
 > únicas hojas con datos que no se pueden reconstruir desde otra parte.
@@ -252,8 +309,16 @@ del área sin ayuda técnica.
       su fila.
 - [ ] Un expediente con prórroga en el libro sigue apareciendo con prórroga.
 - [ ] Un expediente completo sigue en verde en la pestaña anual.
-- [ ] La hoja `Auxiliar` incluye todas las agencias y gerencias que el área usa.
-- [ ] El catálogo tiene 38 documentos (18 generales, 17 de garantía por rama y 3 de cumplimiento) y los códigos heredados se conservan.
+- [ ] La hoja `Auxiliar` incluye todas las agencias y gerencias que el área usa, y
+      los desplegables las muestran **enteras** (no truncadas).
+- [ ] La hoja `Auxiliar` tiene la columna `cargo_bdp` con los cargos del banco, y
+      el desplegable de cargo del alta los ofrece.
+- [ ] Añadir una agencia nueva desde el módulo **no borra** ninguna existente.
+- [ ] El catálogo tiene 39 entradas: 37 vigentes (16 generales, 17 de garantía por
+      rama y 4 de cumplimiento) más certificado de trabajo y RC-IVA marcados como
+      **retirados**, y los códigos heredados se conservan uno a uno.
+- [ ] Un expediente creado antes de la migración que tuviera certificado de trabajo
+      o RC-IVA **sigue mostrándolos**, con su estado y su historia.
 
 ### Trabajo diario
 
@@ -265,6 +330,14 @@ del área sin ayuda técnica.
 - [ ] Observar un documento devuelve el expediente a `OBSERVADO` con su motivo.
 - [ ] Conceder una prórroga sustituye la anterior, no las acumula.
 - [ ] Una solicitud masiva muestra el impacto antes de enviarse.
+- [ ] Un expediente General trae **16** requisitos; uno Comercial Tipo 2, **25**.
+- [ ] Un expediente Comercial Tipo 2 muestra los requisitos de garantía **agrupados
+      por garante**, con el título del bloque encima.
+- [ ] El REJAP muestra un contador de hojas; la fotografía 4x4, no.
+- [ ] Anotar hojas en el REJAP y guardar deja el número en el reporte de
+      pendientes, y la columna queda **vacía** en los documentos solo digitales.
+- [ ] Dar de alta un expediente con documentos ya marcados y una prórroga se guarda
+      en **una sola** operación (no hay parpadeo de guardados sucesivos).
 
 ### Robustez
 
@@ -277,6 +350,16 @@ del área sin ayuda técnica.
 - [ ] Exportar 500 expedientes termina y el archivo abre en Excel.
 - [ ] Un valor que empiece por `=` en una observación llega al Excel como texto,
       no como fórmula.
+- [ ] Abrir el mismo expediente dos veces: la segunda se pinta al instante y avisa
+      de la antigüedad de la copia local.
+- [ ] Editar un documento del expediente desde la hoja de cálculo y recargar la
+      pantalla muestra «Otra persona modificó algún documento de este expediente».
+- [ ] Con el backend caído, el módulo dice qué pasa y deja consultar la última
+      copia; no muestra una pantalla muda.
+- [ ] Marcar documentos sin conexión y recuperarla después los sincroniza solos, y
+      **sin duplicar** nada.
+- [ ] Configuración › Esta pantalla › «Cambios pendientes» muestra lo que no llegó
+      al libro, con el motivo exacto.
 
 ### Permisos
 
@@ -293,3 +376,10 @@ del área sin ayuda técnica.
 - [ ] Los errores dicen qué hacer, no sólo qué falló.
 - [ ] Las secciones no disponibles se anuncian como «en construcción» en lugar de
       fallar.
+- [ ] Se puede escribir una frase entera en una observación sin perder el foco ni
+      los primeros caracteres.
+- [ ] Configuración › Esta pantalla permite cambiar el tamaño de la letra, y el
+      módulo entero escala.
+- [ ] «Probar conexión» dice cuánto tardó el backend en responder.
+- [ ] El contador de hojas **no** cambia de valor al desplazar la lista con el
+      puntero encima.

@@ -46,6 +46,15 @@ function enDias(dias) {
 
 function sembrar() {
   const h = loadInstalledBackend();
+  /* Los tres catálogos auxiliares, incluido `cargo_bdp`: el asistente de alta los
+     lee para sus desplegables, y sin ellos la sonda recorrería una pantalla que
+     no se parece a la que ve el área. */
+  h.ok("documentacion.auxiliares.agregar", { columna: "agencia_bdp", valores: AGENCIAS });
+  h.ok("documentacion.auxiliares.agregar", { columna: "gerencia_bdp", valores: GERENCIAS });
+  h.ok("documentacion.auxiliares.agregar", {
+    columna: "cargo_bdp",
+    valores: ["OFICIAL DE NEGOCIOS", "AUDITOR INTERNO", "ANALISTA", "CAJERO", "JEFE DE AGENCIA"],
+  });
   const hoy = new Date();
   const anio = hoy.getFullYear();
   const mes = String(hoy.getMonth() + 1).padStart(2, "0");
@@ -73,7 +82,11 @@ function sembrar() {
     const cambios = expediente.requisitos.slice(0, cuantos).map((r) => ({
       expedienteDocumentoId: r.expedienteDocumentoId,
       estado: "ENTREGADO",
-      paginas: 2,
+      /* Las hojas se cuentan solo en los documentos que llevan conteo. Antes
+         esto mandaba `paginas: 2` a todos: un campo que el backend no tiene y que
+         por tanto se descartaba en silencio, dejando la sonda con la impresión
+         de estar probando algo que no probaba. */
+      ...(r.requiereConteoHojas ? { hojasFisicas: 2 + (i % 5) } : {}),
     }));
     if (cambios.length) h.ok("documentacion.requisitos.guardar", { expedienteId: expediente.expedienteId, cambios });
   });
@@ -368,7 +381,27 @@ async function escenarioCongelamiento(pagina) {
   return todo;
 }
 
-/** El asistente de alta, de principio a fin, contra el backend real. */
+/**
+ * El asistente de alta, de principio a fin, contra el backend real.
+ *
+ * ── Qué cambió respecto de la versión anterior de esta sonda ────────────────
+ * Tres cosas que la rompían y que no eran fallos del módulo:
+ *
+ * 1. **El carnet ya no tiene formato impuesto.** Buscaba el marcador de posición
+ *    `"1234567 - 45 - 2026"`, que era la máscara de tres partes que el área no
+ *    usaba; ahora se escribe el carnet como venga.
+ * 2. **La categoría es un radiogrupo, no botones.** Se selecciona por
+ *    `role="radio"`, que además es lo que hace que se pueda recorrer con las
+ *    flechas del teclado.
+ * 3. **El asistente vive en una hoja central**, así que se espera al
+ *    `role="dialog"` en lugar de a un tiempo fijo.
+ *
+ * Lo que esta sonda aporta y la dedicada no son las CAPTURAS de cada paso: el
+ * recorrido funcional detallado —hojas físicas, subsecciones, prórroga, alta en
+ * una sola llamada— está en `qa/sonda-alta-expediente.mjs`, que cuenta el
+ * tráfico. Aquí lo que se comprueba es que el camino completo no se rompe y que
+ * queda constancia visual de cada paso.
+ */
 async function escenarioAlta(pagina) {
   console.log("\n▸ Asistente de nuevo expediente");
   await irAModulo(pagina, "Documentación");
@@ -380,10 +413,10 @@ async function escenarioAlta(pagina) {
     return false;
   }
   await nuevo.click();
-  await pagina.waitForTimeout(1200);
+  await pagina.waitForSelector('[role="dialog"]', { timeout: 20000 });
+  await pagina.waitForTimeout(800);
 
-  const anio = new Date().getFullYear();
-  await pagina.getByPlaceholder("1234567 - 45 - 2026").fill(`9988776 - 77 - ${anio}`);
+  await pagina.getByPlaceholder("Ej. 1234567 1K").fill("9988776 7K");
   await pagina.getByPlaceholder("Nombres y apellidos").fill("Prueba Navegador Comercial");
   await pagina.screenshot({ path: `${SALIDA}/alta-1-identidad.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
@@ -391,9 +424,9 @@ async function escenarioAlta(pagina) {
   await pagina.screenshot({ path: `${SALIDA}/alta-2-generales.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
   await pagina.waitForTimeout(900);
-  await pagina.getByRole("button", { name: /Funcionario área comercial/i }).first().click();
+  await pagina.getByRole("radio", { name: /Funcionario área comercial/i }).first().click();
   await pagina.waitForTimeout(700);
-  await pagina.getByRole("button", { name: /Tipo 2/ }).first().click();
+  await pagina.getByRole("radio", { name: /Tipo 2/ }).first().click();
   await pagina.waitForTimeout(500);
   await pagina.screenshot({ path: `${SALIDA}/alta-3-categoria.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
@@ -403,7 +436,7 @@ async function escenarioAlta(pagina) {
   await pagina.waitForTimeout(900);
   await pagina.screenshot({ path: `${SALIDA}/alta-5-revision.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Guardar y abrir expediente/ }).first().click();
-  await pagina.waitForTimeout(3000);
+  await pagina.waitForTimeout(3500);
   await pagina.screenshot({ path: `${SALIDA}/alta-6-guardado.jpg`, type: "jpeg", quality: 80 });
 
   const texto = await pagina.evaluate(() => document.body.innerText);

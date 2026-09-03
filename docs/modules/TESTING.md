@@ -44,6 +44,39 @@ Library, jsdom):
 - `content/locale/__tests__/locale.test.ts` — es-MX active, Spanish copy, no
   leftover English in key labels, formatters.
 
+## Browser probes (Documentación)
+
+Some failures are invisible to jsdom: real focus, scroll locks, layer stacking,
+paint cost and computed contrast all need a browser. `qa/doc-arnes.mjs` boots Vite,
+seeds the **real** `.gs` backend in memory, intercepts `script.google.com` so the
+page reaches it, and signs in. Five probes sit on top of it — see `qa/README.md`
+for each one's contract.
+
+What they found, none of which any jsdom test had seen: focus stolen by the close
+button on every overlay; a confirmation buried under the sheet it belonged to; a
+1 336 ms expediente open; a light mode that saved nothing; a version-conflict
+notice that could never fire; the module crashing without `ThemeProvider`; focus
+restoration that *cleared* focus; and an input that ate the first typed digit.
+
+Three lessons about measuring, all of them mistakes that were made and corrected
+here:
+
+1. **Measure the built bundle.** In dev mode the browser runs unminified React
+   with dev checks and unbundled modules. Throttled 4×, that reports 4 fps and says
+   nothing about the product. `arrancarVite(port, { produccion: true })`.
+2. **Frames per second are not a criterion in a headless browser.**
+   `requestAnimationFrame` runs at 4-5 Hz there *even unthrottled*. Assert on work
+   (task milliseconds) and on ratios, which survive the move to another machine.
+3. **A probe that provokes a failure must be able to say so.**
+   `nuevoRegistro({ esperados, erroresEsperados })` separates the backend
+   rejections and console errors a probe causes *on purpose* from real ones.
+   Without it, the only way to pass is to not test the case.
+
+Playwright is deliberately **not** a project dependency: 150 MB of browser has no
+business in Vercel's `npm ci`. Install it separately
+(`npm i -D playwright && npx playwright install chromium`) and remove it from
+`package.json` before committing.
+
 ## Results
 
 At delivery: **typecheck passes**, **all Vitest suites pass**, and the

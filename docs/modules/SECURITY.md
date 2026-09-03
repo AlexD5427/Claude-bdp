@@ -50,6 +50,38 @@ server-side.
 - Answer keys and sensitive payloads are never logged (audit log stores only
   non-sensitive summaries/metadata).
 
+## Local caches (Documentación)
+
+The Documentación module keeps two local stores. Both hold personal data, so what
+they contain and when they are erased is a security decision, not an
+implementation detail.
+
+**`state/cacheExpedientes.ts`** — up to 40 full `ExpedienteOperativo` payloads in
+an in-memory LRU, persisted to IndexedDB (`bdp-documentacion-cache`) with a
+`localStorage` fallback. That payload includes names, ID numbers, positions,
+branches, observations and document history. Rules:
+
+- **Two lifetimes.** 60 s "fresh" (shown without revalidating) and 24 h "useful"
+  (still shown, marked with its age, when the backend is unreachable). Nothing
+  older is served.
+- **Erased on profile change and on sign-out.** `DocumentacionConsola` calls
+  `vaciarCache()` when the active profile changes. Leaving one person's records
+  readable to the next operator of the same browser would be a leak even though
+  the UI would not show them.
+- **Erased on schema bump.** `VERSION_CACHE` discards everything when the payload
+  shape changes, so a stale entry can never be rendered as if it were current.
+- **Erasable by hand.** Configuración › Esta pantalla › *Vaciar caché local*.
+
+**`state/salida.ts`** — the outbound write queue in `localStorage`
+(`bdp-documentacion-salida`). It stores only requirement changes (id, state,
+observation, sheet count) plus a stable `solicitudId`, never a full record. Only
+**unconfirmed** entries are persisted: what already reached the book is dropped, so
+the key cannot grow without bound.
+
+The *Descargar respaldo* button writes both stores to a local JSON file that the
+operator chooses. Nothing is uploaded anywhere: it is a local export, meant for
+carrying work before clearing anything or for attaching to a support request.
+
 ## Synchronization safety
 
 Writes carry `expectedEntityVersion`; the backend rejects stale updates with a

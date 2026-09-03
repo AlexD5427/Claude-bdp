@@ -58,10 +58,58 @@ ejemplo `origin/main` frente a una rama) en el perfil de navegador antiguo.
 
 ## Arnés del módulo de Documentación
 
-Tres piezas más, añadidas al investigar «la pantalla se congela». Todas montan la
-aplicación en un Chromium real y desvían las llamadas al backend `.gs` cargado en
-memoria por `scripts/documentacion-backend.mjs`, así que lo que se ve en pantalla
-salió del `doPost` de verdad.
+Todas estas piezas montan la aplicación en un Chromium real y desvían las llamadas
+al backend `.gs` cargado en memoria por `scripts/documentacion-backend.mjs`, así
+que lo que se ve en pantalla salió del `doPost` de verdad.
+
+### Arnés compartido
+
+`qa/doc-arnes.mjs` es la base de las cinco sondas nuevas. Existe porque todas
+necesitan exactamente lo mismo antes de medir algo: arrancar Vite, sembrar el
+backend, interceptar `script.google.com` y entrar al módulo con sesión. Copiado
+cinco veces, eso serían cinco sitios donde el arnés se desactualiza por separado.
+
+Lo que aporta y conviene conocer:
+
+| Pieza | Para qué |
+| --- | --- |
+| `arrancarVite(puerto, { produccion })` | `produccion: true` sirve el `dist/` construido. **Obligatorio** para medir rendimiento: en modo desarrollo se mide el compilador, no la aplicación |
+| `sembrar({ cuantos })` | Expedientes de todas las ramas, con estados, hojas contadas y observaciones, más los tres catálogos auxiliares |
+| `nuevoRegistro({ esperados, erroresEsperados })` | Distingue los rechazos y errores que la sonda **provoca a propósito** de los fallos reales. Sin esto, la única forma de pasar sería no probar el caso |
+| `cortarBackend(registro)` | Simula que Apps Script no responde **sin cortar el resto de la red**. `setOffline(true)` corta también `localhost` y lo que se mide entonces es un error del navegador, no el comportamiento del módulo |
+
+### Sondas nuevas
+
+```bash
+node qa/sonda-contraste.mjs           # cada nodo de texto, 7 pantallas × 2 temas, contra WCAG AA
+npm run build && node qa/sonda-rendimiento.mjs 4   # trabajo, latencias y tareas largas con CPU 4x
+node qa/sonda-alta-expediente.mjs     # el alta de punta a punta, comprobada en el libro
+node qa/sonda-modal-expediente.mjs    # la ventana del expediente: foco, apilamiento, fugas
+node qa/sonda-cache-expedientes.mjs   # precarga, apertura instantánea, conflicto, backend caído
+```
+
+**`sonda-contraste.mjs`** mide unos 2 800 nodos de texto por ejecución. Usa una
+página por tema, con el tema puesto **antes** de cargar: el fondo lo pinta React,
+así que forzar la clase `light` sin cambiar el estado daría un gris intermedio que
+no existe en ninguna pantalla real.
+
+**`sonda-rendimiento.mjs`** acepta el factor de estrangulamiento como argumento
+(4 por defecto). Afirma sobre **trabajo**, no sobre fotogramas: en un Chromium sin
+ventana `requestAnimationFrame` va a 4-5 Hz aunque no se estrangule nada, así que
+los fps solo se informan. Tres detalles de calibración que costaron encontrar:
+
+- simula la latencia del backend y **la escala con el factor**, porque estrangular
+  la CPU multiplica el pintado y deja la red igual;
+- **vacía la caché** antes de la apertura «en frío», porque si no la precarga ya
+  la había calentado y las dos mediciones eran la misma;
+- separa el presupuesto de una **interacción continua** (teclear, desplazarse) del
+  de un **montaje** tras un clic, y atribuye cada tarea larga a su fase.
+
+**`sonda-cache-expedientes.mjs`** es la que encontró que la reconciliación de
+versión no se disparaba nunca en el caso real. **`sonda-rendimiento.mjs`** es la
+que encontró que el modo ligero no ahorraba nada.
+
+### Sondas anteriores
 
 ```bash
 node qa/documentacion-app.mjs               # recorrido completo (app entera)
@@ -70,7 +118,7 @@ node qa/documentacion-app.mjs alta          # el asistente de nuevo expediente, 
 node qa/sonda-foco-expediente.mjs           # ¿se puede ESCRIBIR en el panel del expediente?
 node qa/sonda-congelamiento.mjs             # ¿queda el `body` con overflow:hidden?
 node qa/sonda-salida-perfil.mjs             # ¿se puede SALIR del formulario de perfil de cargo?
-node qa/visual-documentacion.mjs            # las diez pantallas + capturas de la documentación
+node qa/visual-documentacion.mjs            # las once pantallas + capturas de la documentación
 ```
 
 `sonda-foco-expediente.mjs` es la que encontró el fallo grave de esta iteración:

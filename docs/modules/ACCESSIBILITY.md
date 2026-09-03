@@ -70,6 +70,64 @@ following provisions.
 - **Print**: glass flattens, chrome disappears, truncated names expand, and rows
   do not break across pages.
 
+## Measured contrast (Documentación)
+
+Contrast is no longer estimated by eye. `src/design-system/contraste.ts` is a pure
+WCAG relative-luminance implementation (19 unit tests), and
+`qa/sonda-contraste.mjs` walks seven screens in **both themes** in a real browser,
+computes the effective colour of **every text node** against its resolved
+background — including alpha compositing — and fails if any node misses AA
+(4.5:1, or 3:1 for large text). Around 2 800 nodes per run.
+
+Two fixes came out of it:
+
+- **Solid fills got their own per-theme foreground token.** With a fixed dark ink,
+  the primary button in the light theme measured **3.53:1**. `--doc-solido-fg` and
+  `--doc-solido-peligro-fg` are theme-scoped now.
+- **The faint ink was too faint.** `--ink-faint` went from 0.5 to 0.62 alpha in the
+  dark theme, and the light theme's `--ink-soft` / `--ink-faint` became opaque
+  (`#33506f`, `#4f6a86`) instead of transparent blacks that composited differently
+  on every surface.
+
+The probe measures the theme *loaded from storage*, one page per theme. Forcing the
+`light` class without changing React state would paint a light module over a dark
+background and measure an intermediate grey that exists on no real screen.
+
+## Overlay surfaces (Documentación)
+
+`HojaCentral` is the module's modal surface. Its invariants are asserted in jsdom
+(`__tests__/superficies.test.tsx`) and in a real browser
+(`qa/sonda-modal-expediente.mjs`):
+
+- `role="dialog"` + `aria-modal="true"` with the person's name as accessible name.
+- Real focus trap; Tab cycles inside and does not reach the background.
+- Scroll lock via `lib/scrollLock` (reference-counted), released even when two
+  surfaces overlap.
+- **Initial focus goes to `[data-foco-inicial]`,** checked *before* the generic
+  focusable selectors. `querySelector` with a comma-separated list returns the
+  first node in *document order*, so the header's close button used to win and the
+  first typed characters were lost.
+- **Focus restoration checks its target.** If the captured element is
+  `document.body` — which happens when the sheet mounts already open, since nobody
+  held focus — or is no longer connected, focus is left alone. Calling
+  `body.focus()` *clears* the active focus: the branch meant to preserve the user's
+  place was the one destroying it.
+- Confirmations stack **above** the sheet (`Z.dialog` = 165 vs 120). They used to
+  render underneath at `z-index: 110`, which made "Cerrar y descartar" visible and
+  unclickable.
+- Never `window.confirm`: it blocks the thread, cannot be styled, and can be
+  silenced by the browser.
+
+## Light mode
+
+Configuración › Esta pantalla › *Modo ligero* (auto / always / never) removes the
+two properties that force the browser to recompose layers: `backdrop-filter` blurs
+and projected box-shadows. Measured effect on a 120-step scroll run with the CPU
+throttled 4×: **1 046 ms → 590 ms**. In `auto` it turns itself on from device
+signals (`hardwareConcurrency`, `deviceMemory`, `saveData`, `update: slow`) or from
+a real dropped-frame measurement taken during the first interaction — never at
+idle, since a backgrounded tab drops to 1 fps on purpose.
+
 ## Follow-ups
 
 - Full audit with an automated checker (axe) and manual SR testing across the
