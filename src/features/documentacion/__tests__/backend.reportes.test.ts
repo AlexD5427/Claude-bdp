@@ -44,7 +44,7 @@ function escenario(h: any) {
   h.ok("documentacion.revision.decidir", {
     revision: { expedienteDocumentoId: cvB.expedienteDocumentoId, estado: "OBSERVADO", motivo: "FALTAN_DATOS", comentario: "Sin firma." },
   });
-  const certB = b.requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+  const certB = b.requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
   h.ok("documentacion.prorroga.crear", {
     prorroga: { expedienteDocumentoId: certB.expedienteDocumentoId, fechaProrroga: h.read("doc2FechaMasDias_(20)"), motivo: "Trámite en curso." },
   });

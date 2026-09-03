@@ -203,6 +203,16 @@ async function irAModulo(pagina, etiqueta) {
   await pagina.waitForTimeout(1200);
 }
 
+/** ¿Está el panel de Herramientas montado y visible? */
+async function panelHerramientasAbierto(pagina) {
+  return pagina.evaluate(() => {
+    const panel = document.querySelector('[role="dialog"][aria-label="Herramientas"]');
+    if (!panel) return false;
+    const estilo = getComputedStyle(panel);
+    return estilo.display !== "none" && estilo.visibility !== "hidden" && Number(estilo.opacity) > 0.05;
+  });
+}
+
 /**
  * ¿Sigue respondiendo la página?
  *
@@ -307,9 +317,30 @@ async function escenarioCongelamiento(pagina) {
   if (await herramientas.count()) {
     await herramientas.click();
     await pagina.waitForTimeout(900);
+    /* Se cierra como lo hace una persona: primero Escape y, si el panel sigue
+       ahí, con el mismo botón del dock (es un conmutador) o con el fondo.
+       ── Por qué esta insistencia y no un solo Escape ────────────────────────
+       La sonda mide si el CANDADO se libera al cerrar la superposición. Si el
+       cierre no llega a ocurrir, lo que mide es un panel abierto —y entonces
+       «overflow: hidden» es lo correcto, no un fallo—. Medir un cierre que no
+       pasó es un falso positivo, que es peor que no medir: enseña a ignorar la
+       sonda. */
     await pagina.keyboard.press("Escape");
     await pagina.waitForTimeout(800);
-    todo = (await sondaViva(pagina, "tras abrir y cerrar Herramientas (Perfiles)")) && todo;
+    if (await panelHerramientasAbierto(pagina)) {
+      await herramientas.click({ force: true });
+      await pagina.waitForTimeout(800);
+    }
+    if (await panelHerramientasAbierto(pagina)) {
+      await pagina.mouse.click(20, 20);
+      await pagina.waitForTimeout(800);
+    }
+    if (await panelHerramientasAbierto(pagina)) {
+      console.log("  ✗ el panel de Herramientas no se cierra ni con Escape, ni con su botón, ni con el fondo");
+      todo = false;
+    } else {
+      todo = (await sondaViva(pagina, "tras abrir y cerrar Herramientas (Perfiles)")) && todo;
+    }
   }
 
   /* El caso que rompía el candado: DOS superposiciones solapadas que se cierran en
@@ -383,7 +414,8 @@ async function escenarioAlta(pagina) {
   await pagina.waitForTimeout(1200);
 
   const anio = new Date().getFullYear();
-  await pagina.getByPlaceholder("1234567 - 45 - 2026").fill(`9988776 - 77 - ${anio}`);
+  // El carnet se escribe tal cual: el campo ya no impone formato.
+  await pagina.getByPlaceholder("Ej. 1234567 LP").fill(`9988776 ${anio}`);
   await pagina.getByPlaceholder("Nombres y apellidos").fill("Prueba Navegador Comercial");
   await pagina.screenshot({ path: `${SALIDA}/alta-1-identidad.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
@@ -391,9 +423,10 @@ async function escenarioAlta(pagina) {
   await pagina.screenshot({ path: `${SALIDA}/alta-2-generales.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();
   await pagina.waitForTimeout(900);
-  await pagina.getByRole("button", { name: /Funcionario área comercial/i }).first().click();
+  // Las tarjetas de categoría y de garantía son radios de un radiogrupo.
+  await pagina.getByRole("radio", { name: /Funcionario área comercial/i }).first().click();
   await pagina.waitForTimeout(700);
-  await pagina.getByRole("button", { name: /Tipo 2/ }).first().click();
+  await pagina.getByRole("radio", { name: /Tipo 2/ }).first().click();
   await pagina.waitForTimeout(500);
   await pagina.screenshot({ path: `${SALIDA}/alta-3-categoria.jpg`, type: "jpeg", quality: 80 });
   await pagina.getByRole("button", { name: /Continuar/ }).first().click();

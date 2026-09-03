@@ -271,14 +271,17 @@ describe("cliente · integración con el backend real", () => {
   it("el estado llega con las capacidades del actor", async () => {
     const estado = await docApi.estado();
     expect(estado.instalado).toBe(true);
-    expect(estado.esquema).toBe(4);
+    expect(estado.esquema).toBe(5);
     expect(estado.capacidades.ver).toBe(true);
   });
 
-  it("el catálogo llega con los 38 documentos y los catálogos auxiliares", async () => {
+  it("el catálogo llega con sus 39 filas y los tres catálogos auxiliares", async () => {
     const catalogo = await docApi.catalogo();
-    expect(catalogo.documentos.length).toBe(38);
+    expect(catalogo.documentos.length).toBe(39);
     expect(catalogo.auxiliares.gerencia_bdp.length).toBeGreaterThan(0);
+    // Los tres catálogos auxiliares llegan declarados, aunque `cargo_bdp` esté
+    // vacío en un libro nuevo: el desplegable tiene que poder pintarse igual.
+    expect(Array.isArray(catalogo.auxiliares.cargo_bdp)).toBe(true);
     expect(catalogo.aplicabilidad.length).toBeGreaterThan(5);
   });
 
@@ -292,7 +295,7 @@ describe("cliente · integración con el backend real", () => {
     expect(creado.creado).toBe(true);
 
     const detalle = await docApi.obtenerExpediente(creado.expedienteId);
-    expect(detalle.requisitos.length).toBe(18);
+    expect(detalle.requisitos.length).toBe(16);
 
     const cv = detalle.requisitos.find((r) => r.codigo === "cv")!;
     const guardado = await docApi.guardarRequisitos(creado.expedienteId, [

@@ -82,12 +82,22 @@ describe("documentación · migración: importación de datos", () => {
     expect(porCodigo["titulo-legalizado"].estado).toBe("ENTREGADO");
     expect(porCodigo["titulo-legalizado"].estadoRevision).toBe("OBSERVADO");
     expect(porCodigo["titulo-legalizado"].observaciones).toMatch(/legalización/i);
-    expect(porCodigo["rc-iva"].estado).toBe("NO_APLICA");
+    // `rc-iva` y `cert-trabajo` están RETIRADOS: ya no se piden en ningún
+    // expediente, así que no llegan como requisitos. El dato que traían no se
+    // pierde —sigue en el `DETALLE JSON` de la fila del libro— pero el proceso
+    // vigente no los cuenta.
+    expect(porCodigo["rc-iva"]).toBeUndefined();
+    expect(porCodigo["cert-trabajo"]).toBeUndefined();
 
-    // La prórroga heredada se convierte en un registro propio.
+    // La prórroga heredada de un requisito VIGENTE se convierte en un registro
+    // propio; la de uno retirado no se importa porque su requisito no existe.
     expect(detalle.prorrogas.length).toBe(1);
-    expect(detalle.prorrogas[0].codigo).toBe("cert-trabajo");
-    expect(detalle.prorrogas[0].fechaProrroga).toBe("2027-12-31");
+    expect(detalle.prorrogas[0].codigo).toBe("titulo-legalizado");
+    expect(detalle.prorrogas[0].fechaProrroga).toBe("2027-10-15");
+
+    // Y el conteo de hojas que el módulo antiguo guardaba en `items[].pages` se
+    // recupera en la columna nueva: nadie tiene que volver a contar.
+    expect(porCodigo["titulo-legalizado"].hojasFisicas).toBe(2);
   });
 
   it("las columnas del libro alimentan los requisitos de las filas sin JSON", () => {
@@ -198,12 +208,12 @@ describe("documentación · migración: importación de datos", () => {
     seedLegacyBook(h, 2026);
     const antes = h.ok("documentacion.migraciones.estado");
     expect(antes.aplicadas).toEqual([]);
-    expect(antes.pendientes.length).toBe(4);
+    expect(antes.pendientes.length).toBe(5);
 
     h.pedir("documentacion.instalar", { conRespaldo: false });
     const despues = h.ok("documentacion.migraciones.estado");
     expect(despues.pendientes).toEqual([]);
-    expect(despues.aplicadas.length).toBe(4);
+    expect(despues.aplicadas.length).toBe(5);
   });
 
   it("el respaldo previo guarda los expedientes del libro antes de tocar nada", () => {

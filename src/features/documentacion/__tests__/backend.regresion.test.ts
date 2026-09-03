@@ -369,7 +369,7 @@ describe("regresión · las dos arquitecturas conviven", () => {
   });
 });
 
-describe("regresión · los 18 documentos generales y las ramas", () => {
+describe("regresión · los 16 documentos generales y las ramas", () => {
   it("el catálogo heredado y el nuevo describen los mismos documentos", () => {
     const h = loadBackend();
     h.pedir("instalar", {});
@@ -378,18 +378,32 @@ describe("regresión · los 18 documentos generales y las ramas", () => {
     const heredado = h.read<any[]>("DOC_CATALOGO_SEMILLA").map((d) => d.id).sort();
     const nuevo = h.ok("documentacion.catalogo").documentos.map((d: any) => d.codigo).sort();
     expect(nuevo).toEqual(heredado);
-    expect(nuevo.length).toBe(38);
+    // 37 requisitos vigentes + los 2 generales retirados, que se conservan
+    // desactivados para poder leer los expedientes que ya los referencian.
+    expect(nuevo.length).toBe(39);
+  });
+
+  it("los dos generales retirados no se piden en un expediente nuevo pero siguen en el catálogo", () => {
+    const h = loadInstalledBackend();
+    const catalogo = h.ok("documentacion.catalogo");
+    const retirados = catalogo.documentos.filter((d: any) => d.retirado === true).map((d: any) => d.codigo).sort();
+    expect(retirados).toEqual(["cert-trabajo", "rc-iva"]);
+
+    const { requisitos } = crearExpediente(h, { identificador: "CI-RETIRO-2026" });
+    const codigos = requisitos.map((r: any) => r.codigo);
+    expect(codigos).not.toContain("cert-trabajo");
+    expect(codigos).not.toContain("rc-iva");
   });
 
   it("cada rama produce el número de requisitos esperado", () => {
     const h = loadInstalledBackend();
     const casos: [string, string, number][] = [
-      ["GENERAL", "NINGUNA", 18],
-      ["COMERCIAL", "COMERCIAL_1", 23],
-      ["COMERCIAL", "COMERCIAL_2", 27],
-      ["COMERCIAL", "COMERCIAL_3", 23],
-      ["AUDITORIA", "NINGUNA", 19],
-      ["CUMPLIMIENTO", "NINGUNA", 20],
+      ["GENERAL", "NINGUNA", 16],
+      ["COMERCIAL", "COMERCIAL_1", 21],
+      ["COMERCIAL", "COMERCIAL_2", 25],
+      ["COMERCIAL", "COMERCIAL_3", 21],
+      ["AUDITORIA", "NINGUNA", 17],
+      ["CUMPLIMIENTO", "NINGUNA", 19],
     ];
     let n = 0;
     for (const [funcionario, garantia, esperado] of casos) {
@@ -402,11 +416,17 @@ describe("regresión · los 18 documentos generales y las ramas", () => {
     }
   });
 
-  it("las prórrogas de certificados y título siguen siendo las únicas del proceso general", () => {
+  it("las prórrogas de título y examen UIF son las únicas del proceso vigente", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
     const conProrroga = requisitos.filter((r: any) => r.permiteProrroga).map((r: any) => r.codigo).sort();
-    expect(conProrroga).toEqual(["cert-trabajo", "titulo-legalizado"]);
+    // `cert-trabajo` admitía prórroga y sigue admitiéndola en el catálogo, pero ya
+    // no se pide: está retirado, así que no llega a ningún expediente nuevo.
+    expect(conProrroga).toEqual(["titulo-legalizado"]);
+
+    const cumplimiento = crearExpediente(h, { identificador: "CI-UIF-2026", tipoFuncionario: "CUMPLIMIENTO" });
+    const suyas = cumplimiento.requisitos.filter((r: any) => r.permiteProrroga).map((r: any) => r.codigo).sort();
+    expect(suyas).toEqual(["examen-uif", "titulo-legalizado"]);
   });
 });
 

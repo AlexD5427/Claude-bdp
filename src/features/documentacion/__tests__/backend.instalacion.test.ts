@@ -28,7 +28,7 @@ describe("documentación · instalación y estructura", () => {
     const res = h.pedir("documentacion.estado");
     expect(res.ok).toBe(true);
     expect(res.data.instalado).toBe(false);
-    expect(res.data.esquema).toBe(4);
+    expect(res.data.esquema).toBe(5);
     // El contrato nuevo y el histórico viajan juntos.
     expect(res.meta.requestId).toBeTruthy();
     expect(res.meta.timestamp).toBeTruthy();
@@ -101,19 +101,79 @@ describe("documentación · instalación y estructura", () => {
 });
 
 describe("documentación · catálogo único y aplicabilidad", () => {
-  it("el catálogo trae los 18 documentos generales en su orden funcional", () => {
+  it("el catálogo trae los 16 documentos generales vigentes en el orden del área", () => {
     const h = loadInstalledBackend();
     const catalogo = h.ok("documentacion.catalogo");
-    const generales = catalogo.documentos.filter((d: any) => d.seccion === "generales");
-    expect(generales.length).toBe(18);
-    // El orden es el de la implementación anterior: la fotografía primero y el
-    // carnet de heredero al final.
+    const generales = catalogo.documentos.filter((d: any) => d.seccion === "generales" && d.retirado !== true);
+    expect(generales.length).toBe(16);
+    // El orden es el de la tabla del área: la fotografía primero y el carnet de
+    // heredero al final.
     expect(generales[0].codigo).toBe("foto-4x4");
     expect(generales[generales.length - 1].codigo).toBe("carnet-heredero");
-    expect(catalogo.documentos.length).toBe(38);
+    // 39 filas en total: 37 vigentes + los 2 generales retirados.
+    expect(catalogo.documentos.length).toBe(39);
   });
 
-  it("solo certificados de trabajo, título y examen UIF admiten prórroga", () => {
+  it("los generales llevan la redacción literal del área", () => {
+    const h = loadInstalledBackend();
+    const catalogo = h.ok("documentacion.catalogo");
+    const foto = catalogo.documentos.find((d: any) => d.codigo === "foto-4x4");
+    expect(foto.nombre).toContain("Fotografía en formato digital 4X4 fondo blanco");
+    expect(foto.nombre).toContain("WhatsApp");
+    const cuenta = catalogo.documentos.find((d: any) => d.codigo === "cuenta-bancaria");
+    expect(cuenta.nombre).toContain("BCP para zonas urbanas y Banco Unión para zonas rurales");
+  });
+
+  it("la presentación física y el conteo de hojas vienen del catálogo", () => {
+    const h = loadInstalledBackend();
+    const catalogo = h.ok("documentacion.catalogo");
+    const porCodigo = new Map(catalogo.documentos.map((d: any) => [d.codigo, d]));
+
+    // El «SÍ*» de la tabla del área es un dato, no una nota en el código.
+    expect((porCodigo.get("antecedentes-felcc") as any).presentacionFisica).toBe("CONDICIONAL");
+    expect((porCodigo.get("rejap") as any).presentacionFisica).toBe("CONDICIONAL");
+    expect((porCodigo.get("titulo-legalizado") as any).presentacionFisica).toBe("SI");
+    expect((porCodigo.get("foto-4x4") as any).presentacionFisica).toBe("NO");
+    expect((porCodigo.get("foto-4x4") as any).requiereConteoHojas).toBe(false);
+
+    const conHojas = catalogo.documentos
+      .filter((d: any) => d.requiereConteoHojas)
+      .map((d: any) => d.codigo)
+      .sort();
+    expect(conHojas).toEqual([
+      "antecedentes-felcc",
+      "djj-prohibiciones-cumplimiento",
+      "examen-uif",
+      "impedimento-auditor",
+      "lgi-ft",
+      "rejap",
+      "seguro-accidentes",
+      "seguro-vida",
+      "titulo-legalizado",
+    ]);
+    // Ninguna garantía lleva contador de hojas: son todas digitales.
+    const garantiaConHojas = catalogo.documentos.filter((d: any) => d.seccion === "garantia" && d.requiereConteoHojas);
+    expect(garantiaConHojas).toEqual([]);
+  });
+
+  it("las subsecciones de garantía se declaran por rama", () => {
+    const h = loadInstalledBackend();
+    const mapa = h.ok("documentacion.catalogo").aplicabilidad;
+    const tipo1 = mapa.find((m: any) => m.tipoFuncionario === "COMERCIAL" && m.tipoGarantia === "COMERCIAL_1");
+    const tipo3 = mapa.find((m: any) => m.tipoFuncionario === "COMERCIAL" && m.tipoGarantia === "COMERCIAL_3");
+
+    // El mismo documento, dos bloques distintos según la rama: es la trampa que
+    // obliga a que la subsección sea un mapa y no un texto.
+    expect(tipo1.subsecciones["garante-inmueble"]).toBe("1 Garante con Bien Inmueble");
+    expect(tipo3.subsecciones["garante-inmueble"]).toBe("Postulante con inmueble propio");
+    expect(tipo1.subsecciones["garante-t1-fam-ci"]).toBe("1 Garante Familiar (hasta 4to grado de consanguinidad)");
+
+    const tipo2 = mapa.find((m: any) => m.tipoFuncionario === "COMERCIAL" && m.tipoGarantia === "COMERCIAL_2");
+    expect(tipo2.subsecciones["garante-boletas"]).toBe("1 Garante que demuestre ingresos");
+    expect(tipo2.subsecciones["garante-fam2-ci"]).toBe("2 Garantes Familiares (hasta 4to grado de consanguinidad)");
+  });
+
+  it("solo título, certificados retirados y examen UIF admiten prórroga", () => {
     const h = loadInstalledBackend();
     const catalogo = h.ok("documentacion.catalogo");
     const conProrroga = catalogo.documentos
@@ -121,6 +181,9 @@ describe("documentación · catálogo único y aplicabilidad", () => {
       .map((d: any) => d.codigo)
       .sort();
     expect(conProrroga).toEqual(["cert-trabajo", "examen-uif", "titulo-legalizado"]);
+    // `cert-trabajo` está retirado: conserva su prórroga en el catálogo pero no
+    // llega a ningún expediente nuevo.
+    expect(catalogo.documentos.find((d: any) => d.codigo === "cert-trabajo").retirado).toBe(true);
   });
 
   it("cada rama comercial exige sus propios documentos de garantía", () => {
@@ -130,7 +193,7 @@ describe("documentación · catálogo único y aplicabilidad", () => {
       mapa.find((m: any) => m.tipoFuncionario === funcionario && m.tipoGarantia === garantia);
 
     const general = porClave("GENERAL", "NINGUNA");
-    expect(general.total).toBe(18);
+    expect(general.total).toBe(16);
 
     const tipo1 = porClave("COMERCIAL", "COMERCIAL_1");
     expect(tipo1.codigos).toContain("garante-inmueble");
@@ -183,11 +246,12 @@ describe("documentación · catálogo único y aplicabilidad", () => {
     expect(rcIva.nombre).toBe("RC-IVA (110/610) actualizado");
     expect(rcIva.activo).toBe(false);
 
-    // Desactivado deja de ser aplicable: 17 generales en lugar de 18.
+    // Desactivar un requisito lo saca de la aplicabilidad. `rc-iva` ya venía
+    // retirado, así que el total no se mueve: sigue en 16.
     const general = catalogo.aplicabilidad.find(
       (m: any) => m.tipoFuncionario === "GENERAL" && m.tipoGarantia === "NINGUNA",
     );
-    expect(general.total).toBe(17);
+    expect(general.total).toBe(16);
 
     // Y el espejo heredado `_CATALOGO` sigue existiendo para las acciones viejas.
     const espejo = h.rowsOf("_CATALOGO");
@@ -196,7 +260,7 @@ describe("documentación · catálogo único y aplicabilidad", () => {
 });
 
 describe("documentación · catálogos auxiliares", () => {
-  it("la hoja Auxiliar guarda agencia_bdp y gerencia_bdp por columna", () => {
+  it("la hoja Auxiliar guarda agencia_bdp, gerencia_bdp y cargo_bdp por columna", () => {
     const h = loadInstalledBackend();
     const hoja = h.spreadsheet.getSheetByName("Auxiliar")!;
     const cabecera = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0].map(String);

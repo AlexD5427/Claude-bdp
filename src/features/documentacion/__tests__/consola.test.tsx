@@ -133,11 +133,13 @@ describe("consola de Documentación · integración con el backend", () => {
     await userEvent.click(tabla.getByText("Carla Detalle"));
 
     const panel = await screen.findByRole("dialog", {}, { timeout: 12000 });
-    // La cabecera trae el resumen textual que genera el backend.
-    await waitFor(() => expect(within(panel).getByText(/Avance 0%/)).toBeInTheDocument());
+    // La cabecera de la ventana trae la identidad, el avance y el recuento.
+    await waitFor(() => expect(within(panel).getByText("CI-DET-2026")).toBeInTheDocument());
+    expect(within(panel).getAllByText("0%").length).toBeGreaterThan(0);
     expect(within(panel).getByText("Documentos generales")).toBeInTheDocument();
-    expect(within(panel).getByText("Currículum Vitae actualizado")).toBeInTheDocument();
-    expect(within(panel).getByRole("tab", { name: /Requisitos\s*18/ })).toBeInTheDocument();
+    expect(within(panel).getByText("Curriculum Vitae actualizado.")).toBeInTheDocument();
+    // Dieciséis requisitos generales: la lista vigente del área.
+    expect(within(panel).getByRole("tab", { name: /Requisitos\s*16/ })).toBeInTheDocument();
   }, 20000);
 
   it("marcar un requisito no escribe hasta guardar el bloque", async () => {
@@ -151,7 +153,7 @@ describe("consola de Documentación · integración con el backend", () => {
     await userEvent.click(tabla.getByText("Bloque Guardado"));
 
     const panel = await screen.findByRole("dialog", {}, { timeout: 12000 });
-    const fila = (await within(panel).findByText("Fotografía digital 4x4")).closest("li")!;
+    const fila = (await within(panel).findByText(/Fotografía en formato digital 4X4/)).closest("li")!;
     await userEvent.click(within(fila).getByRole("button", { name: "Entregado" }));
 
     // Aviso de cambios sin guardar y, sobre todo, NADA escrito todavía.

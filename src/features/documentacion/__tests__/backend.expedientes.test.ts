@@ -18,11 +18,11 @@ describe("documentación · alta de expedientes", () => {
     const h = loadInstalledBackend();
     const { expediente, requisitos } = crearExpediente(h);
 
-    expect(requisitos.length).toBe(18);
+    expect(requisitos.length).toBe(16);
     expect(expediente.estado).toBe("EN_RECOLECCION");
     expect(expediente.porcentaje).toBe(0);
-    expect(expediente.totales.requisitos).toBe(18);
-    expect(expediente.totales.pendientes).toBe(18);
+    expect(expediente.totales.requisitos).toBe(16);
+    expect(expediente.totales.pendientes).toBe(16);
     for (const requisito of requisitos) {
       expect(requisito.estado).toBe("PENDIENTE");
       expect(requisito.estadoRevision).toBe("SIN_REVISION");
@@ -46,6 +46,25 @@ describe("documentación · alta de expedientes", () => {
     expect(res.ok).toBe(false);
     expect(res.error.code).toBe("CONFLICTO");
     expect(res.error.detalle.expedienteId).toBe(primero.expedienteId);
+  });
+
+  it("«¿existe este carnet?» reconoce el mismo número escrito de otra forma", () => {
+    // Es la consulta que hace el asistente MIENTRAS se escribe el carnet, para
+    // avisar antes de rellenar cinco pasos. Compara por dígitos y letras, así que
+    // encuentra el expediente aunque el libro lo tenga con guiones y el año.
+    const h = loadInstalledBackend();
+    const creado = crearExpediente(h, { identificador: "1234567 - 45 - 2026", nombre: "Ana Quiroga Vargas" });
+
+    for (const escrito of ["1234567 - 45 - 2026", "1234567452026", "1234567-45-2026", " 1234567 45 2026 "]) {
+      const res = h.ok("documentacion.expediente.porCarnet", { identificador: escrito });
+      expect(res.encontrado).toBe(true);
+      expect(res.expedienteId).toBe(creado.expedienteId);
+      expect(res.nombre).toBe("Ana Quiroga Vargas");
+    }
+
+    // Y no inventa coincidencias.
+    expect(h.ok("documentacion.expediente.porCarnet", { identificador: "9999999 LP" }).encontrado).toBe(false);
+    expect(h.ok("documentacion.expediente.porCarnet", { identificador: "" }).encontrado).toBe(false);
   });
 
   it("un comercial sin tipo de garantía no se puede crear", () => {
@@ -119,15 +138,17 @@ describe("documentación · edición y progreso", () => {
       cambios: { estado: "ENTREGADO", observaciones: "Recibido en original." },
     });
     expect(res.resumen.total_entregados).toBe(1);
-    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 18) * 100));
+    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 16) * 100));
     expect(res.resumen.estado_expediente).toBe("EN_RECOLECCION");
   });
 
   it("los no aplica salen del denominador del avance", () => {
     const h = loadInstalledBackend();
     const { expedienteId, requisitos } = crearExpediente(h);
-    const opcional = requisitos.find((r: any) => r.codigo === "rc-iva")!;
-    const otro = requisitos.find((r: any) => r.codigo === "carnet-heredero")!;
+    // Los dos generales que admiten «no aplica»: el carnet de heredero (opcional)
+    // y el título académico (que no aplica a técnicos ni egresados).
+    const opcional = requisitos.find((r: any) => r.codigo === "carnet-heredero")!;
+    const otro = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
 
     h.ok("documentacion.requisitos.guardar", {
       expedienteId,
@@ -137,7 +158,8 @@ describe("documentación · edición y progreso", () => {
       ],
     });
 
-    const obligatorios = requisitos.filter((r: any) => r.obligatorio);
+    const noAplica = new Set([opcional.codigo, otro.codigo]);
+    const obligatorios = requisitos.filter((r: any) => r.obligatorio && !noAplica.has(r.codigo));
     const res = h.ok("documentacion.requisitos.guardar", {
       expedienteId,
       cambios: obligatorios.map((r: any) => ({ expedienteDocumentoId: r.expedienteDocumentoId, estado: "ENTREGADO" })),

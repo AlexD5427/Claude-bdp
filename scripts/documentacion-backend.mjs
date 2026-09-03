@@ -673,8 +673,11 @@ export function seedLegacyBook(harness, anio = new Date().getFullYear()) {
     items: [
       { id: "foto-4x4", label: "Fotografía digital 4x4", group: "personal", status: "presentado", pages: 1 },
       { id: "cv", label: "Currículum Vitae actualizado", group: "personal", status: "presentado", pages: 3 },
+      // `cert-trabajo` está RETIRADO del proceso: se deja a propósito en la
+      // semilla porque el libro real lo tiene, y así se comprueba que la
+      // migración no lo resucita ni pierde su prórroga en silencio.
       { id: "cert-trabajo", label: "Certificados de trabajo", group: "personal", status: "pendiente", pages: 0, prorroga: `${anio + 1}-12-31`, allowProrroga: true },
-      { id: "titulo-legalizado", label: "Fotocopia legalizada del Título académico", group: "personal", status: "observado", pages: 1, observation: "Falta la legalización del ministerio." },
+      { id: "titulo-legalizado", label: "Fotocopia legalizada del Título académico", group: "personal", status: "observado", pages: 2, observation: "Falta la legalización del ministerio.", prorroga: `${anio + 1}-10-15`, allowProrroga: true },
       { id: "rc-iva", label: "Certificado de saldo a favor del dependiente (RC-IVA)", group: "personal", status: "no_aplica", pages: 0 },
     ],
     emailLog: [],

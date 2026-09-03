@@ -40,17 +40,25 @@ const NOMBRES = [
   "Carla Fernández Loza", "Iván Mendoza Cruz", "Lucía Ballivián Terán", "Hugo Paredes Zapata",
 ];
 
+const CARGOS = ["OFICIAL DE NEGOCIOS", "ANALISTA DE RIESGOS", "CAJERO", "JEFE DE AGENCIA", "AUDITOR INTERNO"];
+
 function sembrar() {
   const h = loadInstalledBackend();
   const anio = new Date().getFullYear();
   const creados = [];
+
+  // Los tres catálogos de la hoja Auxiliar. `cargo_bdp` es nuevo: sin él, el
+  // desplegable de cargo del asistente sale vacío y la captura no serviría.
+  h.ok("documentacion.auxiliares.agregar", { columna: "agencia_bdp", valores: AGENCIAS });
+  h.ok("documentacion.auxiliares.agregar", { columna: "gerencia_bdp", valores: GERENCIAS });
+  h.ok("documentacion.auxiliares.agregar", { columna: "cargo_bdp", valores: CARGOS });
 
   NOMBRES.forEach((nombre, i) => {
     const comercial = i % 4 === 1;
     const creado = crearExpediente(h, {
       identificador: `CI-${2100 + i}-${anio}`,
       nombre,
-      cargo: comercial ? "Oficial de Negocios" : "Analista",
+      cargo: comercial ? "OFICIAL DE NEGOCIOS" : CARGOS[i % CARGOS.length],
       agencia: AGENCIAS[i % AGENCIAS.length],
       gerencia: comercial ? "GERENCIA COMERCIAL" : GERENCIAS[i % GERENCIAS.length],
       fechaIngreso: `${anio}-0${(i % 8) + 1}-1${i % 9}`,
@@ -66,7 +74,9 @@ function sembrar() {
     const cambios = expediente.requisitos.slice(0, cuantos).map((r) => ({
       expedienteDocumentoId: r.expedienteDocumentoId,
       estado: "ENTREGADO",
-      paginas: 2,
+      // El conteo de hojas del legajo físico: solo lo aceptan los requisitos que
+      // lo piden, el backend ignora el resto.
+      ...(r.requiereConteoHojas ? { hojasFisicas: 2 + (i % 3) } : {}),
     }));
     if (cambios.length) {
       h.ok("documentacion.requisitos.guardar", { expedienteId: expediente.expedienteId, cambios });
@@ -194,6 +204,9 @@ async function main() {
   await pagina.waitForTimeout(2500);
 
   async function capturar(nombre) {
+    // La consola entra con una pantalla de carga propia; capturarla dejaría el
+    // logo animado en todas las imágenes de la documentación.
+    await pagina.waitForFunction(() => !document.querySelector(".doc-carga"), { timeout: 15000 }).catch(() => {});
     await pagina.waitForTimeout(900);
     await pagina.screenshot({ path: `${SALIDA}/${nombre}.jpg`, type: "jpeg", quality: 78, fullPage: false });
     console.log(`  ✓ ${nombre}.jpg`);
@@ -212,10 +225,47 @@ async function main() {
 
   const fila = pagina.getByRole("table").first().getByRole("row").nth(1);
   await fila.getByRole("cell").nth(1).click();
+  await pagina.locator('[role="dialog"]').first().waitFor({ timeout: 30000 });
   await pagina.waitForTimeout(2000);
-  await capturar("03-expediente-lateral");
+  await capturar("03-expediente-ventana");
   await pagina.keyboard.press("Escape");
-  await pagina.waitForTimeout(700);
+  await pagina.waitForTimeout(900);
+
+  // El asistente de alta, en su primer paso y en el de la categoría.
+  const nuevo = pagina.getByRole("button", { name: /Nuevo expediente/ }).first();
+  if (await nuevo.count()) {
+    await nuevo.click();
+    await pagina.locator('[role="dialog"][aria-label="Nuevo expediente documental"]').waitFor({ timeout: 20000 });
+    await pagina.waitForTimeout(1200);
+    await capturar("11-alta-identidad");
+    const asistente = pagina.locator('[role="dialog"][aria-label="Nuevo expediente documental"]');
+    await asistente.getByPlaceholder("Ej. 1234567 LP").fill("7654321 LP");
+    await asistente.getByPlaceholder("Nombres y apellidos").fill("Marcela Rivero Antelo");
+    await pagina.waitForTimeout(600);
+    await asistente.getByRole("button", { name: /Continuar/ }).click();
+    await pagina.waitForTimeout(900);
+    await capturar("12-alta-generales");
+    await asistente.getByRole("button", { name: /Continuar/ }).click();
+    await pagina.waitForTimeout(900);
+    await capturar("13-alta-categoria");
+    // El asistente pregunta antes de cerrarse («¿Cerrar el asistente?») y, si se
+    // guardó borrador, ofrece retomarlo al volver a abrirlo. Se contestan las dos
+    // cosas: si el velo del asistente se queda puesto, ninguna captura siguiente
+    // se puede tomar porque el clic no llega a la navegación.
+    // Se sale del asistente RECARGANDO, no cerrándolo a mano.
+    //
+    // Cerrarlo es un camino con dos preguntas encadenadas —«¿cerrar el
+    // asistente?» y «¿retomamos el borrador?»— y con dos botones distintos que se
+    // llaman «Cerrar» (el de la pregunta y la X de la cabecera). Basta con
+    // equivocarse en uno para que el velo del asistente se quede puesto, y desde
+    // ahí ninguna captura siguiente se puede tomar porque el clic no llega a la
+    // navegación. Para un guion de capturas, recargar es determinista: el libro
+    // vive en memoria y no se pierde nada.
+    await pagina.evaluate(() => window.localStorage.removeItem("bdp-documentacion-alta-borrador"));
+    await pagina.goto(`http://localhost:${PUERTO}/qa/documentacion.html`, { waitUntil: "networkidle" });
+    await pagina.waitForFunction(() => !document.querySelector(".doc-carga"), { timeout: 20000 }).catch(() => {});
+    await pagina.waitForTimeout(1500);
+  }
 
   for (const [etiqueta, nombre] of [
     ["Solicitudes", "04-solicitudes"],
@@ -227,6 +277,15 @@ async function main() {
   ]) {
     await irA(etiqueta);
     await capturar(nombre);
+  }
+
+  // La pestaña «¿Algo va mal?»: los seis botones de autodiagnóstico.
+  // Es una pestaña (`role="tab"`), no un botón suelto.
+  const algoVaMal = pagina.getByRole("tab", { name: /Algo va mal/ }).first();
+  if (await algoVaMal.count()) {
+    await algoVaMal.click();
+    await pagina.waitForTimeout(1000);
+    await capturar("14-autodiagnostico");
   }
 
   // Móvil: la tabla se convierte en tarjetas.

@@ -102,7 +102,7 @@ const FEATURE_ESPERADOS = [
   "ui/useDatos.ts",
   "ui/SeccionPanel.tsx",
   "ui/SeccionExpedientes.tsx",
-  "ui/ExpedienteLateral.tsx",
+  "ui/ExpedienteVentana.tsx",
   "ui/SeccionTrabajo.tsx",
   "ui/SeccionReportes.tsx",
   "ui/SeccionConfiguracion.tsx",
@@ -255,10 +255,40 @@ if (hojasNormalizadas.length !== 19) {
 }
 
 const columnasAuxiliar = harness.read("DOC2_AUXILIAR_COLUMNS");
-if (!columnasAuxiliar.includes("agencia_bdp") || !columnasAuxiliar.includes("gerencia_bdp")) {
-  fallo("La hoja Auxiliar no declara sus catálogos", `Declara ${columnasAuxiliar.join(", ")}.`);
+const AUXILIARES_ESPERADOS = ["agencia_bdp", "gerencia_bdp", "cargo_bdp"];
+const auxiliaresFaltantes = AUXILIARES_ESPERADOS.filter((c) => !columnasAuxiliar.includes(c));
+if (auxiliaresFaltantes.length) {
+  fallo(
+    "La hoja Auxiliar no declara sus catálogos",
+    `Faltan ${auxiliaresFaltantes.join(", ")}; declara ${columnasAuxiliar.join(", ")}.`,
+  );
 } else {
-  ok("la hoja Auxiliar declara agencia_bdp y gerencia_bdp");
+  ok(`la hoja Auxiliar declara ${AUXILIARES_ESPERADOS.join(", ")}`);
+}
+
+/** El catálogo auxiliar tiene que llegar completo al cliente. */
+const tiposAcciones = leer(join(DIR_FEATURE, "api", "acciones.ts"));
+const auxiliaresSinTipo = AUXILIARES_ESPERADOS.filter((c) => !tiposAcciones.includes(`${c}: string[]`));
+if (auxiliaresSinTipo.length) {
+  fallo(
+    "El tipo de los catálogos auxiliares del cliente no incluye todas las columnas",
+    `Faltan ${auxiliaresSinTipo.join(", ")} en CatalogoCliente.auxiliares (api/acciones.ts).`,
+  );
+} else {
+  ok("los tres catálogos auxiliares están declarados en los tipos del cliente");
+}
+
+/** La columna de hojas físicas tiene que existir en la hoja de requisitos. */
+const columnasRequisitos = harness.read(
+  "DOC_SCHEMA['ExpedienteDocumentos'].columns.map(function (c) { return c.name; })",
+);
+if (!columnasRequisitos.includes("hojas_fisicas")) {
+  fallo(
+    "La hoja ExpedienteDocumentos no declara hojas_fisicas",
+    "Sin esa columna el conteo de hojas de los documentos físicos no se puede guardar.",
+  );
+} else {
+  ok("ExpedienteDocumentos declara la columna hojas_fisicas");
 }
 
 /* ------------------------------------------------------------------ */
@@ -268,16 +298,85 @@ if (!columnasAuxiliar.includes("agencia_bdp") || !columnasAuxiliar.includes("ger
 seccion("Catálogo");
 
 const semilla = harness.read("DOC2_CATALOGO_SEMILLA");
-const generales = semilla.filter((d) => d.seccion === "generales");
-if (generales.length !== 18) {
-  fallo("Los documentos generales no son 18", `Hay ${generales.length}.`);
+
+/**
+ * Los generales VIGENTES son 16.
+ *
+ * Los dos retirados (`cert-trabajo`, `rc-iva`) siguen declarados con
+ * `activo: false` para que los expedientes antiguos que los referencian se puedan
+ * leer; no se cuentan como requisitos del proceso porque el motor de
+ * aplicabilidad no los incluye en ningún expediente nuevo.
+ */
+const generales = semilla.filter((d) => d.seccion === "generales" && d.activo !== false);
+const retirados = semilla.filter((d) => d.retirado === true).map((d) => d.codigo);
+if (generales.length !== 16) {
+  fallo("Los documentos generales vigentes no son 16", `Hay ${generales.length}.`);
 } else {
-  ok("18 documentos generales, en el orden funcional del proceso");
+  ok("16 documentos generales vigentes, en el orden de la tabla del área");
 }
-if (semilla.length !== 38) {
-  fallo("El catálogo no tiene 38 documentos", `Tiene ${semilla.length}.`);
+if (retirados.length !== 2 || !retirados.includes("cert-trabajo") || !retirados.includes("rc-iva")) {
+  fallo(
+    "Los generales retirados no son los dos esperados",
+    `Retirados: ${retirados.join(", ") || "ninguno"}. Deben ser cert-trabajo y rc-iva, desactivados y NO borrados.`,
+  );
 } else {
-  ok("38 documentos en el catálogo canónico");
+  ok("cert-trabajo y rc-iva están retirados sin borrarse");
+}
+if (semilla.length !== 39) {
+  fallo("El catálogo no tiene 39 filas", `Tiene ${semilla.length}.`);
+} else {
+  ok("39 filas en el catálogo canónico (37 vigentes + 2 retiradas)");
+}
+
+/** Recuentos por rama: lo que el asistente, el visor y los reportes deben coincidir. */
+const RAMAS_ESPERADAS = [
+  ["GENERAL", "NINGUNA", 16],
+  ["COMERCIAL", "COMERCIAL_1", 21],
+  ["COMERCIAL", "COMERCIAL_2", 25],
+  ["COMERCIAL", "COMERCIAL_3", 21],
+  ["AUDITORIA", "NINGUNA", 17],
+  ["CUMPLIMIENTO", "NINGUNA", 19],
+];
+const ramasMal = [];
+for (const [funcionario, garantia, esperado] of RAMAS_ESPERADAS) {
+  const aplicables = harness.read(
+    `doc2AplicablesDeSemilla_(${JSON.stringify(funcionario)}, ${JSON.stringify(garantia)}).length`,
+  );
+  if (aplicables !== esperado) ramasMal.push(`${funcionario}/${garantia}: ${aplicables} en lugar de ${esperado}`);
+}
+if (ramasMal.length) {
+  fallo("Los recuentos por rama no cuadran", ramasMal.join("; "));
+} else {
+  ok("recuentos por rama correctos: 16 · 21 · 25 · 21 · 17 · 19");
+}
+
+/** El contador de hojas es exactamente el de los requisitos con presentación física. */
+const conHojas = semilla.filter((d) => d.hojas === true).map((d) => d.codigo).sort();
+const fisicos = semilla
+  .filter((d) => d.fisica === "SI" || d.fisica === "CONDICIONAL")
+  .map((d) => d.codigo)
+  .sort();
+if (conHojas.join(",") !== fisicos.join(",")) {
+  fallo(
+    "El conteo de hojas no coincide con la presentación física",
+    `Con conteo: ${conHojas.join(", ")}. Físicos: ${fisicos.join(", ")}. Son la misma lista por definición.`,
+  );
+} else if (conHojas.length !== 9) {
+  fallo("Los requisitos con conteo de hojas no son 9", `Son ${conHojas.length}: ${conHojas.join(", ")}.`);
+} else {
+  ok("9 requisitos con conteo de hojas, los mismos que tienen presentación física");
+}
+
+/** El documento compartido entre Tipo 1 y Tipo 3 declara subsección POR RAMA. */
+const compartidos = semilla.filter((d) => d.codigo === "garante-inmueble" || d.codigo === "garante-folio");
+const malSubseccion = compartidos.filter((d) => !d.subseccion || typeof d.subseccion === "string");
+if (compartidos.length !== 2 || malSubseccion.length) {
+  fallo(
+    "garante-inmueble y garante-folio no declaran subsección por rama",
+    "Aplican a Tipo 1 y Tipo 3 con títulos distintos: la subsección tiene que ser un mapa { COMERCIAL_1, COMERCIAL_3 }.",
+  );
+} else {
+  ok("garante-inmueble y garante-folio declaran su subsección por rama");
 }
 
 const heredado = harness.read("DOC_CATALOGO_SEMILLA");

@@ -141,10 +141,10 @@ describe("informe mensual · camino completo contra el backend", () => {
     const ana = comercial.personas.find((p) => p.nombre === "Ana Comercial")!;
     const auditor = informe.categorias[1].personas[0];
 
-    // Tipo 1: 23 requisitos. Tipo 2: 27. Auditoría: 19.
-    expect(zoe.documentos.length).toBe(23);
-    expect(ana.documentos.length).toBe(27);
-    expect(auditor.documentos.length).toBe(19);
+    // Tipo 1: 21 requisitos. Tipo 2: 25. Auditoría: 17.
+    expect(zoe.documentos.length).toBe(21);
+    expect(ana.documentos.length).toBe(25);
+    expect(auditor.documentos.length).toBe(17);
 
     const codigosZoe = zoe.documentos.map((d) => d.codigo);
     expect(codigosZoe).toContain("garante-t1-fam-ci");
@@ -163,8 +163,8 @@ describe("informe mensual · camino completo contra el backend", () => {
 
     const libro = informeALibro(informe);
     expect(Object.keys(libro)).toEqual(["Resumen", "Detalle", "Observaciones"]);
-    // Detalle: encabezado + 23 + 27 + 19 documentos.
-    expect(libro.Detalle.length).toBe(1 + 23 + 27 + 19);
+    // Detalle: encabezado + 21 + 25 + 17 documentos.
+    expect(libro.Detalle.length).toBe(1 + 21 + 25 + 17);
     const zip = unzipSync(construirXlsx(libro));
     expect(strFromU8(zip["xl/worksheets/sheet3.xml"])).toContain("Recibida en f");
   });
