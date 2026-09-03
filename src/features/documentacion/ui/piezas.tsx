@@ -49,6 +49,8 @@ import {
   Clock,
   Info,
   Loader2,
+  Minus,
+  Plus,
   Search,
   X,
 } from "lucide-react";
@@ -546,10 +548,13 @@ export function Boton({
   const base =
     "doc-tap doc-no-print inline-flex items-center justify-center gap-1.5 rounded-[var(--doc-radius-sm)] px-3 py-2 text-xs font-semibold transition-[background-color,color,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-50";
 
+  /* El par fondo/tinta de los botones sólidos lo decide el TEMA (ver
+     `documentacion.css`): una tinta oscura fija sobre el cian del tema claro
+     dejaba el botón más pulsado del módulo por debajo de la WCAG AA. */
   const estilos: Record<string, CSSProperties> = {
-    primario: { background: "var(--doc-info)", color: "#04121f" },
+    primario: { background: "var(--doc-primario-bg)", color: "var(--doc-primario-fg)" },
     suave: { background: "var(--doc-surface-raised)", color: "var(--doc-text)", boxShadow: "inset 0 0 0 1px var(--doc-border)" },
-    peligro: { background: "var(--doc-danger)", color: "#1b0710" },
+    peligro: { background: "var(--doc-peligro-bg)", color: "var(--doc-peligro-fg)" },
     fantasma: { color: "var(--doc-text-muted)" },
   };
 
@@ -1067,6 +1072,357 @@ export function Paginacion({
 /* ------------------------------------------------------------------ */
 
 /**
+ * Comportamiento de una superficie modal, en un solo sitio.
+ *
+ * ── Por qué es un hook y no código repetido ─────────────────────────────────
+ * El módulo tiene ahora dos superficies modales —el cajón lateral de los filtros
+ * y la ventana central del expediente— y las dos tienen que cumplir lo mismo:
+ * candado de scroll con recuento, foco atrapado dentro, foco devuelto al cerrar,
+ * Escape, y no cerrarse a media escritura. Cada una con su copia significaba que
+ * el arreglo del foco se aplicó a una y no a la otra, y el fallo volvió por la
+ * puerta de al lado.
+ *
+ * ── El fallo que estos `ref` corrigen ───────────────────────────────────────
+ * El efecto de teclado dependía de una función creada en cada renderizado del
+ * padre, así que se desmontaba y se volvía a montar EN CADA RENDERIZADO. Y su
+ * limpieza devuelve el foco al elemento que estaba enfocado antes de abrir. En un
+ * navegador real: la primera tecla provoca un renderizado, la limpieza saca el
+ * foco del área de texto y el temporizador lo deja en el primer botón. Entra UNA
+ * letra y el teclado parece muerto. Era el «se congela» que reportaba el área.
+ *
+ * Los manejadores viven en referencias y el efecto solo depende de `abierto`: se
+ * monta al abrir y se desmonta al cerrar, ni una vez más.
+ */
+export function useSuperficieModal({
+  abierto,
+  onCerrar,
+  bloqueado,
+  confirmarCierre,
+}: {
+  abierto: boolean;
+  onCerrar: () => void;
+  bloqueado?: boolean;
+  confirmarCierre?: string;
+}) {
+  const contenedor = useRef<HTMLDivElement | null>(null);
+  const anterior = useRef<HTMLElement | null>(null);
+  const [pidiendoCierre, setPidiendoCierre] = useState(false);
+
+  const cerrarRef = useRef(onCerrar);
+  cerrarRef.current = onCerrar;
+  const bloqueadoRef = useRef(bloqueado);
+  bloqueadoRef.current = bloqueado;
+  const confirmarRef = useRef(confirmarCierre);
+  confirmarRef.current = confirmarCierre;
+
+  const intentarCerrar = useCallback(() => {
+    if (bloqueadoRef.current) return;
+    // Si hay cambios sin guardar se pregunta con la confirmación del módulo, no
+    // con `window.confirm`: el diálogo nativo bloquea el hilo y el navegador
+    // permite silenciarlo, con lo que la superficie dejaba de poder cerrarse.
+    if (confirmarRef.current) {
+      setPidiendoCierre(true);
+      return;
+    }
+    cerrarRef.current();
+  }, []);
+
+  useEffect(() => {
+    if (!abierto) return;
+    anterior.current = document.activeElement as HTMLElement | null;
+
+    const alPulsar = (evento: KeyboardEvent) => {
+      if (evento.key === "Escape") {
+        evento.stopPropagation();
+        intentarCerrar();
+        return;
+      }
+      // Trampa de foco: con Tab en el último elemento se vuelve al primero, y con
+      // Shift+Tab en el primero se va al último. Sin esto, el foco sigue por
+      // detrás de la superficie y nadie sabe dónde está.
+      if (evento.key !== "Tab" || !contenedor.current) return;
+      const enfocables = contenedor.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (!enfocables.length) return;
+      const primero = enfocables[0];
+      const ultimo = enfocables[enfocables.length - 1];
+      if (!evento.shiftKey && document.activeElement === ultimo) {
+        evento.preventDefault();
+        primero.focus();
+      } else if (evento.shiftKey && document.activeElement === primero) {
+        evento.preventDefault();
+        ultimo.focus();
+      }
+    };
+
+    document.addEventListener("keydown", alPulsar);
+    // El fondo no debe scrollear detrás. El candado lleva recuento, así que
+    // apilar dos superficies no deja la página trancada al cerrar una.
+    const liberarScroll = bloquearScroll();
+    const t = setTimeout(() => {
+      contenedor.current?.querySelector<HTMLElement>("[data-foco-inicial], button, [href], input, select, textarea")?.focus();
+    }, 50);
+
+    return () => {
+      document.removeEventListener("keydown", alPulsar);
+      clearTimeout(t);
+      liberarScroll();
+      anterior.current?.focus?.();
+    };
+  }, [abierto, intentarCerrar]);
+
+  return { contenedor, intentarCerrar, pidiendoCierre, setPidiendoCierre, cerrarRef };
+}
+
+/**
+ * Ventana central.
+ *
+ * ── Por qué el expediente dejó de ser un cajón lateral ──────────────────────
+ * Un cajón que entra desde la derecha es la forma correcta para un detalle
+ * estrecho: un filtro, una ficha de tres campos. El expediente no es eso. Un
+ * comercial de Tipo 2 tiene 25 requisitos repartidos en tres bloques, cada uno
+ * con su chip de estado, su contador de hojas, su observación y su prórroga.
+ * En un cajón de 800 px eso es una columna larguísima que se recorre a ciegas,
+ * mientras a la izquierda quedan seiscientos píxeles de lista tapada que no
+ * sirven para nada.
+ *
+ * Una ventana central grande usa el ancho: en escritorio los bloques van en dos
+ * columnas y la cabecera con la identidad se lee de un vistazo. En móvil ocupa
+ * todo, que ahí es lo correcto.
+ *
+ * Cumple los mismos invariantes que el cajón —candado de scroll, foco atrapado y
+ * devuelto, Escape, `aria-modal`, apilamiento por debajo de `Z.dialog`— porque
+ * comparte el hook que los implementa.
+ */
+export function Ventana({
+  abierta,
+  onCerrar,
+  titulo,
+  subtitulo,
+  children,
+  pie,
+  cabecera,
+  ancho = "max-w-6xl",
+  bloqueado,
+  confirmarCierre,
+}: {
+  abierta: boolean;
+  onCerrar: () => void;
+  titulo: ReactNode;
+  subtitulo?: ReactNode;
+  children: ReactNode;
+  pie?: ReactNode;
+  /** Cabecera propia: sustituye al título cuando la ficha necesita más. */
+  cabecera?: ReactNode;
+  ancho?: string;
+  bloqueado?: boolean;
+  confirmarCierre?: string;
+}) {
+  const reducido = useMovimientoReducido();
+  const { contenedor, intentarCerrar, pidiendoCierre, setPidiendoCierre, cerrarRef } = useSuperficieModal({
+    abierto: abierta,
+    onCerrar,
+    bloqueado,
+    confirmarCierre,
+  });
+
+  return (
+    <AnimatePresence>
+      {abierta && (
+        <>
+          <motion.div
+            className="doc-velo fixed inset-0 z-[100]"
+            initial={reducido ? undefined : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reducido ? undefined : { opacity: 0 }}
+            transition={{ duration: reducido ? 0 : DURACION.rapida }}
+            onClick={intentarCerrar}
+            aria-hidden
+          />
+          <div className="doc-console pointer-events-none fixed inset-0 z-[101] flex items-stretch justify-center p-0 sm:items-center sm:p-4 md:p-6">
+            <motion.div
+              ref={contenedor}
+              role="dialog"
+              aria-modal="true"
+              aria-label={typeof titulo === "string" ? titulo : "Detalle"}
+              className={`doc-hoja pointer-events-auto flex max-h-full w-full ${ancho} flex-col overflow-hidden rounded-none sm:rounded-[26px]`}
+              initial={reducido ? undefined : { opacity: 0, y: 18, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reducido ? undefined : { opacity: 0, y: 12, scale: 0.99, transition: { duration: DURACION.rapida, ease: CURVA.salidaQuint } }}
+              transition={resorte(reducido)}
+              style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+            >
+              {cabecera ?? (
+                <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[color:var(--doc-border)] px-4 py-3 sm:px-6">
+                  <div className="min-w-0">
+                    <h2 className="doc-titulo truncate">{titulo}</h2>
+                    {subtitulo && <p className="doc-prose mt-0.5 text-xs text-[color:var(--doc-text-muted)]">{subtitulo}</p>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={intentarCerrar}
+                    aria-label="Cerrar"
+                    disabled={bloqueado}
+                    className="doc-tap doc-presion rounded-xl p-2 text-[color:var(--doc-text-muted)] transition-colors hover:bg-[color:var(--doc-surface)] hover:text-[color:var(--doc-text)] disabled:opacity-40"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                  </button>
+                </header>
+              )}
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">{children}</div>
+              {pie && (
+                <footer className="shrink-0 border-t border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-4 py-3 sm:px-6">
+                  {pie}
+                </footer>
+              )}
+            </motion.div>
+          </div>
+
+          <Confirmacion
+            abierta={pidiendoCierre}
+            titulo="Hay cambios sin guardar"
+            detalle={confirmarCierre}
+            textoConfirmar="Cerrar y descartar"
+            peligrosa
+            onConfirmar={() => {
+              setPidiendoCierre(false);
+              cerrarRef.current();
+            }}
+            onCancelar={() => setPidiendoCierre(false)}
+          />
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * Contador de hojas de un documento físico.
+ *
+ * ── Por qué no es un `<input type="number">` ────────────────────────────────
+ * Porque en un `type="number"` con foco, la RUEDA DEL RATÓN cambia el valor. En
+ * una lista de veinticinco requisitos donde hay que desplazarse, eso significa
+ * que al bajar por la pantalla se alteran los conteos que ya estaban puestos, sin
+ * que nadie lo note hasta que el expediente dice que el REJAP tiene 47 hojas.
+ *
+ * Es un `type="text"` con `inputMode="numeric"`: teclado numérico en el móvil,
+ * flechas arriba y abajo para ajustar, escritura directa, y dos botones grandes
+ * para el dedo. El valor se acota al guardar, no al teclear: recortar mientras se
+ * escribe impide llegar a «12» pasando por «1».
+ */
+export function ContadorHojas({
+  valor,
+  onChange,
+  etiqueta,
+  deshabilitado,
+  maximo = 999,
+}: {
+  valor: number;
+  onChange: (valor: number) => void;
+  /** Nombre del documento, para el nombre accesible del control. */
+  etiqueta: string;
+  deshabilitado?: boolean;
+  maximo?: number;
+}) {
+  const id = useId();
+  const [texto, setTexto] = useState(String(valor || 0));
+  /* El campo controlado no se reescribe mientras se teclea: solo se sincroniza
+     cuando el valor cambia DESDE FUERA (al guardar, al recargar el expediente). */
+  const ultimoValor = useRef(valor);
+  useEffect(() => {
+    if (ultimoValor.current === valor) return;
+    ultimoValor.current = valor;
+    setTexto(String(valor || 0));
+  }, [valor]);
+
+  const acotar = (n: number) => Math.max(0, Math.min(maximo, Math.round(n)));
+
+  const confirmar = (crudo: string) => {
+    const limpio = crudo.replace(/[^0-9]/g, "");
+    const numero = limpio === "" ? 0 : acotar(Number(limpio));
+    setTexto(String(numero));
+    // Si el número es el que ya había, NO se avisa de un cambio. Parece un
+    // detalle y no lo es: `confirmar` también corre al salir del campo con el
+    // tabulador, así que recorrer los requisitos con el teclado marcaba el
+    // expediente como modificado y, al cerrar, preguntaba si descartar unos
+    // cambios que nadie había hecho.
+    if (numero === valor) return;
+    ultimoValor.current = numero;
+    onChange(numero);
+  };
+
+  const ajustar = (delta: number) => {
+    const numero = acotar((Number(texto.replace(/[^0-9]/g, "")) || 0) + delta);
+    setTexto(String(numero));
+    if (numero === valor) return;
+    ultimoValor.current = numero;
+    onChange(numero);
+  };
+
+  return (
+    <div
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full py-0.5 pl-0.5 pr-1"
+      style={{
+        background: "var(--doc-surface)",
+        boxShadow: "inset 0 0 0 1px var(--doc-border)",
+        opacity: deshabilitado ? 0.55 : 1,
+      }}
+      title={deshabilitado ? "El documento está marcado como no aplica: el conteo se conserva por si se revierte." : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => ajustar(-1)}
+        disabled={deshabilitado || Number(texto) <= 0}
+        aria-label={`Una hoja menos en ${etiqueta}`}
+        className="doc-tap doc-presion grid h-6 w-6 place-items-center rounded-full text-[color:var(--doc-text-muted)] transition-colors hover:bg-[color:var(--doc-surface-raised)] hover:text-[color:var(--doc-text)] disabled:opacity-40"
+      >
+        <Minus className="h-3 w-3" aria-hidden />
+      </button>
+      <label className="sr-only" htmlFor={id}>
+        Hojas del documento físico · {etiqueta}
+      </label>
+      <input
+        id={id}
+        // Nunca `type="number"`: la rueda del ratón cambiaría el valor al hacer scroll.
+        type="text"
+        inputMode="numeric"
+        autoComplete="off"
+        value={texto}
+        disabled={deshabilitado}
+        onChange={(e) => setTexto(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))}
+        onBlur={(e) => confirmar(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            ajustar(1);
+          } else if (e.key === "ArrowDown") {
+            e.preventDefault();
+            ajustar(-1);
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            confirmar((e.target as HTMLInputElement).value);
+          }
+        }}
+        className="doc-metric w-8 border-0 bg-transparent p-0 text-center text-[11px] font-semibold text-[color:var(--doc-text)] outline-none"
+      />
+      <span className="pr-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--doc-text-faint)]" aria-hidden>
+        hj
+      </span>
+      <button
+        type="button"
+        onClick={() => ajustar(1)}
+        disabled={deshabilitado || Number(texto) >= maximo}
+        aria-label={`Una hoja más en ${etiqueta}`}
+        className="doc-tap doc-presion grid h-6 w-6 place-items-center rounded-full text-[color:var(--doc-text-muted)] transition-colors hover:bg-[color:var(--doc-surface-raised)] hover:text-[color:var(--doc-text)] disabled:opacity-40"
+      >
+        <Plus className="h-3 w-3" aria-hidden />
+      </button>
+    </div>
+  );
+}
+
+/**
  * Panel lateral.
  *
  * ── Qué hace bien ──────────────────────────────────────────────────────────
@@ -1105,90 +1461,15 @@ export function Lateral({
   encabezadoExtra?: ReactNode;
 }) {
   const reducido = useMovimientoReducido();
-  const contenedor = useRef<HTMLDivElement | null>(null);
-  const anterior = useRef<HTMLElement | null>(null);
-  const [pidiendoCierre, setPidiendoCierre] = useState(false);
-
-  /**
-   * ── El fallo que este `ref` corrige ────────────────────────────────────────
-   * El efecto de teclado dependía de `intentarCerrar`, que a su vez depende de
-   * `onCerrar` —una función nueva en cada renderizado del componente padre—. Es
-   * decir: el efecto se desmontaba y se volvía a montar EN CADA RENDERIZADO. Y su
-   * limpieza devuelve el foco al elemento que estaba enfocado antes de abrir el
-   * panel.
-   *
-   * Consecuencia medida en un navegador real: al escribir una observación, la
-   * primera tecla provoca un renderizado, la limpieza saca el foco del área de
-   * texto y el temporizador de 50 ms lo deja en el primer botón del panel. Entra
-   * UNA letra y el teclado parece muerto. Era el «se congela» que reportaba el
-   * área en la pantalla más usada del módulo.
-   *
-   * Los manejadores viven ahora en referencias y el efecto solo depende de
-   * `abierto`: se monta al abrir y se desmonta al cerrar, ni una vez más.
-   */
-  const cerrarRef = useRef(onCerrar);
-  cerrarRef.current = onCerrar;
-  const bloqueadoRef = useRef(bloqueado);
-  bloqueadoRef.current = bloqueado;
-  const confirmarRef = useRef(confirmarCierre);
-  confirmarRef.current = confirmarCierre;
-
-  const intentarCerrar = useCallback(() => {
-    if (bloqueadoRef.current) return;
-    // Si hay cambios sin guardar se pregunta con la confirmación del módulo, no
-    // con `window.confirm`: el diálogo nativo bloquea el hilo y Chrome permite
-    // silenciarlo («no volver a mostrar»), con lo que el panel dejaba de cerrarse.
-    if (confirmarRef.current) {
-      setPidiendoCierre(true);
-      return;
-    }
-    cerrarRef.current();
-  }, []);
-
-  useEffect(() => {
-    if (!abierto) return;
-    anterior.current = document.activeElement as HTMLElement | null;
-
-    const alPulsar = (evento: KeyboardEvent) => {
-      if (evento.key === "Escape") {
-        evento.stopPropagation();
-        intentarCerrar();
-        return;
-      }
-      // Trampa de foco: con Tab en el último elemento se vuelve al primero, y con
-      // Shift+Tab en el primero se va al último. Sin esto, el foco sigue por
-      // detrás del panel y nadie sabe dónde está.
-      if (evento.key !== "Tab" || !contenedor.current) return;
-      const enfocables = contenedor.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      );
-      if (!enfocables.length) return;
-      const primero = enfocables[0];
-      const ultimo = enfocables[enfocables.length - 1];
-      if (!evento.shiftKey && document.activeElement === ultimo) {
-        evento.preventDefault();
-        primero.focus();
-      } else if (evento.shiftKey && document.activeElement === primero) {
-        evento.preventDefault();
-        ultimo.focus();
-      }
-    };
-
-    document.addEventListener("keydown", alPulsar);
-    // El fondo no debe scrollear detrás del panel. El candado lleva recuento, así
-    // que apilar el panel sobre otra superposición no deja la página trancada.
-    const liberarScroll = bloquearScroll();
-    const t = setTimeout(() => {
-      contenedor.current?.querySelector<HTMLElement>("[data-foco-inicial], button, [href], input, select, textarea")?.focus();
-    }, 50);
-
-    return () => {
-      document.removeEventListener("keydown", alPulsar);
-      clearTimeout(t);
-      liberarScroll();
-      anterior.current?.focus?.();
-    };
-  }, [abierto, intentarCerrar]);
+  // Foco atrapado, candado de scroll con recuento, Escape y confirmación de
+  // cierre: todo en el hook compartido con `Ventana`. Ver su comentario para el
+  // fallo del foco que este patrón corrige.
+  const { contenedor, intentarCerrar, pidiendoCierre, setPidiendoCierre, cerrarRef } = useSuperficieModal({
+    abierto,
+    onCerrar,
+    bloqueado,
+    confirmarCierre,
+  });
 
   return (
     <AnimatePresence>

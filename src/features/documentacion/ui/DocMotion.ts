@@ -37,6 +37,15 @@ export const CURVA = {
   salidaExpo: [0.16, 1, 0.3, 1],
   salidaQuint: [0.22, 1, 0.36, 1],
   entradaSalida: [0.65, 0, 0.35, 1],
+  /**
+   * La curva de las hojas de iOS.
+   *
+   * Arranca decidida y frena muy largo. Es la que hace que una superficie
+   * «llegue» en lugar de aparecer, y la que el área reconoce del sistema
+   * operativo de su teléfono. Se usa para revelar una elección y para las
+   * superficies centrales.
+   */
+  iOS: [0.32, 0.72, 0, 1],
 } as const;
 
 /**

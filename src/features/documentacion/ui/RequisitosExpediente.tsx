@@ -26,9 +26,9 @@
  * solo pinta los destinos posibles; si el backend cambia, cambian solos.
  */
 
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarClock, CheckCheck, FileText, Filter, Search, ShieldCheck, Timer, X } from "lucide-react";
+import { CalendarClock, CheckCheck, FileText, Files, Filter, History, Search, ShieldCheck, Timer, X } from "lucide-react";
 import type { ExpedienteOperativo } from "../api/acciones";
 import {
   ETIQUETA_DOCUMENTO,
@@ -42,10 +42,17 @@ import {
   TRANSICIONES_DOCUMENTO,
   type EstadoDocumento,
 } from "../domain/vocabulario";
-import { agruparRequisitos, fechaCorta, fechaHora, type RequisitoVista } from "../domain/progreso";
+import {
+  agruparRequisitos,
+  fechaCorta,
+  fechaHora,
+  totalHojasFisicas,
+  type GrupoRequisitos,
+  type RequisitoVista,
+} from "../domain/progreso";
 import { categoriaDe, estiloCategoria } from "../domain/categorias";
 import { diasDesdeHoy, fechaLegible } from "./CampoFecha";
-import { AreaTexto, BarraAvance, Boton, Campo, ChipEstado, TONO } from "./piezas";
+import { AreaTexto, BarraAvance, Boton, Campo, ChipEstado, ContadorHojas, TONO } from "./piezas";
 import { CURVA, DURACION, useMovimientoReducido } from "./DocMotion";
 import { Cifra } from "./DocTexto";
 import { hace } from "./DocSyncIndicator";
@@ -54,13 +61,30 @@ import { hace } from "./DocSyncIndicator";
 /* Filtros                                                             */
 /* ------------------------------------------------------------------ */
 
-type FiltroId = "todos" | "faltan" | "observados" | "prorroga" | "entregados";
+/**
+ * Cambio de un requisito que todavía no se ha escrito en el libro.
+ *
+ * Se declara aquí —y no en cada componente— porque lo comparten la ventana del
+ * expediente, la lista, la cola de salida y las pruebas. Cuando se añadió el
+ * conteo de hojas, tener el tipo en un sitio fue la diferencia entre cambiar una
+ * línea y descubrir en producción que la cola lo descartaba.
+ */
+export interface BorradorRequisito {
+  estado?: EstadoDocumento;
+  observaciones?: string;
+  hojasFisicas?: number;
+}
+
+type FiltroId = "todos" | "faltan" | "observados" | "prorroga" | "fisicos" | "entregados";
 
 const FILTROS: { id: FiltroId; etiqueta: string; intencion: keyof typeof TONO }[] = [
   { id: "todos", etiqueta: "Todos", intencion: "neutral" },
   { id: "faltan", etiqueta: "Por conseguir", intencion: "aviso" },
   { id: "observados", etiqueta: "Observados", intencion: "peligro" },
   { id: "prorroga", etiqueta: "En prórroga", intencion: "acento" },
+  // Los físicos son los que se archivan en papel: quien prepara la carpeta
+  // necesita verlos juntos y con sus hojas.
+  { id: "fisicos", etiqueta: "En físico", intencion: "info" },
   { id: "entregados", etiqueta: "Entregados", intencion: "exito" },
 ];
 
@@ -98,12 +122,12 @@ export function RequisitosExpediente({
   onProrrogar,
 }: {
   datos: ExpedienteOperativo;
-  borrador: Record<string, { estado?: EstadoDocumento; observaciones?: string }>;
+  borrador: Record<string, BorradorRequisito>;
   foco: string | null;
   puedeEditar: boolean;
   puedeRevisar: boolean;
   onFoco: (id: string | null) => void;
-  onBorrador: (id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) => void;
+  onBorrador: (id: string, patch: Partial<BorradorRequisito>) => void;
   onRevisar: (requisito: RequisitoVista) => void;
   onProrrogar: (requisito: RequisitoVista) => void;
 }) {
@@ -128,10 +152,27 @@ export function RequisitosExpediente({
       faltan: conEstado.filter(({ estado }) => estado === "PENDIENTE" || estado === "NO_ENTREGADO").length,
       observados: activos.filter(esObservado).length,
       prorroga: activos.filter((r) => Boolean(prorrogaVigente(r))).length,
+      fisicos: activos.filter((r) => r.requiereConteoHojas).length,
       entregados: conEstado.filter(({ estado }) => estado === "ENTREGADO").length,
     } as Record<FiltroId, number>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datos.requisitos, borrador]);
+
+  /** Total de hojas físicas con los cambios sin guardar aplicados. */
+  const hojasTotales = useMemo(() => {
+    const conBorrador = datos.requisitos.map((r) => ({
+      ...r,
+      hojasFisicas: borrador[r.expedienteDocumentoId]?.hojasFisicas ?? r.hojasFisicas,
+    }));
+    return totalHojasFisicas(conBorrador);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datos.requisitos, borrador]);
+
+  /** ¿Hay algún requisito con presentación física CONDICIONAL («SÍ*»)? */
+  const hayCondicionales = useMemo(
+    () => datos.requisitos.some((r) => !r.archivado && r.presentacionFisica === "CONDICIONAL"),
+    [datos.requisitos],
+  );
 
   const pasa = (r: RequisitoVista): boolean => {
     if (soloObligatorios && !r.obligatorio) return false;
@@ -147,6 +188,8 @@ export function RequisitosExpediente({
         return esObservado(r);
       case "prorroga":
         return Boolean(prorrogaVigente(r));
+      case "fisicos":
+        return r.requiereConteoHojas;
       case "entregados":
         return estado === "ENTREGADO";
       default:
@@ -160,7 +203,7 @@ export function RequisitosExpediente({
   const nadaCoincide = gruposVisibles.length === 0;
 
   return (
-    <div className="space-y-3" style={estiloCategoria(datos.expediente.tipoFuncionario)}>
+    <div className="doc-cat space-y-3" style={estiloCategoria(datos.expediente.tipoFuncionario)}>
       {/* ── Barra de trabajo ─────────────────────────────────────────────
           Se queda pegada justo DEBAJO de la barra de pestañas del panel (que ya
           es `sticky top-0`), con un `z` menor, para que al desplazarse una pase
@@ -204,6 +247,17 @@ export function RequisitosExpediente({
           >
             <Filter className="h-3 w-3" aria-hidden /> Obligatorios
           </button>
+          {/* Total de hojas físicas: lo que va a pesar la carpeta de papel. */}
+          {recuentos.fisicos > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] font-semibold"
+              style={{ color: "var(--doc-text-muted)", boxShadow: "inset 0 0 0 1px var(--doc-border)" }}
+              title={`${recuentos.fisicos} documento(s) se archivan en papel`}
+            >
+              <Files className="h-3 w-3" aria-hidden />
+              <span className="doc-metric">{hojasTotales}</span> hoja{hojasTotales === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar por situación">
@@ -268,7 +322,7 @@ export function RequisitosExpediente({
               style={{ background: grupo.seccion === "generales" ? "transparent" : "var(--cat-tinte)" }}
             >
               <div className="min-w-0">
-                <h4 className="doc-balance text-sm font-semibold text-[color:var(--doc-text)]">{grupo.etiqueta}</h4>
+                <h4 className="doc-subtitulo">{grupo.etiqueta}</h4>
                 <p className="text-[11px] text-[color:var(--doc-text-muted)]">
                   {grupo.resueltos} de {grupo.total} resueltos
                   {grupo.visibles.length !== grupo.total ? ` · ${grupo.visibles.length} en pantalla` : ""}
@@ -280,28 +334,51 @@ export function RequisitosExpediente({
               </div>
             </header>
 
-            <ul className="doc-list-long divide-y divide-[color:var(--doc-border)]">
-              <AnimatePresence initial={false}>
-                {grupo.visibles.map((requisito, i) => (
-                  <FilaRequisito
-                    key={requisito.expedienteDocumentoId}
-                    requisito={requisito}
-                    estado={estadoDe(requisito)}
-                    sucio={Boolean(borrador[requisito.expedienteDocumentoId])}
-                    observacionBorrador={borrador[requisito.expedienteDocumentoId]?.observaciones}
-                    enFoco={foco === requisito.expedienteDocumentoId}
-                    puedeEditar={puedeEditar}
-                    puedeRevisar={puedeRevisar}
-                    reducido={reducido}
-                    orden={i}
-                    onFoco={onFoco}
-                    onBorrador={onBorrador}
-                    onRevisar={onRevisar}
-                    onProrrogar={onProrrogar}
-                  />
-                ))}
-              </AnimatePresence>
-            </ul>
+            {/* Bloques con título dentro de la sección. En la garantía cada
+                bloque es una PERSONA distinta, y el área junta los papeles por
+                persona: sin los títulos, un tipo 2 son nueve documentos donde no
+                se ve que hay tres personas implicadas. */}
+            {subgruposVisibles(grupo.subgrupos, grupo.visibles).map((bloque) => (
+              <div key={bloque.titulo || "sin-bloque"}>
+                {bloque.titulo && (
+                  <div className="flex items-center justify-between gap-2 border-b border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-3 py-1.5">
+                    <h5 className="doc-subseccion truncate">{bloque.titulo}</h5>
+                    <span className="doc-metric shrink-0 text-[10px] text-[color:var(--doc-text-faint)]">
+                      {bloque.resueltos}/{bloque.total}
+                    </span>
+                  </div>
+                )}
+                <ul className="doc-lista-virtual divide-y divide-[color:var(--doc-border)]">
+                  {bloque.visibles.map((requisito) => (
+                    <FilaRequisito
+                      key={requisito.expedienteDocumentoId}
+                      requisito={requisito}
+                      estado={estadoDe(requisito)}
+                      hojasBorrador={borrador[requisito.expedienteDocumentoId]?.hojasFisicas}
+                      sucio={Boolean(borrador[requisito.expedienteDocumentoId])}
+                      observacionBorrador={borrador[requisito.expedienteDocumentoId]?.observaciones}
+                      enFoco={foco === requisito.expedienteDocumentoId}
+                      puedeEditar={puedeEditar}
+                      puedeRevisar={puedeRevisar}
+                      reducido={reducido}
+                      onFoco={onFoco}
+                      onBorrador={onBorrador}
+                      onRevisar={onRevisar}
+                      onProrrogar={onProrrogar}
+                    />
+                  ))}
+                </ul>
+              </div>
+            ))}
+
+            {/* Leyenda del asterisco: es información del área, y va donde se
+                usa, no en un comentario del código. */}
+            {grupo.seccion === "generales" && hayCondicionales && (
+              <p className="doc-nota border-t border-[color:var(--doc-border)] px-3 py-2 text-[11px]">
+                <span aria-hidden>SÍ*</span> La copia física se pide solo en los casos que indique el área; el escaneado
+                es obligatorio siempre.
+              </p>
+            )}
           </section>
         ))
       )}
@@ -309,20 +386,52 @@ export function RequisitosExpediente({
   );
 }
 
+/**
+ * Cruza los bloques declarados con los requisitos que pasan el filtro.
+ *
+ * Un bloque cuyos requisitos están todos filtrados no se pinta: dejar su título
+ * suelto haría creer que faltan documentos que en realidad están escondidos por
+ * el filtro. Es una función pura para poder probarla sin montar la pantalla.
+ */
+function subgruposVisibles(
+  subgrupos: GrupoRequisitos["subgrupos"],
+  visibles: RequisitoVista[],
+): (GrupoRequisitos["subgrupos"][number] & { visibles: RequisitoVista[] })[] {
+  const permitidos = new Set(visibles.map((r) => r.expedienteDocumentoId));
+  return subgrupos
+    .map((bloque) => ({ ...bloque, visibles: bloque.requisitos.filter((r) => permitidos.has(r.expedienteDocumentoId)) }))
+    .filter((bloque) => bloque.visibles.length > 0);
+}
+
 /* ------------------------------------------------------------------ */
 /* Fila                                                               */
 /* ------------------------------------------------------------------ */
 
-function FilaRequisito({
+/**
+ * Una fila de requisito.
+ *
+ * ── Por qué ya no la anima framer-motion ────────────────────────────────────
+ * Antes cada fila era un `motion.li` con `layout`, un resorte de entrada y un
+ * retardo escalonado. Con veinticinco requisitos son veinticinco resortes vivos
+ * y una medición de layout por fila en cada renderizado: con la CPU estrangulada
+ * 4×, desplazar la lista bajaba a doce fotogramas por segundo. Una lista no
+ * necesita veinte resortes. La entrada es ahora una animación CSS de `opacity` y
+ * `transform` que la GPU resuelve sola, y framer-motion se reserva para lo
+ * puntual —el despliegue de la observación—.
+ *
+ * `React.memo` corta la cascada: teclear una observación repinta SU fila, no las
+ * veinticinco.
+ */
+const FilaRequisito = memo(function FilaRequisito({
   requisito,
   estado,
+  hojasBorrador,
   sucio,
   observacionBorrador,
   enFoco,
   puedeEditar,
   puedeRevisar,
   reducido,
-  orden,
   onFoco,
   onBorrador,
   onRevisar,
@@ -330,15 +439,15 @@ function FilaRequisito({
 }: {
   requisito: RequisitoVista;
   estado: EstadoDocumento;
+  hojasBorrador?: number;
   sucio: boolean;
   observacionBorrador?: string;
   enFoco: boolean;
   puedeEditar: boolean;
   puedeRevisar: boolean;
   reducido: boolean;
-  orden: number;
   onFoco: (id: string | null) => void;
-  onBorrador: (id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) => void;
+  onBorrador: (id: string, patch: Partial<BorradorRequisito>) => void;
   onRevisar: (r: RequisitoVista) => void;
   onProrrogar: (r: RequisitoVista) => void;
 }) {
@@ -346,22 +455,14 @@ function FilaRequisito({
   const observado = esObservado(requisito);
   const tonoEstado = TONO[INTENCION_DOCUMENTO[estado]];
   const mostrarObs = enFoco || Boolean(requisito.observaciones) || observacionBorrador !== undefined;
+  const hojas = hojasBorrador ?? requisito.hojasFisicas;
 
   const destinos = ESTADOS_DOCUMENTO.filter(
     (d) => puedeTransitar(TRANSICIONES_DOCUMENTO, requisito.estado, d) && (d !== "NO_APLICA" || requisito.permiteNoAplica),
   ).sort((a, b) => ORDEN_ESTADOS.indexOf(a) - ORDEN_ESTADOS.indexOf(b));
 
   return (
-    <motion.li
-      layout={reducido ? false : "position"}
-      initial={reducido ? false : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={reducido ? undefined : { opacity: 0, height: 0, transition: { duration: DURACION.rapida } }}
-      transition={
-        reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaExpo, delay: Math.min(orden * 0.015, 0.12) }
-      }
-      className="doc-print-keep relative overflow-hidden"
-    >
+    <li className={`doc-print-keep relative overflow-hidden ${reducido ? "" : "doc-fila-entra"}`}>
       {/* Cinta lateral con el color del estado: da la lectura de la lista completa
           con un barrido de la vista, sin leer una sola etiqueta. */}
       <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: tonoEstado.punto, opacity: estado === "PENDIENTE" ? 0.85 : 1 }} aria-hidden />
@@ -372,10 +473,13 @@ function FilaRequisito({
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="doc-prose doc-wrap-name text-sm text-[color:var(--doc-text)]">
+            {/* El texto COMPLETO del requisito, sin recortar: el del área llega a
+                250 caracteres y recortarlo con puntos suspensivos cambia lo que
+                se pide. Se parte por palabras y se lee. */}
+            <p className="doc-requisito doc-wrap-name">
               {requisito.nombre}
               {requisito.obligatorio && (
-                <span className="ml-1.5 align-super text-[10px]" style={{ color: "var(--doc-danger)" }} title="Documento obligatorio">
+                <span className="ml-1.5 align-super text-[10px] font-bold" style={{ color: "var(--doc-danger-fg)" }} title="Documento obligatorio">
                   *
                 </span>
               )}
@@ -390,6 +494,32 @@ function FilaRequisito({
             )}
 
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              {/* Cómo se presenta. El «SÍ*» de la tabla del área es un dato del
+                  catálogo, con su leyenda al pie de la sección. */}
+              {requisito.requiereConteoHojas && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{ color: "var(--doc-text-muted)", boxShadow: "inset 0 0 0 1px var(--doc-border)" }}
+                  title={
+                    requisito.presentacionFisica === "CONDICIONAL"
+                      ? "Se entrega en físico solo en los casos que indique el área, y siempre escaneado."
+                      : "Se entrega en físico y escaneado."
+                  }
+                >
+                  <Files className="h-2.5 w-2.5" aria-hidden />
+                  Físico{requisito.presentacionFisica === "CONDICIONAL" ? "*" : ""}
+                </span>
+              )}
+              {requisito.heredado && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                  style={{ background: "var(--doc-offline-bg)", color: "var(--doc-offline-fg)" }}
+                  title="Este requisito salió de la lista del área. Se conserva porque este expediente ya tenía información registrada."
+                >
+                  <History className="h-2.5 w-2.5" aria-hidden />
+                  Heredado
+                </span>
+              )}
               {requisito.estadoRevision !== "SIN_REVISION" && (
                 <ChipEstado
                   estado={requisito.estadoRevision}
@@ -414,7 +544,18 @@ function FilaRequisito({
 
           {/* Estado de un toque, en el orden y con el color que usa el área. */}
           {puedeEditar ? (
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap items-center gap-1">
+              {/* Contador de hojas, junto al chip de estado y SOLO en los
+                  físicos: en un digital ni existe, ni oculto. Con `NO_APLICA` se
+                  deshabilita pero conserva el valor, por si se revierte. */}
+              {requisito.requiereConteoHojas && (
+                <ContadorHojas
+                  valor={hojas}
+                  etiqueta={requisito.nombre}
+                  deshabilitado={estado === "NO_APLICA"}
+                  onChange={(n) => onBorrador(requisito.expedienteDocumentoId, { hojasFisicas: n })}
+                />
+              )}
               {destinos.map((destino) => {
                 const activo = estado === destino;
                 const tono = TONO[INTENCION_DOCUMENTO[destino]];
@@ -446,7 +587,12 @@ function FilaRequisito({
               })}
             </div>
           ) : (
-            <ChipEstado estado={estado} etiqueta={ETIQUETA_DOCUMENTO[estado]} intencion={INTENCION_DOCUMENTO[estado]} />
+            <div className="flex items-center gap-1.5">
+              {requisito.requiereConteoHojas && hojas > 0 && (
+                <span className="doc-metric text-[11px] text-[color:var(--doc-text-muted)]">{hojas} hj</span>
+              )}
+              <ChipEstado estado={estado} etiqueta={ETIQUETA_DOCUMENTO[estado]} intencion={INTENCION_DOCUMENTO[estado]} />
+            </div>
           )}
         </div>
 
@@ -501,9 +647,9 @@ function FilaRequisito({
           )}
         </div>
       </div>
-    </motion.li>
+    </li>
   );
-}
+});
 
 /**
  * Cuenta regresiva de una prórroga.

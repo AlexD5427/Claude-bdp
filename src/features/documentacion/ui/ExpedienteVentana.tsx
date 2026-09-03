@@ -1,33 +1,55 @@
 /**
- * Expediente operativo.
+ * Expediente operativo, en una ventana central.
  *
  * ── Qué es esta pantalla ────────────────────────────────────────────────────
  * El centro de operación del módulo. Todo lo que se puede hacer con un expediente
- * se hace aquí: marcar requisitos, revisar, aprobar, conceder prórrogas, pedir
- * documentación, abrir tareas, comentar, consultar el historial y exportar.
+ * se hace aquí: marcar requisitos, contar hojas, revisar, aprobar, conceder
+ * prórrogas, pedir documentación, abrir tareas, comentar, consultar el historial
+ * y exportar.
  *
- * ── Tres decisiones que se notan al usarla ──────────────────────────────────
- * 1. **Edición rápida con guardado por bloque.** Marcar seis requisitos son seis
+ * ── Por qué dejó de ser un cajón lateral ────────────────────────────────────
+ * Un cajón de 800 píxeles que entra por la derecha convierte 25 requisitos en una
+ * columna larguísima que se recorre a ciegas, mientras a la izquierda quedan
+ * seiscientos píxeles de lista tapada que no sirven para nada. La ventana central
+ * usa el ancho: la identidad completa se lee de un vistazo en la cabecera, los
+ * bloques de requisitos van en dos columnas en pantallas grandes y en una sola en
+ * móvil, donde ocupa todo —que ahí es lo correcto—.
+ *
+ * ── Cinco decisiones que se notan al usarla ─────────────────────────────────
+ * 1. **Apertura instantánea.** Si el expediente ya estaba precargado se pinta en
+ *    el mismo fotograma desde la caché y se revalida en silencio contra el
+ *    backend (`state/precarga.ts`). Nunca se presenta lo viejo como fresco: se
+ *    dice de cuándo es.
+ * 2. **Edición rápida con guardado por bloque.** Marcar seis requisitos son seis
  *    cambios en la pantalla y UNA escritura. Mientras hay cambios sin guardar, la
  *    barra inferior lo dice y ofrece descartarlos.
- * 2. **Control de versión.** Cada requisito viaja con su versión. Si otra persona
- *    lo cambió mientras esta pantalla estaba abierta, el backend rechaza el
- *    guardado con `CONFLICTO_VERSION` y aquí se recarga el expediente en lugar de
- *    pisar su trabajo.
- * 3. **«Siguiente pendiente».** Lo calcula el backend priorizando lo observado.
- *    Es lo que convierte revisar veinte requisitos en pulsar veinte veces el mismo
- *    botón en lugar de buscar en la lista.
+ * 3. **El guardado no miente.** Si el envío falla por red, el bloque entra en la
+ *    cola de salida —que sobrevive a un recargado— y la interfaz dice «pendiente
+ *    de sincronizar», nunca «guardado».
+ * 4. **Control de versión.** Cada requisito viaja con su versión. Si otra persona
+ *    lo cambió mientras esta pantalla estaba abierta, el backend responde
+ *    `CONFLICTO_VERSION` y aquí se recarga en lugar de pisar su trabajo.
+ * 5. **«Siguiente pendiente».** Lo calcula el backend priorizando lo observado.
+ *    Es lo que convierte revisar veinte requisitos en pulsar veinte veces el
+ *    mismo botón en lugar de buscar en la lista.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  Building2,
+  CalendarDays,
   CheckCircle2,
+  CloudUpload,
   Download,
+  IdCard,
   MessageSquare,
   RefreshCw,
   Send,
   Undo2,
+  UserCog,
+  X,
 } from "lucide-react";
+
 import { docApi, type ExpedienteOperativo } from "../api/acciones";
 import {
   ETIQUETA_APROBACION,
@@ -41,6 +63,7 @@ import {
   INTENCION_PRORROGA,
   INTENCION_REVISION,
   INTENCION_SITUACION,
+  INTENCION_EXPEDIENTE,
   INTENCION_SOLICITUD,
   INTENCION_TAREA,
   MOTIVOS_REVISION,
@@ -52,10 +75,15 @@ import {
   fechaCorta,
   fechaEnDias,
   fechaHora,
+  textoAntiguedad,
   textoPlazo,
   type RequisitoVista,
 } from "../domain/progreso";
 import { useConsola } from "../state/consola";
+import { mensajeDeError } from "../api/client";
+import { useExpedienteAbierto } from "../state/precarga";
+import { encolarCambios, pendientesDe, useCola, vaciarCola } from "../state/colaSalida";
+import { categoriaDe, estiloCategoria } from "../domain/categorias";
 import { descargarXlsx, nombreConFecha, unirLotes } from "../export/xlsx";
 import {
   Boton,
@@ -64,19 +92,17 @@ import {
   Confirmacion,
   Entrada,
   AreaTexto,
-  Lateral,
+  Aviso,
   Panel,
   Selector,
   TONO,
+  Ventana,
   type Notita,
 } from "./piezas";
-import { DocExpedienteHeader } from "./DocExpedienteHeader";
-import { RequisitosExpediente } from "./RequisitosExpediente";
+import { RequisitosExpediente, type BorradorRequisito } from "./RequisitosExpediente";
 import { DocError, DocVacio } from "./DocStates";
 import { EsqueletoExpediente } from "./DocSkeletons";
-import type { EstadoEscritura } from "./DocSyncIndicator";
-import { useDatos } from "./useDatos";
-
+import { IndicadorGuardado, hace, type EstadoEscritura } from "./DocSyncIndicator";
 type Pestana =
   | "requisitos"
   | "solicitudes"
@@ -95,16 +121,20 @@ interface Props {
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }
 
-export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: Props) {
+export function ExpedienteVentana({ expedienteId, onCerrar, onCambio, avisar }: Props) {
   const { capacidades } = useConsola();
+  // La cola se lee para que la ventana se repinte cuando un envío se confirma
+  // en segundo plano: sin esta suscripción, «pendiente de sincronizar» se
+  // quedaría puesto hasta que algo más provocara un renderizado.
+  useCola();
   const [pestana, setPestana] = useState<Pestana>("requisitos");
-  /** Cambios de requisito aún sin enviar: `id -> {estado?, observaciones?}`. */
-  const [borrador, setBorrador] = useState<Record<string, { estado?: EstadoDocumento; observaciones?: string }>>({});
+  /** Cambios de requisito aún sin enviar: `id -> {estado?, observaciones?, hojasFisicas?}`. */
+  const [borrador, setBorrador] = useState<Record<string, BorradorRequisito>>({});
   const [guardando, setGuardando] = useState(false);
   const [dialogo, setDialogo] = useState<null | { tipo: "archivar" | "restaurar" | "aprobar" }>(null);
   const [exportando, setExportando] = useState(false);
   /** Último resultado de escritura, para el indicador de guardado. */
-  const [ultimaEscritura, setUltimaEscritura] = useState<"ninguna" | "guardado" | "error" | "conflicto">("ninguna");
+  const [ultimaEscritura, setUltimaEscritura] = useState<"ninguna" | "guardado" | "error" | "conflicto" | "encolado">("ninguna");
   /**
    * Requisito en foco. Vive aquí y no dentro de la pestaña porque la cabecera
    * también lo mueve: «ir al requisito» del resumen y el botón «Detalle» de la
@@ -112,15 +142,44 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
    */
   const [foco, setFoco] = useState<string | null>(null);
 
-  const expediente = useDatos<ExpedienteOperativo>(
-    () => docApi.obtenerExpediente(expedienteId as string, { historial: 80 }),
-    [expedienteId],
-    { activo: !!expedienteId },
-  );
+  /* Apertura instantánea desde la caché + revalidación silenciosa. */
+  const expediente = useExpedienteAbierto(expedienteId);
 
-  const datos = expediente.datos;
+  /**
+   * Lo que se pinta.
+   *
+   * Si el detalle completo ya llegó, se usa. Si no y hay una copia precargada, se
+   * arma con ella un expediente utilizable —cabecera, requisitos y prórrogas—
+   * para que la pantalla esté viva en el primer fotograma. Las listas que la
+   * copia no trae (historial, comentarios, auditoría) van vacías, y sus pestañas
+   * muestran su estado de carga: es lo honesto.
+   */
+  const datos: ExpedienteOperativo | null = useMemo(() => {
+    if (expediente.datos) return expediente.datos;
+    const previa = expediente.vistaPrevia;
+    if (!previa) return null;
+    return {
+      expediente: previa.expediente,
+      requisitos: previa.requisitos,
+      prorrogas: previa.prorrogas,
+      solicitudes: [],
+      revisiones: [],
+      aprobaciones: [],
+      tareas: [],
+      comentarios: [],
+      consentimientos: [],
+      historial: [],
+      auditoria: [],
+      resumenTextual: "",
+      capacidades,
+      siguientePendiente: null,
+    };
+  }, [expediente.datos, expediente.vistaPrevia, capacidades]);
+
   const cabecera = datos?.expediente;
-  const cambiosPendientes = Object.keys(borrador).length;
+  const parcial = !expediente.datos && Boolean(expediente.vistaPrevia);
+  const cambiosSinGuardar = Object.keys(borrador).length;
+  const enCola = expedienteId ? pendientesDe(expedienteId) : 0;
 
   /* Al abrir un expediente, el foco arranca en lo que el backend señaló como
      siguiente pendiente: es lo que convierte «revisar» en «pulsar». */
@@ -136,7 +195,7 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
    */
   const estadoEscritura: EstadoEscritura = guardando
     ? "guardando"
-    : cambiosPendientes > 0
+    : cambiosSinGuardar > 0 || enCola > 0
       ? "pendiente"
       : ultimaEscritura === "conflicto"
         ? "conflicto"
@@ -146,23 +205,67 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
             ? "guardado"
             : "sin_cambios";
 
-  function ponerBorrador(id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) {
-    setBorrador((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  /**
+   * Anota un cambio de requisito en el borrador.
+   *
+   * ── Un cambio que no cambia nada no es un cambio ────────────────────────────
+   * Los controles de la fila avisan también al SALIR del campo: el contador de
+   * hojas confirma su valor al perder el foco y el área de observación sube su
+   * texto al soltarla. Recorrer los requisitos con el tabulador disparaba esos
+   * avisos con los valores que ya estaban, el borrador se llenaba de entradas
+   * idénticas al libro y la ventana decía «hay 4 cambios sin guardar» y
+   * preguntaba, al cerrar, si descartar un trabajo que nadie había hecho.
+   *
+   * Por eso cada campo del parche se compara con lo que hay en el expediente y
+   * se queda solo lo que de verdad difiere. Si no queda nada, la entrada se
+   * borra: así el indicador vuelve a «sin cambios» al deshacer a mano lo que se
+   * acababa de tocar.
+   */
+  function ponerBorrador(id: string, patch: Partial<BorradorRequisito>) {
+    const requisito = datos?.requisitos.find((r) => r.expedienteDocumentoId === id);
+    setBorrador((prev) => {
+      const fundido: BorradorRequisito = { ...prev[id], ...patch };
+      const limpio: BorradorRequisito = {};
+      if (fundido.estado !== undefined && fundido.estado !== requisito?.estado) limpio.estado = fundido.estado;
+      if (fundido.observaciones !== undefined && fundido.observaciones !== (requisito?.observaciones ?? "")) {
+        limpio.observaciones = fundido.observaciones;
+      }
+      if (fundido.hojasFisicas !== undefined && fundido.hojasFisicas !== (requisito?.hojasFisicas ?? 0)) {
+        limpio.hojasFisicas = fundido.hojasFisicas;
+      }
+      if (Object.keys(limpio).length === 0) {
+        if (!prev[id]) return prev;
+        const siguiente = { ...prev };
+        delete siguiente[id];
+        return siguiente;
+      }
+      return { ...prev, [id]: limpio };
+    });
   }
 
   function descartar() {
     setBorrador({});
   }
 
-  /** Guarda el bloque de cambios en una sola escritura. */
+  /**
+   * Guarda el bloque de cambios en una sola escritura.
+   *
+   * ── Por qué la cola de salida, y por qué solo cuando hace falta ─────────────
+   * El camino normal es el directo: se envía, el backend confirma y la interfaz
+   * dice «guardado». Si el envío falla por RED —no por validación—, el bloque
+   * entra en la cola de salida en lugar de perderse: sobrevive a un recargado y
+   * se reintenta solo cuando vuelve la conexión. Y mientras esté ahí, la interfaz
+   * dice «pendiente de sincronizar». El guardado no miente en ninguno de los dos
+   * caminos: la diferencia es que ahora el camino malo no destruye el trabajo.
+   */
   async function guardarBloque() {
-    if (!datos || !cambiosPendientes) return;
+    if (!datos || !cambiosSinGuardar) return;
     setGuardando(true);
+    const cambios = Object.entries(borrador).map(([id, patch]) => {
+      const requisito = datos.requisitos.find((r) => r.expedienteDocumentoId === id);
+      return { expedienteDocumentoId: id, version: requisito?.version, ...patch };
+    });
     try {
-      const cambios = Object.entries(borrador).map(([id, patch]) => {
-        const requisito = datos.requisitos.find((r) => r.expedienteDocumentoId === id);
-        return { expedienteDocumentoId: id, version: requisito?.version, ...patch };
-      });
       const res = await docApi.guardarRequisitos(datos.expediente.expedienteId, cambios);
       setBorrador({});
       setUltimaEscritura(res.fallidos.length ? "error" : "guardado");
@@ -174,16 +277,30 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
         avisar("exito", `${res.aplicados} cambio(s) guardado(s).`);
       }
     } catch (error) {
-      const fallo = error as { message?: string; pista?: string; codigo?: string };
+      const fallo = error as { message?: string; pista?: string; codigo?: string; red?: boolean };
       if (fallo.codigo === "CONFLICTO_VERSION") {
         // Alguien más tocó el expediente: se recarga en lugar de pisar su trabajo.
         setUltimaEscritura("conflicto");
         expediente.recargar();
         setBorrador({});
+        avisar(
+          "aviso",
+          "Otra persona cambió este expediente mientras lo tenías abierto.",
+          "Se ha recargado con la versión del libro para no pisar su trabajo. Vuelve a marcar lo que falte.",
+        );
+      } else if (fallo.red === true || fallo.codigo === "SIN_RED" || fallo.codigo === "TIMEOUT") {
+        encolarCambios(datos.expediente.expedienteId, cambios);
+        setBorrador({});
+        setUltimaEscritura("encolado");
+        avisar(
+          "aviso",
+          `${cambios.length} cambio(s) quedaron pendientes de sincronizar.`,
+          "No se han perdido: se guardaron en este equipo y se enviarán solos cuando vuelva la conexión.",
+        );
       } else {
         setUltimaEscritura("error");
+        avisar("peligro", fallo.message ?? "No se pudo guardar.", fallo.pista);
       }
-      avisar("peligro", fallo.message ?? "No se pudo guardar.", fallo.pista);
     } finally {
       setGuardando(false);
     }
@@ -293,38 +410,86 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
   ];
 
   return (
-    <Lateral
-      abierto={!!expedienteId}
+    <Ventana
+      abierta={!!expedienteId}
       onCerrar={onCerrar}
-      titulo={cabecera ? `${cabecera.nombre}` : "Expediente"}
-      subtitulo={cabecera ? `${cabecera.identificador} · ${cabecera.cargo || "Sin cargo"}` : undefined}
-      ancho="max-w-5xl"
+      titulo={cabecera ? cabecera.nombre : "Expediente"}
+      ancho="max-w-6xl"
       bloqueado={guardando}
       confirmarCierre={
-        cambiosPendientes
-          ? `Hay ${cambiosPendientes} cambio(s) sin guardar en este expediente. ¿Cerrar y descartarlos?`
+        cambiosSinGuardar
+          ? `Hay ${cambiosSinGuardar} cambio(s) sin guardar en este expediente. ¿Cerrar y descartarlos?`
           : undefined
       }
+      cabecera={
+        <CabeceraVentana
+          datos={datos}
+          parcial={parcial}
+          sinRespuesta={Boolean(expediente.error)}
+          antiguedad={expediente.antiguedad}
+          conflicto={expediente.conflicto}
+          estadoEscritura={estadoEscritura}
+          enCola={enCola}
+          onCerrar={onCerrar}
+          onIrAlSiguiente={(id) => {
+            setPestana("requisitos");
+            setFoco(id);
+          }}
+        />
+      }
       pie={
-        cambiosPendientes ? (
+        cambiosSinGuardar || enCola ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="doc-prose text-xs" style={{ color: TONO.aviso.texto }}>
-              {cambiosPendientes} cambio(s) sin guardar. Nada se ha escrito todavía en el libro.
+              {cambiosSinGuardar > 0
+                ? `${cambiosSinGuardar} cambio(s) sin guardar. Nada se ha escrito todavía en el libro.`
+                : `${enCola} cambio(s) pendientes de sincronizar. Se enviarán solos cuando vuelva la conexión.`}
             </p>
             <div className="flex gap-2">
-              <Boton variante="suave" onClick={descartar}>
-                <Undo2 className="h-3.5 w-3.5" aria-hidden /> Descartar
-              </Boton>
-              <Boton variante="primario" onClick={guardarBloque} cargando={guardando}>
-                Guardar {cambiosPendientes} cambio(s)
-              </Boton>
+              {cambiosSinGuardar > 0 ? (
+                <>
+                  <Boton variante="suave" onClick={descartar}>
+                    <Undo2 className="h-3.5 w-3.5" aria-hidden /> Descartar
+                  </Boton>
+                  <Boton variante="primario" onClick={guardarBloque} cargando={guardando}>
+                    Guardar {cambiosSinGuardar} cambio(s)
+                  </Boton>
+                </>
+              ) : (
+                <Boton
+                  variante="primario"
+                  onClick={async () => {
+                    const res = await vaciarCola();
+                    if (res.confirmados) {
+                      expediente.recargar();
+                      onCambio();
+                      avisar("exito", `${res.confirmados} envío(s) confirmado(s) por el libro.`);
+                    } else if (res.restantes) {
+                      avisar("aviso", `Siguen pendientes ${res.restantes} cambio(s).`, "Comprueba la conexión y vuelve a intentarlo.");
+                    }
+                  }}
+                >
+                  <CloudUpload className="h-3.5 w-3.5" aria-hidden /> Sincronizar ahora
+                </Boton>
+              )}
             </div>
           </div>
         ) : undefined
       }
     >
-      {expediente.error && (
-        <DocError titulo="No se pudo abrir el expediente" error={expediente.error} onReintentar={expediente.recargar} reintentando={expediente.cargando} />
+      {Boolean(expediente.error) && !datos && (
+        <DocError
+          titulo="No se pudo abrir el expediente"
+          error={mensajeDeError(expediente.error)}
+          onReintentar={expediente.recargar}
+          reintentando={expediente.cargando}
+        />
+      )}
+      {Boolean(expediente.error) && datos && parcial && (
+        <Aviso intencion="aviso" titulo="Sin conexión con el libro">
+          Se está mostrando la última copia guardada en este equipo ({hace(expediente.vistaPrevia?.guardadoEn)}). Se puede
+          consultar y exportar, pero no guardar cambios hasta que vuelva la conexión.
+        </Aviso>
       )}
       {expediente.cargando && !datos && (
         <>
@@ -337,65 +502,54 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
 
       {datos && cabecera && (
         <div className="space-y-4">
-          {/* Cabecera: identidad, situación y trazabilidad. */}
-          <DocExpedienteHeader
-            datos={datos}
-            cambiosPendientes={cambiosPendientes}
-            estadoEscritura={estadoEscritura}
-            onIrAlSiguiente={(id) => {
-              setPestana("requisitos");
-              setFoco(id);
-            }}
-            acciones={
-              <>
-                <Boton variante="suave" onClick={expediente.recargar} cargando={expediente.cargando}>
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Actualizar
-                </Boton>
-                {capacidades.exportar && (
-                  <Boton variante="suave" onClick={exportar} cargando={exportando}>
-                    <Download className="h-3.5 w-3.5" aria-hidden /> Exportar a Excel
-                  </Boton>
-                )}
-                {capacidades.aprobar && cabecera.estado === "COMPLETO" && (
-                  <Boton variante="primario" onClick={() => setDialogo({ tipo: "aprobar" })}>
-                    <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Aprobar expediente
-                  </Boton>
-                )}
-                {capacidades.archivar && cabecera.estado !== "ARCHIVADO" && (
-                  <Boton variante="suave" onClick={() => setDialogo({ tipo: "archivar" })}>
-                    Archivar
-                  </Boton>
-                )}
-                {capacidades.restaurar && cabecera.estado === "ARCHIVADO" && (
-                  <Boton variante="suave" onClick={() => setDialogo({ tipo: "restaurar" })}>
-                    Restaurar
-                  </Boton>
-                )}
-                {capacidades.editar && (
-                  <Boton
-                    variante="suave"
-                    onClick={async () => {
-                      try {
-                        const res = await docApi.sincronizarRequisitos(cabecera.expedienteId);
-                        expediente.recargar();
-                        avisar(
-                          "exito",
-                          `Requisitos al día: ${res.creados} añadido(s), ${res.archivados} archivado(s).`,
-                          res.conservados.length ? `${res.conservados.length} se conservaron por tener datos.` : undefined,
-                        );
-                      } catch (error) {
-                        const fallo = error as { message?: string; pista?: string };
-                        avisar("peligro", fallo.message ?? "No se pudo sincronizar.", fallo.pista);
-                      }
-                    }}
-                    titulo="Vuelve a calcular qué requisitos aplican según la rama"
-                  >
-                    Recalcular requisitos
-                  </Boton>
-                )}
-              </>
-            }
-          />
+          {/* Acciones del expediente: siempre visibles, no escondidas en un menú. */}
+          <div className="doc-no-print flex flex-wrap gap-2">
+            <Boton variante="suave" onClick={expediente.recargar} cargando={expediente.cargando}>
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden /> Actualizar
+            </Boton>
+            {capacidades.exportar && (
+              <Boton variante="suave" onClick={exportar} cargando={exportando}>
+                <Download className="h-3.5 w-3.5" aria-hidden /> Exportar a Excel
+              </Boton>
+            )}
+            {capacidades.aprobar && cabecera.estado === "COMPLETO" && (
+              <Boton variante="primario" onClick={() => setDialogo({ tipo: "aprobar" })}>
+                <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Aprobar expediente
+              </Boton>
+            )}
+            {capacidades.archivar && cabecera.estado !== "ARCHIVADO" && (
+              <Boton variante="suave" onClick={() => setDialogo({ tipo: "archivar" })}>
+                Archivar
+              </Boton>
+            )}
+            {capacidades.restaurar && cabecera.estado === "ARCHIVADO" && (
+              <Boton variante="suave" onClick={() => setDialogo({ tipo: "restaurar" })}>
+                Restaurar
+              </Boton>
+            )}
+            {capacidades.editar && (
+              <Boton
+                variante="suave"
+                onClick={async () => {
+                  try {
+                    const res = await docApi.sincronizarRequisitos(cabecera.expedienteId);
+                    expediente.recargar();
+                    avisar(
+                      "exito",
+                      `Requisitos al día: ${res.creados} añadido(s), ${res.archivados} archivado(s).`,
+                      res.conservados.length ? `${res.conservados.length} se conservaron por tener datos.` : undefined,
+                    );
+                  } catch (error) {
+                    const fallo = error as { message?: string; pista?: string };
+                    avisar("peligro", fallo.message ?? "No se pudo sincronizar.", fallo.pista);
+                  }
+                }}
+                titulo="Vuelve a calcular qué requisitos aplican según la rama"
+              >
+                Recalcular requisitos
+              </Boton>
+            )}
+          </div>
 
           {/* Pestañas */}
           {/*
@@ -525,7 +679,230 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
         }}
         onCancelar={() => setDialogo(null)}
       />
-    </Lateral>
+    </Ventana>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Cabecera de la ventana                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Identidad, situación y avance, en una sola franja.
+ *
+ * ── Cómo se decidió qué va aquí ─────────────────────────────────────────────
+ * Se listó lo que el área consulta al abrir un expediente y se ordenó por
+ * frecuencia: quién es, en qué rama está, cuánto lleva ingresado, qué avance
+ * tiene y cuál es el próximo plazo. Eso es lo que va en la cabecera, siempre
+ * visible. El resto —quién tocó qué, la versión del registro— va en su pestaña,
+ * porque se consulta cuando alguien audita, no cada vez.
+ *
+ * La categoría se identifica con SU icono y SU color (de `domain/categorias.tsx`,
+ * la fuente única), y además con su etiqueta: el color no comunica solo.
+ */
+function CabeceraVentana({
+  datos,
+  parcial,
+  sinRespuesta,
+  antiguedad,
+  conflicto,
+  estadoEscritura,
+  enCola,
+  onCerrar,
+  onIrAlSiguiente,
+}: {
+  datos: ExpedienteOperativo | null;
+  parcial: boolean;
+  /** La comprobación contra el libro falló: no hay que decir que sigue en marcha. */
+  sinRespuesta: boolean;
+  antiguedad: number;
+  conflicto: boolean;
+  estadoEscritura: EstadoEscritura;
+  enCola: number;
+  onCerrar: () => void;
+  onIrAlSiguiente: (id: string) => void;
+}) {
+  if (!datos) {
+    return (
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-[color:var(--doc-border)] px-4 py-3 sm:px-6">
+        <h2 className="doc-titulo">Expediente</h2>
+        <button
+          type="button"
+          onClick={onCerrar}
+          aria-label="Cerrar"
+          className="doc-tap doc-presion rounded-xl p-2 text-[color:var(--doc-text-muted)]"
+        >
+          <X className="h-4 w-4" aria-hidden />
+        </button>
+      </header>
+    );
+  }
+
+  const cabecera = datos.expediente;
+  const categoria = categoriaDe(cabecera.tipoFuncionario);
+  const Icono = categoria.Icono;
+  const totales = cabecera.totales;
+  const faltan = totales.pendientes + totales.noEntregados;
+  const siguiente = datos.siguientePendiente;
+
+  return (
+    <header
+      className="doc-cat shrink-0 border-b border-[color:var(--doc-border)] px-4 py-3 sm:px-6"
+      style={estiloCategoria(cabecera.tipoFuncionario)}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl"
+            style={{ background: "var(--cat-tinte-fuerte)", color: "var(--cat-texto)" }}
+            title={categoria.etiqueta}
+          >
+            <Icono className="h-6 w-6" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="doc-titulo doc-wrap-name">{cabecera.nombre || "Sin nombre"}</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--doc-text-muted)]">
+              <span className="inline-flex items-center gap-1">
+                <IdCard className="h-3 w-3" aria-hidden /> <span className="doc-metric">{cabecera.identificador}</span>
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <UserCog className="h-3 w-3" aria-hidden /> {cabecera.cargo || "Sin cargo"}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Building2 className="h-3 w-3" aria-hidden />
+                {[cabecera.agencia, cabecera.gerencia].filter(Boolean).join(" · ") || "Sin agencia"}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <CalendarDays className="h-3 w-3" aria-hidden />
+                {cabecera.fechaIngreso ? `${fechaCorta(cabecera.fechaIngreso)} · ${textoAntiguedad(cabecera.diasDesdeIngreso)}` : "Sin fecha de ingreso"}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <ChipEstado
+                estado={cabecera.estado}
+                etiqueta={ETIQUETA_EXPEDIENTE[cabecera.estado as EstadoExpediente] ?? cabecera.estado}
+                intencion={INTENCION_EXPEDIENTE[cabecera.estado as EstadoExpediente] ?? "neutral"}
+              />
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                style={{ background: "var(--cat-tinte)", color: "var(--cat-texto)" }}
+              >
+                {categoria.etiquetaCorta}
+                {cabecera.tipoGarantia && cabecera.tipoGarantia !== "NINGUNA" ? ` · ${cabecera.tipoGarantiaEtiqueta}` : ""}
+              </span>
+              {cabecera.responsableId && (
+                <span className="text-[10px] text-[color:var(--doc-text-faint)]">
+                  Responsable: {cabecera.responsableId}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <button
+            type="button"
+            onClick={onCerrar}
+            aria-label="Cerrar"
+            className="doc-tap doc-presion rounded-xl p-2 text-[color:var(--doc-text-muted)] transition-colors hover:bg-[color:var(--doc-surface)] hover:text-[color:var(--doc-text)]"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+          <IndicadorGuardado
+            estado={estadoEscritura}
+            detalle={enCola ? `${enCola} cambio(s) esperan conexión` : undefined}
+          />
+        </div>
+      </div>
+
+      {/* Cifras: avance, lo que falta, prórrogas y próximo plazo. Cuatro
+          columnas que responden «¿cómo va esto?» sin bajar por la lista. */}
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <DatoCabecera etiqueta="Avance" valor={`${cabecera.porcentaje}%`} intencion={cabecera.porcentaje >= 100 ? "exito" : "info"}>
+          <span className="doc-metric text-[10px] text-[color:var(--doc-text-faint)]">
+            {totales.entregados} de {totales.requisitos - totales.noAplica} exigibles
+          </span>
+        </DatoCabecera>
+        <DatoCabecera etiqueta="Faltan" valor={String(faltan)} intencion={faltan > 0 ? "aviso" : "exito"}>
+          {siguiente ? (
+            <button
+              type="button"
+              onClick={() => onIrAlSiguiente(siguiente.expedienteDocumentoId)}
+              className="doc-tap text-[10px] font-semibold underline-offset-2 hover:underline"
+              style={{ color: "var(--doc-info-fg)" }}
+            >
+              Ir al siguiente ({siguiente.motivo})
+            </button>
+          ) : (
+            <span className="text-[10px] text-[color:var(--doc-text-faint)]">Nada pendiente</span>
+          )}
+        </DatoCabecera>
+        <DatoCabecera
+          etiqueta="Observados"
+          valor={String(totales.observados)}
+          intencion={totales.observados > 0 ? "peligro" : "neutral"}
+        >
+          <span className="text-[10px] text-[color:var(--doc-text-faint)]">
+            {totales.prorrogas} prórroga(s){totales.prorrogasVencidas ? `, ${totales.prorrogasVencidas} vencida(s)` : ""}
+          </span>
+        </DatoCabecera>
+        <DatoCabecera
+          etiqueta="Próximo plazo"
+          valor={cabecera.proximaFechaCritica ? fechaCorta(cabecera.proximaFechaCritica) : "—"}
+          intencion={
+            cabecera.diasParaFechaCritica === null
+              ? "neutral"
+              : cabecera.diasParaFechaCritica < 0
+                ? "peligro"
+                : cabecera.diasParaFechaCritica <= 3
+                  ? "aviso"
+                  : "info"
+          }
+        >
+          <span className="text-[10px] text-[color:var(--doc-text-faint)]">
+            {cabecera.proximaFechaCritica ? textoPlazo(cabecera.proximaFechaCritica) : "Sin plazos abiertos"}
+          </span>
+        </DatoCabecera>
+      </div>
+
+      {/* Honestidad sobre la frescura del dato. */}
+      {(parcial || conflicto) && (
+        <p className="mt-2 text-[11px]" style={{ color: conflicto ? TONO.aviso.texto : "var(--doc-text-faint)" }}>
+          {conflicto
+            ? "Este expediente cambió en el libro mientras estaba abierto: se muestra la versión actualizada."
+            : sinRespuesta
+              ? `Copia de este equipo, guardada hace ${antiguedad} s. No se pudo comprobar contra el libro: puede haber cambiado.`
+              : `Copia de este equipo, guardada hace ${antiguedad} s. Se está comprobando contra el libro…`}
+        </p>
+      )}
+    </header>
+  );
+}
+
+/** Una de las cuatro cifras de la cabecera. */
+function DatoCabecera({
+  etiqueta,
+  valor,
+  intencion,
+  children,
+}: {
+  etiqueta: string;
+  valor: string;
+  intencion: keyof typeof TONO;
+  children?: React.ReactNode;
+}) {
+  const tono = TONO[intencion];
+  return (
+    <div
+      className="rounded-[var(--doc-radius-sm)] px-2.5 py-2"
+      style={{ background: "var(--doc-surface)", boxShadow: `inset 0 0 0 1px var(--doc-border)`, borderLeft: `3px solid ${tono.borde}` }}
+    >
+      <p className="doc-eyebrow">{etiqueta}</p>
+      <p className="doc-cifra mt-0.5 text-lg leading-none" style={{ color: tono.texto }}>
+        {valor}
+      </p>
+      {children ? <div className="mt-1">{children}</div> : null}
+    </div>
   );
 }
 

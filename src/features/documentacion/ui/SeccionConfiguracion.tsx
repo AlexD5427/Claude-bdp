@@ -37,6 +37,7 @@ import {
   type Notita,
 } from "./piezas";
 import { useDatos } from "./useDatos";
+import { DocAutodiagnostico } from "./DocAutodiagnostico";
 import { DocSettingsModal } from "../../../components/doc/DocSettingsModal";
 import { setSettings, useDocStore } from "../../../lib/docStore";
 import { SCRIPT_URL } from "../../../constants";
@@ -45,7 +46,7 @@ interface Props {
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }
 
-type Pestana = "estado" | "catalogo" | "plazos" | "permisos" | "automatizaciones" | "mantenimiento" | "local";
+type Pestana = "estado" | "catalogo" | "plazos" | "permisos" | "automatizaciones" | "mantenimiento" | "local" | "diagnostico";
 
 export function SeccionConfiguracion({ avisar }: Props) {
   const { conexion, estado, capacidades, catalogo, rol } = useConsola();
@@ -60,6 +61,10 @@ export function SeccionConfiguracion({ avisar }: Props) {
     { id: "automatizaciones", etiqueta: "Automatizaciones", visible: capacidades.configurar === true },
     { id: "mantenimiento", etiqueta: "Mantenimiento", visible: capacidades.diagnosticar === true },
     { id: "local", etiqueta: "Ajustes locales", visible: true },
+    // La primera pestaña que abre alguien cuando «algo va mal». Visible para
+    // todos los roles a propósito: probar la conexión y reintentar un envío no
+    // cambia ningún dato y es lo que evita esperar a que alguien llame.
+    { id: "diagnostico", etiqueta: "¿Algo va mal?", visible: true },
   ];
 
   return (
@@ -83,6 +88,8 @@ export function SeccionConfiguracion({ avisar }: Props) {
             </button>
           ))}
       </div>
+
+      {pestana === "diagnostico" && <DocAutodiagnostico avisar={avisar} />}
 
       {pestana === "estado" && (
         <div className="space-y-3">

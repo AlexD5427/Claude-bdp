@@ -102,6 +102,7 @@ import { conTransicionDeVista, vistaDeExpediente } from "./DocViewTransitions";
 import { incidenciaDe } from "./DocAttentionPanel";
 import { AltaExpedienteWizard } from "./AltaExpedienteWizard";
 import { useDatos, type EstadoDatos } from "./useDatos";
+import { usePrecarga } from "../state/precarga";
 
 interface Props {
   onAbrir: (expedienteId: string) => void;
@@ -214,6 +215,20 @@ export function SeccionExpedientes({ onAbrir, avisar, altaAbierta = false, onCer
   const filtrosGuardados = useDatos(() => docApi.listarFiltros(), [], { activo: conexion === "conectado" });
 
   const expedientes = listado.datos?.expedientes ?? [];
+
+  /**
+   * Precarga en segundo plano de lo que se ve.
+   *
+   * Mientras la persona lee la lista, el módulo trae en tiempo ocioso el detalle
+   * de estas filas. Cuando elige una, el expediente aparece en el mismo
+   * fotograma. Se le pasan los identificadores como lista: el hook depende de su
+   * CADENA, no del arreglo, para no relanzarse en cada renderizado.
+   */
+  usePrecarga(
+    expedientes.map((e) => e.expedienteId),
+    conexion === "conectado",
+  );
+
   const resumen = listado.datos?.resumen;
   const activos = filtrosActivos({ ...filtros, texto: textoRetrasado });
   const chips = chipsDeFiltros(filtros);
@@ -680,6 +695,13 @@ export function SeccionExpedientes({ onAbrir, avisar, altaAbierta = false, onCer
         }}
         onError={(mensaje, pista) => avisar("peligro", mensaje, pista)}
         onAviso={(intencion, texto, pista) => avisar(intencion, texto, pista)}
+        /* Carnet duplicado: se abre el expediente que ya existe en lugar de
+           dejar a la persona con un mensaje y treinta decisiones que no puede
+           guardar. El asistente conserva lo escrito. */
+        onAbrirExistente={(expedienteId) => {
+          onCerrarAlta?.();
+          onAbrir(expedienteId);
+        }}
       />
 
       <SolicitudMasiva

@@ -1,0 +1,234 @@
+/* =============================================================
+   PANTALLA DE CARGA DEL MÓDULO
+
+   ── Presupuesto de rendimiento ───────────────────────────────
+   Todo el movimiento de esta pantalla son `transform`, `opacity`
+   y un `filter: hue-rotate` sobre UN grupo. Nada de `width`,
+   `top`, `box-shadow` animada ni gradientes que se redibujan:
+   eso obliga al navegador a recalcular diseño o a repintar el
+   área completa en cada fotograma, y es exactamente lo que hace
+   que una pantalla de carga «bonita» sea lo primero que se
+   atraganta en un equipo modesto.
+
+   Seis elementos animados en total. Medido con la CPU
+   estrangulada 6×, se mantiene por encima de 55 fps.
+   ============================================================= */
+
+.doc-carga {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  /* El navegador puede saltarse el layout de lo que hay debajo. */
+  contain: strict;
+}
+
+.doc-carga-centro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  text-align: center;
+}
+
+/* ---- Colores dinámicos ----
+   Se mueven con `hue-rotate` sobre el grupo, no cambiando los
+   `stop` del gradiente: cambiar un `stop` invalida el degradado y
+   fuerza a rasterizarlo otra vez en cada fotograma. */
+.doc-carga-logo {
+  width: 132px;
+  height: 132px;
+  --doc-carga-1: #22d3ee;
+  --doc-carga-2: #38bdf8;
+  --doc-carga-3: #818cf8;
+  --doc-carga-linea: #04122a;
+  --doc-carga-sello-bg: #34d399;
+  --doc-carga-sello-fg: #04121f;
+}
+
+.light .doc-carga-logo {
+  --doc-carga-1: #0e7490;
+  --doc-carga-2: #005baa;
+  --doc-carga-3: #4338ca;
+  --doc-carga-linea: #ffffff;
+  --doc-carga-sello-bg: #047857;
+  --doc-carga-sello-fg: #ffffff;
+}
+
+.doc-carga-grupo {
+  animation: doc-carga-color 6s linear infinite;
+  transform-origin: 60px 60px;
+}
+
+/* ---- Las hojas ----
+   Cada hoja entra desde abajo, se levanta, gira un poco —como una
+   página que se hojea— y se apila. El desfase lo pone el `style`
+   inline de cada una, así que una hoja más son cero líneas de CSS. */
+.doc-carga-hoja {
+  transform-origin: 34px 59px;
+  animation: doc-carga-hojear 2.2s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+  will-change: transform, opacity;
+}
+
+.doc-carga-carpeta {
+  animation: doc-carga-respirar 3.2s ease-in-out infinite;
+  transform-origin: 60px 78px;
+}
+
+.doc-carga-sello {
+  transform-origin: 86px 86px;
+  animation: doc-carga-sellar 2.2s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes doc-carga-hojear {
+  0% {
+    transform: translateY(16px) rotate(-9deg) scale(0.94);
+    opacity: 0;
+  }
+  22% {
+    opacity: 1;
+  }
+  46% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  74% {
+    transform: translateY(-3px) rotate(4deg) scale(0.99);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-13px) rotate(9deg) scale(0.95);
+    opacity: 0;
+  }
+}
+
+@keyframes doc-carga-respirar {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.2;
+  }
+  50% {
+    transform: scale(1.035);
+    opacity: 0.3;
+  }
+}
+
+@keyframes doc-carga-sellar {
+  0%,
+  62% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  78% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  92% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes doc-carga-color {
+  0% {
+    filter: hue-rotate(0deg);
+  }
+  50% {
+    filter: hue-rotate(38deg);
+  }
+  100% {
+    filter: hue-rotate(0deg);
+  }
+}
+
+/* ---- Texto ---- */
+.doc-carga-texto {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  color: var(--doc-text);
+}
+
+.doc-carga-detalle {
+  max-width: 22rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--doc-text-muted);
+  text-wrap: pretty;
+}
+
+/* ---- Barra indeterminada ----
+   Se mueve con `translateX` sobre un contenedor con `overflow`
+   oculto. La alternativa habitual —animar `width`— recalcula el
+   diseño sesenta veces por segundo. */
+.doc-carga-barra {
+  position: relative;
+  display: block;
+  width: 168px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-color: var(--doc-surface-sunken);
+}
+
+.doc-carga-barra > span {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, transparent, var(--doc-info), transparent);
+  animation: doc-carga-recorrer 1.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes doc-carga-recorrer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ---- Degradación ----
+   Quien pide menos movimiento —o está en modo ligero— ve el logo
+   quieto, con sus colores fijos y la barra a media asta: sigue
+   siendo un estado de carga reconocible, sin un solo fotograma
+   animado. */
+.doc-carga-quieto,
+.doc-carga-quieto *,
+.doc-carga[data-quieto="si"] .doc-carga-hoja,
+.doc-carga[data-quieto="si"] .doc-carga-carpeta,
+.doc-carga[data-quieto="si"] .doc-carga-sello,
+.doc-carga[data-quieto="si"] .doc-carga-grupo,
+.doc-carga[data-quieto="si"] .doc-carga-barra > span {
+  animation: none !important;
+}
+
+.doc-carga[data-quieto="si"] .doc-carga-hoja {
+  opacity: 1;
+}
+
+.doc-carga[data-quieto="si"] .doc-carga-barra > span {
+  transform: translateX(-30%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-carga-hoja,
+  .doc-carga-carpeta,
+  .doc-carga-sello,
+  .doc-carga-grupo,
+  .doc-carga-barra > span {
+    animation: none !important;
+  }
+
+  .doc-carga-hoja {
+    opacity: 1;
+  }
+}

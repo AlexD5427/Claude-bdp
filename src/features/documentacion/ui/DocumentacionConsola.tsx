@@ -27,11 +27,15 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { CircleSlash, Database, FolderPlus, RefreshCw, Wrench } from "lucide-react";
 import { docApi } from "../api/acciones";
 import { seccionesPermitidas, type SeccionId } from "../domain/vocabulario";
 import { comprobarConexion, irASeccion, refrescarNotificaciones, useConsola } from "../state/consola";
+import { cambiarPerfilCache } from "../state/cacheExpedientes";
+import { cambiosPendientes, escucharConexion, useCola, vaciarCola } from "../state/colaSalida";
+import { useModoLigero } from "../state/rendimiento";
+import { PantallaCarga, usePantallaCarga } from "./PantallaCarga";
 import { useProfiles } from "../../../lib/profilesStore";
 import { useDocStore } from "../../../lib/docStore";
 import { Aviso, Boton, Notitas, useNotitas } from "./piezas";
@@ -41,7 +45,7 @@ import { DocShell, type ContadorSeccion } from "./DocShell";
 import { DocModoDegradado } from "./DocStates";
 import { SeccionPanel } from "./SeccionPanel";
 import { SeccionExpedientes } from "./SeccionExpedientes";
-import { ExpedienteLateral } from "./ExpedienteLateral";
+import { ExpedienteVentana } from "./ExpedienteVentana";
 import { SeccionAprobaciones, SeccionProrrogas, SeccionRevision, SeccionSolicitudes, SeccionTareas } from "./SeccionTrabajo";
 import { SeccionAuditoria, SeccionExportaciones, SeccionNotificaciones, SeccionReportes } from "./SeccionReportes";
 import { SeccionConfiguracion } from "./SeccionConfiguracion";
@@ -54,9 +58,76 @@ export function DocumentacionConsola() {
   const backendUrl = settings.scriptUrl;
   const { notitas, avisar, quitar } = useNotitas();
   const reducido = useMovimientoReducido();
+  const ligero = useModoLigero();
+  useCola();
   const [expedienteAbierto, setExpedienteAbierto] = useState<string | null>(null);
   const [altaAbierta, setAltaAbierta] = useState(false);
   const [refresco, setRefresco] = useState(0);
+
+  /**
+   * Pantalla de carga.
+   *
+   * Está «listo» cuando la comprobación de conexión terminó —haya salido bien o
+   * mal— y, si salió bien, cuando el catálogo ya está en memoria. El catálogo
+   * decide qué documentos existen: entrar sin él dejaría el asistente vacío y
+   * parecería un módulo roto. Nunca bloquea: la pantalla tiene tope duro y
+   * entra igual con esqueletos si el backend tarda (ver `PantallaCarga`).
+   */
+  const listo =
+    consola.conexion !== "comprobando" && (consola.conexion !== "conectado" || consola.catalogo !== null);
+  const carga = usePantallaCarga(listo);
+
+  /**
+   * El modo ligero tiene que salir del módulo.
+   *
+   * Medido con la CPU estrangulada 4×, el desplazamiento de la lista se queda en
+   * 4 fotogramas por segundo. Al apagar SOLO las superficies del módulo no
+   * cambia nada, porque el gasto no está aquí: está en el fondo del armazón
+   * —cuatro manchas de 42 rem con un desenfoque de 120 px que se mueven sin
+   * parar— y en el vidrio del dock y de la tira de indicadores, que llevan
+   * `backdrop-filter: blur(40px)` permanente. Apagar las manchas sube la medida
+   * de 4 a 33 fps; quitar además el desenfoque del vidrio, a 53.
+   *
+   * Por eso el interruptor marca `<html>`: mientras Documentación está abierta,
+   * el modo ligero alcanza también al armazón. Al salir del módulo se retira la
+   * marca y el resto del sistema vuelve a verse como siempre.
+   */
+  useEffect(() => {
+    const raiz = document.documentElement;
+    if (!ligero) return;
+    raiz.classList.add("doc-ligero-global");
+    return () => raiz.classList.remove("doc-ligero-global");
+  }, [ligero]);
+
+  /**
+   * La caché de expedientes pertenece a un perfil.
+   *
+   * Al cambiar de persona se vacía: son datos personales de terceros —nombre,
+   * carnet, cargo, estado documental— y no tienen por qué seguir en el equipo
+   * cuando quien los consultó se ha ido.
+   */
+  const perfil = current?.nombre ?? "";
+  useEffect(() => {
+    void cambiarPerfilCache(perfil);
+  }, [perfil]);
+
+  /**
+   * La cola de salida se vacía al volver la conexión.
+   *
+   * El escuchador se monta UNA vez con el módulo: `escucharConexion` no depende
+   * de nada inestable, así que no se remonta en cada renderizado.
+   */
+  useEffect(() => escucharConexion(), []);
+
+  /* Y también al entrar, si quedó algo de la sesión anterior. */
+  useEffect(() => {
+    if (consola.conexion !== "conectado") return;
+    if (cambiosPendientes() === 0) return;
+    void vaciarCola().then((res) => {
+      if (res.confirmados) avisar("exito", `${res.confirmados} cambio(s) pendientes se sincronizaron con el libro.`);
+      else if (res.restantes) avisar("aviso", `${res.restantes} cambio(s) siguen pendientes de sincronizar.`);
+    });
+  }, [consola.conexion, avisar]);
 
   /**
    * Al entrar —y cuando cambia el perfil o la URL del backend— se resuelve la
@@ -128,7 +199,30 @@ export function DocumentacionConsola() {
     ) : undefined;
 
   return (
-    <>
+    <div className={ligero ? "doc-ligero relative" : "relative"}>
+      {/* La pantalla de carga vive DENTRO del armazón, no encima de la
+          aplicación: así el dock, la cabecera y el tema siguen ahí y la entrada
+          no es un salto de pantalla completa. */}
+      <AnimatePresence>
+        {carga.visible && (
+          <motion.div
+            className="absolute inset-0 z-[5]"
+            initial={reducido ? undefined : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reducido ? undefined : { opacity: 0, transition: { duration: 0.24 } }}
+          >
+            <PantallaCarga
+              quieto={reducido || ligero}
+              detalle={
+                consola.conexion === "sin_configurar"
+                  ? "Comprobando la conexión con el libro del área…"
+                  : undefined
+              }
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <DocShell
         secciones={secciones}
         seccionActiva={seccionActiva}
@@ -194,7 +288,7 @@ export function DocumentacionConsola() {
         )}
       </DocShell>
 
-      <ExpedienteLateral
+      <ExpedienteVentana
         expedienteId={expedienteAbierto}
         onCerrar={() => setExpedienteAbierto(null)}
         onCambio={() => setRefresco((n) => n + 1)}
@@ -207,7 +301,10 @@ export function DocumentacionConsola() {
           expediente puedan recargarse; se expone como dato oculto para no forzar
           una recarga completa del módulo. */}
       <span className="hidden" data-refresco={refresco} aria-hidden />
-    </>
+      {/* Marcas para las sondas de QA: dicen si el módulo entró por tope de
+          tiempo y si está en modo ligero, sin obligar a inspeccionar estilos. */}
+      <span className="hidden" data-carga-por-tiempo={carga.porTiempo ? "si" : "no"} data-modo-ligero={ligero ? "si" : "no"} aria-hidden />
+    </div>
   );
 }
 

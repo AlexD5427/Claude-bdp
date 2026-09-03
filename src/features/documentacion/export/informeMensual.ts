@@ -28,10 +28,15 @@ export interface DocInforme {
   codigo: string;
   nombre: string;
   seccion: string;
+  /** Bloque con título dentro de la sección, resuelto para la rama. */
+  subseccion: string;
   estado: string;
   estadoEtiqueta: string;
   observaciones: string;
   prorroga: string;
+  /** ¿Se entrega en papel? El informe lo distingue porque el archivo físico existe. */
+  fisico: boolean;
+  hojasFisicas: number;
 }
 
 export interface PersonaInforme {
@@ -49,6 +54,8 @@ export interface PersonaInforme {
   noEntregados: number;
   noAplica: number;
   observados: number;
+  /** Total de hojas físicas: lo que pesa la carpeta de papel de esta persona. */
+  hojasFisicas: number;
   documentos: DocInforme[];
 }
 
@@ -115,10 +122,13 @@ export function construirInforme(expedientes: ExpedienteOperativo[], mes: string
           codigo: r.codigo,
           nombre: r.nombre,
           seccion: SECCION_ETIQUETA[r.seccion] ?? r.seccion,
+          subseccion: r.subseccion ?? "",
           estado: r.estado,
           estadoEtiqueta: etiquetaDocumento(r.estado),
           observaciones: r.observaciones ?? "",
           prorroga: prorrogaVigente ? `${prorrogaVigente.fechaProrroga} (${prorrogaVigente.situacion})` : "",
+          fisico: r.requiereConteoHojas === true,
+          hojasFisicas: r.hojasFisicas ?? 0,
         };
       });
 
@@ -137,6 +147,7 @@ export function construirInforme(expedientes: ExpedienteOperativo[], mes: string
       noEntregados: cab.totales.noEntregados,
       noAplica: cab.totales.noAplica,
       observados: cab.totales.observados,
+      hojasFisicas: documentos.reduce((suma, d) => suma + d.hojasFisicas, 0),
       documentos,
     };
 
@@ -194,14 +205,46 @@ export function informeALibro(informe: InformeMensual): Libro {
   ];
 
   const detalle: Celda[][] = [
-    ["Categoría", "Identificador", "Nombre", "Cargo", "Agencia", "Gerencia", "Fecha ingreso", "Sección", "Documento", "Estado", "Observación", "Prórroga"],
+    [
+      "Categoría",
+      "Identificador",
+      "Nombre",
+      "Cargo",
+      "Agencia",
+      "Gerencia",
+      "Fecha ingreso",
+      "Sección",
+      "Subsección",
+      "Documento",
+      "Presentación",
+      "Hojas físicas",
+      "Estado",
+      "Observación",
+      "Prórroga",
+    ],
   ];
   const observaciones: Celda[][] = [["Categoría", "Nombre", "Documento", "Estado", "Observación"]];
 
   for (const cat of informe.categorias) {
     for (const p of cat.personas) {
       for (const d of p.documentos) {
-        detalle.push([cat.etiqueta, p.identificador, p.nombre, p.cargo, p.agencia, p.gerencia, p.fechaIngreso, d.seccion, d.nombre, d.estadoEtiqueta, d.observaciones, d.prorroga]);
+        detalle.push([
+          cat.etiqueta,
+          p.identificador,
+          p.nombre,
+          p.cargo,
+          p.agencia,
+          p.gerencia,
+          p.fechaIngreso,
+          d.seccion,
+          d.subseccion,
+          d.nombre,
+          d.fisico ? "Física y digital" : "Digital",
+          d.fisico ? d.hojasFisicas : "",
+          d.estadoEtiqueta,
+          d.observaciones,
+          d.prorroga,
+        ]);
         if (d.observaciones.trim()) observaciones.push([cat.etiqueta, p.nombre, d.nombre, d.estadoEtiqueta, d.observaciones]);
       }
     }
