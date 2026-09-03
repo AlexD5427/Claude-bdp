@@ -75,13 +75,22 @@ export function DocExpedienteHeader({
           <div className="min-w-0">
             <p className="doc-eyebrow">Situación del expediente</p>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {/* Distintivo de categoría: ícono SVG + color propio de la rama. */}
+              {/*
+                Distintivo de categoría: el color de la rama va en el ÍCONO, el
+                tinte y el borde; el texto usa la tinta del módulo.
+
+                El color de categoría es un gris azulado (`#7c8aa5` para
+                «General») y como texto daba 3.00:1 en tema claro y 2.82:1 en
+                oscuro: no existe un valor intermedio que cumpla AA sobre los dos
+                fondos. Un ícono sí puede llevarlo —es un componente gráfico y le
+                basta 3:1—, y la identidad de la rama se sigue reconociendo.
+              */}
               <span
-                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                style={{ background: "var(--cat-tinte)", color: "var(--cat-color)", boxShadow: "inset 0 0 0 1px var(--cat-borde)" }}
+                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold text-[color:var(--doc-text)]"
+                style={{ background: "var(--cat-tinte)", boxShadow: "inset 0 0 0 1px var(--cat-borde)" }}
                 title={categoria.descripcion}
               >
-                <IconoCategoria className="h-3.5 w-3.5" />
+                <IconoCategoria className="h-3.5 w-3.5" style={{ color: "var(--cat-color)" }} />
                 {categoria.etiquetaCorta}
               </span>
               <ChipEstado

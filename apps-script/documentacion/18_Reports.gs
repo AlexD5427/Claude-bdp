@@ -349,7 +349,10 @@ function doc2Reporte_(tipo, filtros, ctx) {
     case 'pendientes':
     case 'no_entregados':
     case 'observaciones':
-      salida.columnas = ['Identificador', 'Nombre', 'Agencia', 'Requisito', 'Sección', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado'];
+      /* La subsección desambigua entre garantes y el conteo de hojas es lo que se
+         cruza contra el legajo físico. Sin la primera, un expediente con dos
+         garantes produce filas indistinguibles en el reporte de pendientes. */
+      salida.columnas = ['Identificador', 'Nombre', 'Agencia', 'Requisito', 'Sección', 'Subsección', 'Hojas físicas', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado'];
       var requisitos = doc2All_(DOC2_SHEET.EXPEDIENTE_DOCS, false);
       for (var r = 0; r < requisitos.length; r++) {
         var req = requisitos[r];
@@ -363,7 +366,9 @@ function doc2Reporte_(tipo, filtros, ctx) {
         else incluir = revision === DOC2_ESTADO_REVISION.OBSERVADO || revision === DOC2_ESTADO_REVISION.REQUIERE_CORRECCION || revision === DOC2_ESTADO_REVISION.RECHAZADO;
         if (!incluir) continue;
         salida.filas.push([duenio.identificador, duenio.nombre, duenio.agencia,
-          doc2NombreRequisito_(req), req.seccion, estadoD, revision, req.observaciones || '', req.updated_at || '']);
+          doc2NombreRequisito_(req), req.seccion, req.subseccion || '',
+          doc2PideConteoDeHojas_(req.codigo_documento) ? docInt_(req.hojas_fisicas, 0) : '',
+          estadoD, revision, req.observaciones || '', req.updated_at || '']);
       }
       break;
 
@@ -687,7 +692,11 @@ function doc2DatosExportacion_(expedienteIds, tipo, ctx, conEncabezado) {
   if (conEncabezado) {
     hojas.Resumen.push(['Identificador', 'Nombre', 'Cargo', 'Agencia', 'Gerencia', 'Tipo funcionario', 'Tipo garantía', 'Estado', 'Avance %', 'Pendientes', 'No entregados', 'Observados', 'Prórrogas', 'Próxima fecha crítica', 'Resumen']);
     hojas.Expedientes.push(['Identificador', 'Nombre', 'Cargo', 'Agencia', 'Gerencia', 'Fecha ingreso', 'Tipo funcionario', 'Tipo garantía', 'Responsable', 'Estado', 'Avance %', 'Requisitos', 'Entregados', 'Pendientes', 'No entregados', 'No aplica', 'Observados', 'Creado', 'Actualizado']);
-    hojas.Requisitos.push(['Identificador', 'Nombre', 'Sección', 'Requisito', 'Código', 'Obligatorio', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado']);
+    /* `Subsección` y `Hojas físicas` van juntas y en este orden a propósito: la
+       subsección es la que dice de QUÉ garante o de qué inmueble es el documento
+       —sin ella, en un expediente con dos garantes hay filas idénticas— y el
+       conteo de hojas es el dato que el área verifica contra el legajo de papel. */
+    hojas.Requisitos.push(['Identificador', 'Nombre', 'Sección', 'Subsección', 'Requisito', 'Código', 'Obligatorio', 'Presentación física', 'Presentación digital', 'Hojas físicas', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado']);
     hojas.Prorrogas.push(['Identificador', 'Nombre', 'Requisito', 'Fecha original', 'Fecha prórroga', 'Días restantes', 'Situación', 'Estado', 'Motivo', 'Solicitada por', 'Aprobada por']);
     hojas.Solicitudes.push(['Identificador', 'Nombre', 'Título', 'Estado', 'Prioridad', 'Fecha solicitud', 'Fecha límite', 'Requisitos', 'Cumplidos', 'Recordatorios', 'Responsable']);
     hojas.Revisiones.push(['Identificador', 'Nombre', 'Requisito', 'Decisión', 'Motivo', 'Comentario', 'Revisor', 'Fecha']);
@@ -712,8 +721,13 @@ function doc2DatosExportacion_(expedienteIds, tipo, ctx, conEncabezado) {
 
     for (var r = 0; r < completo.requisitos.length; r++) {
       var req = completo.requisitos[r];
-      hojas.Requisitos.push([cab.identificador, cab.nombre, req.seccion, req.nombre, req.codigo,
-        req.obligatorio ? 'Sí' : 'No', req.estado, req.estadoRevision, req.observaciones, req.actualizadoEn]);
+      hojas.Requisitos.push([cab.identificador, cab.nombre, req.seccion, req.subseccion || '', req.nombre, req.codigo,
+        req.obligatorio ? 'Sí' : 'No', req.presentacionFisica || '', req.presentacionDigital || '',
+        /* Vacío, no cero, cuando el documento no lleva conteo: un 0 en la columna
+           de un documento que solo es digital se lee como «no tiene hojas», que es
+           distinto de «esta columna no le aplica». */
+        req.requiereConteoHojas ? docInt_(req.hojasFisicas, 0) : '',
+        req.estado, req.estadoRevision, req.observaciones, req.actualizadoEn]);
     }
     for (var p = 0; p < completo.prorrogas.length; p++) {
       var pro = completo.prorrogas[p];

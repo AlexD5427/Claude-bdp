@@ -80,3 +80,24 @@ export function useTheme(): ThemeValue {
   if (!ctx) throw new Error("useTheme debe usarse dentro de <ThemeProvider>.");
   return ctx;
 }
+
+/**
+ * El tema, o `null` si no hay proveedor.
+ *
+ * ── Por qué existe además de `useTheme` ─────────────────────────────────────
+ * `useTheme` lanza, y hace bien: un componente que pinta según el tema y se
+ * monta sin proveedor está mal montado, y fallar pronto es lo correcto. Pero hay
+ * un caso distinto: un CONTROL del tema, como el interruptor del panel de
+ * preferencias de Documentación. Ese control es un extra dentro de una pantalla
+ * cuyo trabajo principal es otro —autodiagnosticar el módulo—, y si el árbol no
+ * trae proveedor, lo que debe pasar es que el interruptor no se ofrezca; no que
+ * se caiga la pantalla entera a la que alguien acaba de llegar porque algo no
+ * funcionaba.
+ *
+ * Esto no es una hipótesis: el módulo se monta suelto en `qa/documentacion.tsx`
+ * para las sondas, y la sonda visual capturó justo esa caída.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function useThemeOpcional(): ThemeValue | null {
+  return useContext(ThemeContext);
+}

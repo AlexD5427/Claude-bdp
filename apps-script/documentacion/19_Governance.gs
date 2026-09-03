@@ -634,6 +634,18 @@ function doc2Inconsistencias_(ctx) {
     if (auxiliares.gerencia_bdp.length && e.gerencia && !doc2EnCatalogoAuxiliar_('gerencia_bdp', e.gerencia)) {
       anotar('gerencia-fuera-catalogo', { identificador: e.identificador, gerencia: e.gerencia });
     }
+    /**
+     * Cargo fuera de catálogo: AVISO, nunca bloqueo.
+     *
+     * El cargo tiene catálogo desde la versión 3 (`cargo_bdp`), y por eso ahora
+     * se puede detectar cuando alguien escribió uno que no está en la lista del
+     * banco. Pero es exactamente el caso en el que bloquear sería peor: se abre
+     * un expediente de un cargo recién creado y quien registra no puede editar
+     * el libro. Se avisa y el trabajo sigue.
+     */
+    if (auxiliares.cargo_bdp && auxiliares.cargo_bdp.length && e.cargo && !doc2EnCatalogoAuxiliar_('cargo_bdp', e.cargo)) {
+      anotar('cargo-fuera-catalogo', { identificador: e.identificador, cargo: e.cargo });
+    }
   }
 
   // Requisitos.
@@ -859,6 +871,7 @@ function doc2Inconsistencias_(ctx) {
     { clave: 'comentario-huerfano', severidad: DOC2_SEVERIDAD.ADVERTENCIA, titulo: 'Comentarios sin expediente', detalle: 'Requiere revisión manual.', accion: '' },
     { clave: 'agencia-fuera-catalogo', severidad: DOC2_SEVERIDAD.INFO, titulo: 'Agencias fuera del catálogo auxiliar', detalle: 'Se pueden añadir al catálogo sin borrar nada.', accion: 'sembrar-auxiliar' },
     { clave: 'gerencia-fuera-catalogo', severidad: DOC2_SEVERIDAD.INFO, titulo: 'Gerencias fuera del catálogo auxiliar', detalle: 'Se pueden añadir al catálogo sin borrar nada.', accion: 'sembrar-auxiliar' },
+    { clave: 'cargo-fuera-catalogo', severidad: DOC2_SEVERIDAD.ADVERTENCIA, titulo: 'Cargos fuera del catálogo auxiliar', detalle: 'El cargo se guardó igual: un catálogo por completar no puede detener un alta. Conviene añadirlo a la columna cargo_bdp para que los reportes por cargo agrupen bien.', accion: 'sembrar-auxiliar' },
     { clave: 'exportacion-estancada', severidad: DOC2_SEVERIDAD.INFO, titulo: 'Exportaciones a medias', detalle: 'Trabajos en proceso sin avance. Se pueden cerrar sin perder datos.', accion: 'cerrar-exportaciones' },
     { clave: 'migracion-incompleta', severidad: DOC2_SEVERIDAD.IMPORTANTE, titulo: 'Migraciones sin terminar', detalle: 'Hay migraciones en proceso o con error. Se pueden reanudar desde su punto de control.', accion: '' },
     { clave: 'trigger-duplicado', severidad: DOC2_SEVERIDAD.IMPORTANTE, titulo: 'Disparadores duplicados', detalle: 'El mismo proceso está programado más de una vez. Reinstala los disparadores desde el menú.', accion: '' }
@@ -972,7 +985,17 @@ function doc2Diagnostico_(ctx) {
 
   try {
     var auxiliares = doc2Auxiliares_();
-    resumen.auxiliares = { agencias: auxiliares.agencia_bdp.length, gerencias: auxiliares.gerencia_bdp.length };
+    resumen.auxiliares = {
+      agencias: auxiliares.agencia_bdp.length,
+      gerencias: auxiliares.gerencia_bdp.length,
+      cargos: (auxiliares.cargo_bdp || []).length
+    };
+    if (!(auxiliares.cargo_bdp || []).length) {
+      hallazgos.push(doc2Hallazgo_(DOC2_SEVERIDAD.INFO, 'cargos-vacios',
+        'El catálogo de cargos está vacío.',
+        'El campo Cargo del alta quedará sin sugerencias hasta que se peguen los cargos del banco en la columna cargo_bdp de la hoja Auxiliar.',
+        'sembrar-auxiliar'));
+    }
     if (!auxiliares.gerencia_bdp.length) {
       hallazgos.push(doc2Hallazgo_(DOC2_SEVERIDAD.INFO, 'gerencias-vacias',
         'El catálogo de gerencias está vacío.',
@@ -985,6 +1008,12 @@ function doc2Diagnostico_(ctx) {
         'Hay ' + revisionAux.duplicados.length + ' valor(es) repetido(s) en los catálogos auxiliares.',
         'Requiere revisión: dos escrituras distintas del mismo valor aparecen como dos opciones. No se corrigen solas porque cambiaría el texto escrito.',
         '', { ejemplos: revisionAux.duplicados.slice(0, 10) }));
+    }
+    if (revisionAux.sinCabecera.length) {
+      hallazgos.push(doc2Hallazgo_(DOC2_SEVERIDAD.IMPORTANTE, 'auxiliar-sin-cabecera',
+        'Falta la cabecera de ' + revisionAux.sinCabecera.join(', ') + ' en la hoja Auxiliar.',
+        'Sin la cabecera, el desplegable de ese campo llega VACÍO aunque la columna tenga valores. La reparación la crea sin tocar los datos.',
+        'sembrar-auxiliar', { ejemplos: revisionAux.sinCabecera }));
     }
     if (revisionAux.sospechosos.length) {
       hallazgos.push(doc2Hallazgo_(DOC2_SEVERIDAD.INFO, 'auxiliar-espacios',

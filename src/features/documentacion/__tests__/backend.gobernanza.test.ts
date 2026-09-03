@@ -113,7 +113,7 @@ describe("documentación · retención y archivo", () => {
     expect(fila.estado_expediente).toBe("PENDIENTE_ELIMINACION");
     // La fila SIGUE existiendo: retención marca, no borra.
     expect(h.rowsOf("Expedientes").length).toBe(1);
-    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(18);
+    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(16);
   });
 
   it("un expediente con conservación bloqueada no lo toca la retención", () => {
@@ -179,7 +179,7 @@ describe("documentación · transición al expediente laboral", () => {
     const { expedienteId } = crearExpediente(h);
     const res = h.ok("documentacion.expediente.laboral", { expedienteId });
     expect(res.listo).toBe(false);
-    expect(res.faltantes.length).toBe(18);
+    expect(res.faltantes.length).toBe(16);
     expect(res.faltantes[0].nombre).toBeTruthy();
     expect(res.moduloDestinoDisponible).toBe(false);
   });
@@ -237,7 +237,7 @@ describe("documentación · inconsistencias", () => {
     expect(reparado.aplicadas[0].cambios).toBeGreaterThan(0);
     expect(Number(h.rowsOf("Expedientes")[0].total_entregados)).toBe(1);
     // Los requisitos no se tocaron.
-    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(18);
+    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(16);
   });
 
   it("detecta un identificador duplicado y NO lo arregla solo", () => {

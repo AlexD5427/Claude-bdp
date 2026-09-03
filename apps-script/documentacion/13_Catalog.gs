@@ -28,37 +28,51 @@
 /* ========================================================================== */
 
 /**
- * Siembra el catálogo con los 38 documentos canónicos.
+ * Siembra el catálogo con los documentos canónicos de la versión vigente.
  *
  * Respeta lo que ya esté escrito: si el área editó el nombre visible de un
- * requisito o lo desactivó, la semilla no lo pisa. Solo añade los que falten.
+ * requisito o lo desactivó, la semilla no lo pisa —salvo el nombre de un
+ * requisito RETIRADO, que sí se refresca para que se identifique como heredado—.
+ * Solo añade los que falten.
  *
  * Cuando existe la hoja heredada `_CATALOGO` con ediciones del equipo, esas
  * ediciones se importan (etiqueta, obligatoriedad, prórroga, orden y actividad):
  * son decisiones humanas y perderlas al migrar sería el peor resultado posible.
+ *
+ * ── Idempotencia y estados resueltos ────────────────────────────────────────
+ * Reinstalar no degrada nada: el catálogo no guarda estados de expediente, y la
+ * actualización de versión toca solo metadatos estructurales (sección,
+ * subsección, aplicabilidad, presentación, conteo de hojas). Un documento
+ * aprobado sigue aprobado porque su estado vive en `ExpedienteDocumentos`, no
+ * aquí.
  */
 function doc2SeedCatalogo_(contexto) {
   var ctx = contexto || {};
   var heredado = doc2LeerCatalogoHeredado_();
   var creados = 0;
   var actualizados = 0;
+  var retirados = 0;
 
   for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) {
     var def = DOC2_CATALOGO_SEMILLA[i];
     var existente = docById_(DOC2_SHEET.CATALOGO, def.codigo);
     var legado = heredado[def.codigo] || null;
+    var esRetirado = def.retirado === true;
 
     var fila = {
       codigo_documento: def.codigo,
-      nombre_visible: doc2Texto_((legado && legado.etiqueta) || def.nombre, 300),
+      nombre_visible: doc2Texto_((!esRetirado && legado && legado.etiqueta) || def.nombre, 300),
       descripcion: doc2TextoLargo_(def.descripcion || '', DOC2_LIMITS.MAX_TEXTO_MEDIO),
       texto_observacion: doc2TextoLargo_(def.observacion || '', DOC2_LIMITS.MAX_TEXTO_MEDIO),
       seccion: def.seccion,
+      subseccion: doc2SerializarSubseccion_(def.subseccion),
       grupo: def.grupo,
       orden: legado && legado.orden ? docInt_(legado.orden, (i + 1) * 10) : (i + 1) * 10,
-      obligatorio: legado && legado.obligatorio !== null && legado.obligatorio !== undefined
-        ? legado.obligatorio === true
-        : def.obligatorio === true,
+      obligatorio: esRetirado
+        ? false
+        : (legado && legado.obligatorio !== null && legado.obligatorio !== undefined
+          ? legado.obligatorio === true
+          : def.obligatorio === true),
       estados_permitidos: doc2EstadosPermitidosPara_(def),
       permite_no_aplica: def.noAplica === true || def.obligatorio !== true,
       permite_prorroga: legado && legado.prorroga !== null && legado.prorroga !== undefined
@@ -66,41 +80,68 @@ function doc2SeedCatalogo_(contexto) {
         : def.prorroga === true,
       tipo_funcionario: (def.funcionario || []).join(','),
       tipo_garantia: (def.garantia || []).join(','),
+      presentacion_fisica: doc2Enum_(def.presentacionFisica || 'NO', ['SI', 'NO', 'CONDICIONAL'], 'NO'),
+      presentacion_digital: doc2Enum_(def.presentacionDigital || 'SI', ['SI', 'NO'], 'SI'),
+      requiere_conteo_hojas: def.requiereConteoHojas === true,
       nivel_confidencialidad: def.confidencial || 'INTERNO',
       requiere_revision: def.revision === true,
       requiere_aprobacion: def.aprobacion === true,
-      activo: legado && legado.activo === false ? false : true,
+      // Un requisito retirado entra —o pasa a estar— inactivo, siempre. Es lo que
+      // hace que el motor de aplicabilidad deje de pedirlo en un alta nueva sin
+      // que su fila desaparezca de los expedientes que ya lo tenían.
+      activo: esRetirado ? false : (legado && legado.activo === false ? false : true),
       version_catalogo: DOC2_CATALOGO_VERSION,
       fecha_inicio_vigencia: '',
-      fecha_fin_vigencia: '',
+      fecha_fin_vigencia: esRetirado ? doc2Hoy_() : '',
       columna_libro: def.columna || ''
     };
 
     if (!existente) {
       doc2Insert_(DOC2_SHEET.CATALOGO, fila, ctx);
       creados++;
+      if (esRetirado) retirados++;
     } else if (docInt_(existente.version_catalogo, 0) < DOC2_CATALOGO_VERSION) {
       // Actualización de versión de catálogo: se refrescan los metadatos
-      // estructurales (sección, aplicabilidad, orden) y se conserva lo editable.
-      doc2Update_(DOC2_SHEET.CATALOGO, def.codigo, {
+      // estructurales (sección, subsección, aplicabilidad, presentación, orden) y
+      // se conserva lo editable. Un retiro sí cambia `activo` y el nombre: es una
+      // decisión del área que la semilla representa.
+      var patch = {
         seccion: fila.seccion,
+        subseccion: fila.subseccion,
         grupo: fila.grupo,
+        orden: fila.orden,
         tipo_funcionario: fila.tipo_funcionario,
         tipo_garantia: fila.tipo_garantia,
         estados_permitidos: fila.estados_permitidos,
+        presentacion_fisica: fila.presentacion_fisica,
+        presentacion_digital: fila.presentacion_digital,
+        requiere_conteo_hojas: fila.requiere_conteo_hojas,
         requiere_revision: fila.requiere_revision,
         requiere_aprobacion: fila.requiere_aprobacion,
+        permite_no_aplica: fila.permite_no_aplica,
+        permite_prorroga: fila.permite_prorroga,
+        texto_observacion: fila.texto_observacion,
+        descripcion: fila.descripcion,
+        nombre_visible: fila.nombre_visible,
         version_catalogo: DOC2_CATALOGO_VERSION
-      }, ctx);
+      };
+      if (esRetirado) {
+        patch.activo = false;
+        patch.obligatorio = false;
+        patch.fecha_fin_vigencia = existente.fecha_fin_vigencia || doc2Hoy_();
+        retirados++;
+      }
+      doc2Update_(DOC2_SHEET.CATALOGO, def.codigo, patch, ctx);
       actualizados++;
     }
   }
 
   if (creados || actualizados) {
+    doc2CatalogoReset_();
     doc2CacheInvalidar_([DOC2_CACHE.CATALOGO]);
-    docInfo_('Catálogo normalizado sembrado.', { creados: creados, actualizados: actualizados });
+    docInfo_('Catálogo normalizado sembrado.', { creados: creados, actualizados: actualizados, retirados: retirados });
   }
-  return { creados: creados, actualizados: actualizados };
+  return { creados: creados, actualizados: actualizados, retirados: retirados };
 }
 
 /** Estados documentales admitidos por un requisito, como texto. */
@@ -225,6 +266,23 @@ function doc2CatalogoItem_(codigo) {
     if (String(lista[i].codigo_documento) === String(codigo)) return lista[i];
   }
   return null;
+}
+
+/**
+ * ¿Este documento lleva contador de hojas físicas?
+ *
+ * Lee el CATÁLOGO, no la semilla: el catálogo es el que se puede editar desde la
+ * configuración y es el que manda. Consultar la semilla daría la respuesta
+ * correcta el día de la instalación y una respuesta obsoleta a partir del primer
+ * cambio.
+ *
+ * Existe como función propia porque la usan los reportes, las exportaciones y el
+ * informe mensual, y cada uno resolviéndolo a su manera es cómo un documento
+ * acaba con hojas en un sitio y sin ellas en otro.
+ */
+function doc2PideConteoDeHojas_(codigo) {
+  var def = doc2CatalogoItem_(codigo);
+  return !!(def && def.requiere_conteo_hojas === true);
 }
 
 /**
@@ -394,11 +452,28 @@ function doc2Aplicables_(opciones) {
 }
 
 /**
+ * Subsección declarada como mapa `rama -> título`, para el cliente.
+ *
+ * Un texto único se devuelve como `{ '*': texto }`: así el frontend tiene una
+ * sola forma que interpretar en lugar de dos.
+ */
+function doc2MapaSubseccion_(valor) {
+  var texto = String(valor || '').trim();
+  if (!texto) return {};
+  if (texto.charAt(0) === '{') {
+    var mapa = docParseJson_(texto, null);
+    if (mapa) return mapa;
+  }
+  return { '*': texto };
+}
+
+/**
  * Resumen de lo que exige cada rama, para la pantalla de configuración.
  *
- * Es la forma de comprobar de un vistazo que Comercial Tipo 3 pide cuatro
- * documentos de garantía y Auditoría uno de cumplimiento, sin tener que crear un
- * expediente de prueba por rama.
+ * Es la forma de comprobar de un vistazo que Comercial Tipo 2 pide veinticinco
+ * documentos y Auditoría diecisiete, sin tener que crear un expediente de prueba
+ * por rama. Incluye las subsecciones resueltas para esa rama, que es donde se ve
+ * si el documento compartido entre Tipo 1 y Tipo 3 quedó bajo el título correcto.
  */
 function doc2MapaAplicabilidad_() {
   var salida = [];
@@ -411,16 +486,26 @@ function doc2MapaAplicabilidad_() {
       if (!tipo.activo) {
         salida.push({
           tipoFuncionario: tipo.codigo, etiqueta: tipo.etiqueta, tipoGarantia: garantias[g],
-          habilitada: false, total: 0, obligatorios: 0, codigos: [], nota: tipo.descripcion
+          habilitada: false, total: 0, obligatorios: 0, conConteoHojas: 0,
+          codigos: [], subsecciones: [], nota: tipo.descripcion
         });
         continue;
       }
       var aplicables = doc2Aplicables_({ tipoFuncionario: tipo.codigo, tipoGarantia: garantias[g] });
       var codigos = [];
       var obligatorios = 0;
+      var conConteo = 0;
+      var subsecciones = [];
+      var vistas = {};
       for (var i = 0; i < aplicables.length; i++) {
         codigos.push(aplicables[i].codigo_documento);
         if (aplicables[i].obligatorio === true) obligatorios++;
+        if (aplicables[i].requiere_conteo_hojas === true) conConteo++;
+        var titulo = doc2ResolverSubseccion_(aplicables[i].subseccion, garantias[g]);
+        if (titulo && !vistas[titulo]) {
+          vistas[titulo] = true;
+          subsecciones.push(titulo);
+        }
       }
       salida.push({
         tipoFuncionario: tipo.codigo,
@@ -429,7 +514,9 @@ function doc2MapaAplicabilidad_() {
         habilitada: true,
         total: aplicables.length,
         obligatorios: obligatorios,
+        conConteoHojas: conConteo,
         codigos: codigos,
+        subsecciones: subsecciones,
         nota: ''
       });
     }
@@ -453,14 +540,21 @@ function doc2CatalogoParaCliente_() {
 
   var catalogo = doc2Catalogo_(true);
   var items = [];
+  var retirados = doc2CodigosRetirados_();
   for (var i = 0; i < catalogo.length; i++) {
     var c = catalogo[i];
+    var subseccion = c.subseccion || '';
     items.push({
       codigo: c.codigo_documento,
       nombre: c.nombre_visible,
       descripcion: c.descripcion || '',
       textoObservacion: c.texto_observacion || '',
       seccion: c.seccion,
+      /* Se manda el mapa completo y la resolución para «sin garantía»: el cliente
+         conoce la rama del expediente y resuelve con `subseccionDe`, igual que
+         hace el backend, sin inventar su propia regla. */
+      subseccion: doc2ResolverSubseccion_(subseccion, 'NINGUNA'),
+      subsecciones: doc2MapaSubseccion_(subseccion),
       grupo: c.grupo,
       orden: docInt_(c.orden, 0),
       obligatorio: c.obligatorio === true,
@@ -469,10 +563,14 @@ function doc2CatalogoParaCliente_() {
       permiteProrroga: c.permite_prorroga === true,
       tipoFuncionario: doc2Lista_(c.tipo_funcionario),
       tipoGarantia: doc2Lista_(c.tipo_garantia),
+      presentacionFisica: c.presentacion_fisica || 'NO',
+      presentacionDigital: c.presentacion_digital || 'SI',
+      requiereConteoHojas: c.requiere_conteo_hojas === true,
       confidencialidad: c.nivel_confidencialidad || 'INTERNO',
       requiereRevision: c.requiere_revision === true,
       requiereAprobacion: c.requiere_aprobacion === true,
       activo: c.activo === true,
+      retirado: retirados.indexOf(String(c.codigo_documento)) >= 0,
       versionCatalogo: docInt_(c.version_catalogo, DOC2_CATALOGO_VERSION),
       vigenciaDesde: c.fecha_inicio_vigencia || '',
       vigenciaHasta: c.fecha_fin_vigencia || '',
@@ -498,18 +596,26 @@ function doc2CatalogoParaCliente_() {
 /* ========================================================================== */
 
 /**
- * Siembra `agencia_bdp` y `gerencia_bdp` con lo que ya existe en el libro.
+ * Siembra `agencia_bdp`, `gerencia_bdp` y `cargo_bdp` con lo que ya existe.
  *
- * Las agencias no se inventan: se recogen de las columnas `Oficina` y `Gerencia`
- * de las pestañas anuales, que llevan años acumulando los valores reales que usa
- * el área. Solo si no hay ninguna gerencia se usa la semilla del código.
+ * Los valores no se inventan: se recogen de las columnas `Oficina`, `Gerencia` y
+ * `Cargo` de las pestañas anuales, que llevan años acumulando lo que usa el área,
+ * y de los expedientes normalizados. Solo si no hay ninguna gerencia se usa la
+ * semilla del código.
+ *
+ * `cargo_bdp` se siembra igual, pero con una reserva importante: la lista oficial
+ * de cargos del banco la pega el área en la hoja. Lo que se siembra aquí son los
+ * cargos que YA aparecen escritos en los expedientes, para que el desplegable no
+ * nazca vacío mientras esa lista llega. Nunca se borra nada.
  */
 function doc2SeedAuxiliares_() {
   doc2EnsureAuxiliar_();
   var agencias = [];
   var gerencias = [];
+  var cargos = [];
   var vistoA = {};
   var vistoG = {};
+  var vistoC = {};
 
   var anios = [];
   try { anios = docListYears_(); } catch (e) { anios = []; }
@@ -518,10 +624,9 @@ function doc2SeedAuxiliares_() {
     try { cargada = docLoadYear_(anios[a], false); } catch (e) { cargada = null; }
     if (!cargada) continue;
     for (var r = 0; r < cargada.rows.length; r++) {
-      var oficina = String(cargada.rows[r].oficina || '').replace(/\s+/g, ' ').trim();
-      var gerencia = String(cargada.rows[r].gerencia || '').replace(/\s+/g, ' ').trim();
-      if (oficina && !vistoA[docKey_(oficina)]) { vistoA[docKey_(oficina)] = true; agencias.push(oficina); }
-      if (gerencia && !vistoG[docKey_(gerencia)]) { vistoG[docKey_(gerencia)] = true; gerencias.push(gerencia); }
+      doc2AcumularAuxiliar_(cargada.rows[r].oficina, vistoA, agencias);
+      doc2AcumularAuxiliar_(cargada.rows[r].gerencia, vistoG, gerencias);
+      doc2AcumularAuxiliar_(cargada.rows[r].cargo, vistoC, cargos);
     }
   }
 
@@ -529,42 +634,61 @@ function doc2SeedAuxiliares_() {
   try {
     var expedientes = doc2All_(DOC2_SHEET.EXPEDIENTES, true);
     for (var e = 0; e < expedientes.length; e++) {
-      var ag = String(expedientes[e].agencia || '').replace(/\s+/g, ' ').trim();
-      var ge = String(expedientes[e].gerencia || '').replace(/\s+/g, ' ').trim();
-      if (ag && !vistoA[docKey_(ag)]) { vistoA[docKey_(ag)] = true; agencias.push(ag); }
-      if (ge && !vistoG[docKey_(ge)]) { vistoG[docKey_(ge)] = true; gerencias.push(ge); }
+      doc2AcumularAuxiliar_(expedientes[e].agencia, vistoA, agencias);
+      doc2AcumularAuxiliar_(expedientes[e].gerencia, vistoG, gerencias);
+      doc2AcumularAuxiliar_(expedientes[e].cargo, vistoC, cargos);
     }
   } catch (err) { /* todavía sin expedientes normalizados */ }
 
   var actuales = doc2Auxiliares_();
-  if (!gerencias.length && !actuales.gerencia_bdp.length) gerencias = DOC2_GERENCIA_SEMILLA.slice();
+  if (!gerencias.length && !(actuales.gerencia_bdp || []).length) gerencias = DOC2_GERENCIA_SEMILLA.slice();
 
   var rAg = doc2AgregarAuxiliar_('agencia_bdp', agencias);
   var rGe = doc2AgregarAuxiliar_('gerencia_bdp', gerencias);
+  var rCa = doc2AgregarAuxiliar_('cargo_bdp', cargos);
 
   return {
     agencias: { agregadas: rAg.agregados.length, total: rAg.total },
-    gerencias: { agregadas: rGe.agregados.length, total: rGe.total }
+    gerencias: { agregadas: rGe.agregados.length, total: rGe.total },
+    cargos: { agregadas: rCa.agregados.length, total: rCa.total }
   };
+}
+
+/** Acumula un valor de catálogo auxiliar limpiando espacios y sin repetir. */
+function doc2AcumularAuxiliar_(valor, vistos, destino) {
+  var texto = String(valor === null || valor === undefined ? '' : valor)
+    .replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!texto) return;
+  var clave = docKey_(texto);
+  if (vistos[clave]) return;
+  vistos[clave] = true;
+  destino.push(texto);
 }
 
 /**
  * Revisión de los catálogos auxiliares.
  *
- * Informa de duplicados por clave normalizada y de valores con espacios
- * invisibles. No corrige nada: fusionar «LA PAZ» con «La Paz » cambia el texto
- * que la persona escribió, y esa decisión es suya.
+ * Informa de columnas sin cabecera, columnas vacías, duplicados por clave
+ * normalizada y valores con espacios invisibles. No corrige nada: fusionar
+ * «LA PAZ» con «La Paz » cambia el texto que la persona escribió, y esa decisión
+ * es suya.
  */
 function doc2DiagnosticarAuxiliar_() {
-  var salida = { columnas: [], duplicados: [], sospechosos: [] };
+  var salida = { columnas: [], duplicados: [], sospechosos: [], sinCabecera: [], vacias: [] };
   var ss = docSpreadsheet_();
   var hoja = ss.getSheetByName(DOC2_SHEET.AUXILIAR);
   if (!hoja) {
     salida.falta = true;
+    salida.sinCabecera = DOC2_AUXILIAR_COLUMNS.slice();
     return salida;
   }
   for (var c = 0; c < DOC2_AUXILIAR_COLUMNS.length; c++) {
     var columna = DOC2_AUXILIAR_COLUMNS[c];
+    if (doc2ColumnaAuxiliar_(hoja, columna) < 0) {
+      salida.sinCabecera.push(columna);
+      salida.columnas.push({ columna: columna, valores: 0, cabecera: false });
+      continue;
+    }
     var crudos = doc2LeerAuxiliarCrudo_(columna);
     var vistos = {};
     for (var i = 0; i < crudos.length; i++) {
@@ -580,34 +704,13 @@ function doc2DiagnosticarAuxiliar_() {
         salida.sospechosos.push({ columna: columna, valor: texto, motivo: 'Espacios invisibles o dobles.' });
       }
     }
-    salida.columnas.push({ columna: columna, valores: crudos.length });
+    if (!crudos.length) salida.vacias.push(columna);
+    salida.columnas.push({ columna: columna, valores: crudos.length, cabecera: true });
   }
   return salida;
 }
 
-/** Valores de un catálogo auxiliar TAL CUAL están escritos, sin deduplicar. */
-function doc2LeerAuxiliarCrudo_(columna) {
-  var ss = docSpreadsheet_();
-  var hoja = ss.getSheetByName(DOC2_SHEET.AUXILIAR);
-  if (!hoja) return [];
-  var ancho = hoja.getLastColumn();
-  if (ancho < 1) return [];
-  var cabeceras = hoja.getRange(1, 1, 1, ancho).getValues()[0];
-  var indice = -1;
-  for (var i = 0; i < cabeceras.length; i++) {
-    if (String(cabeceras[i] || '').trim() === columna) { indice = i + 1; break; }
-  }
-  if (indice < 0) return [];
-  var filas = hoja.getLastRow();
-  if (filas < 2) return [];
-  var valores = hoja.getRange(2, indice, filas - 1, 1).getValues();
-  var out = [];
-  for (var r = 0; r < valores.length; r++) {
-    var texto = docUntext_(valores[r][0]);
-    if (String(texto).trim()) out.push(texto);
-  }
-  return out;
-}
+/** Valores de un catálogo auxiliar TAL CUAL están escritos: ver 12_Data.gs. */
 
 /**
  * ¿Está esta agencia o gerencia en el catálogo?

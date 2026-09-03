@@ -109,12 +109,18 @@ Qué documentos exige un expediente sale de dos ejes:
 
 | Tipo de funcionario | Garantía | Documentos |
 |---|---|---|
-| GENERAL | NINGUNA | 18 |
-| COMERCIAL | COMERCIAL_1 | 23 |
-| COMERCIAL | COMERCIAL_2 | 27 |
-| COMERCIAL | COMERCIAL_3 | 23 |
-| AUDITORIA | NINGUNA | 19 |
-| CUMPLIMIENTO | NINGUNA | 20 |
+| GENERAL | NINGUNA | 16 |
+| COMERCIAL | COMERCIAL_1 | 21 |
+| COMERCIAL | COMERCIAL_2 | 25 |
+| COMERCIAL | COMERCIAL_3 | 21 |
+| AUDITORIA | NINGUNA | 17 |
+| CUMPLIMIENTO | NINGUNA | 19 |
+
+> Los recuentos bajaron dos en todas las ramas al retirar el certificado de
+> trabajo y el RC-IVA, que el área dejó de pedir. **No se borraron del catálogo**:
+> llevan `retirado: true`, así que no se siembran en expedientes nuevos pero los
+> existentes los conservan con su estado y su historia. El catálogo canónico tiene
+> 39 entradas: 37 vigentes y esas 2.
 
 Los 17 documentos de garantía cuelgan del tipo `COMERCIAL`: poner una garantía a
 un funcionario `GENERAL` no los añade, porque en el proceso real la fianza
@@ -134,6 +140,81 @@ una decisión deliberada: **un requisito que ya tiene datos no se elimina**. Si
 alguien marcó como entregado el contrato de fianza y luego corrige la garantía a
 `NINGUNA`, el requisito se conserva marcado como no aplicable en lugar de
 desaparecer con su historia.
+
+### 2.4 Subsecciones: de quién es cada documento
+
+Un expediente Comercial Tipo 2 tiene **dos garantes**, y varios documentos se
+piden por duplicado: título de propiedad, folio real, boleta de servicio. Sin más
+información, eso son filas indistinguibles.
+
+Cada documento del catálogo declara su **subsección**, y puede hacerlo de dos
+formas: con un texto único, o con un mapa por tipo de garantía cuando el mismo
+documento pertenece a bloques distintos según la rama.
+
+| Documento | Tipo 2 | Tipo 3 |
+|---|---|---|
+| `garante-inmueble` | 1 Garante con Bien Inmueble | Postulante con inmueble propio |
+| `garante-folio` | 1 Garante con Bien Inmueble | Postulante con inmueble propio |
+
+La resolución vive en una sola función del backend
+(`doc2ResolverSubseccion_`), que usan el asistente, la vista del expediente, los
+reportes y las exportaciones. Si cada uno lo resolviera a su manera, el mismo
+documento acabaría bajo dos títulos distintos.
+
+La subsección se **materializa al crear el expediente**, no se calcula al leer. Es
+deliberado: un expediente cerrado hace ocho meses no debería cambiar de forma
+porque alguien renombre un bloque hoy.
+
+### 2.5 Presentación y hojas físicas
+
+Cada documento declara cómo se entrega:
+
+| Campo | Valores | Para qué |
+|---|---|---|
+| `presentacionFisica` | `SI` · `NO` · `CONDICIONAL` | ¿Se archiva en papel? |
+| `presentacionDigital` | `SI` · `NO` · `CONDICIONAL` | ¿Se manda por correo o WhatsApp? |
+| `requiereConteoHojas` | `true` · `false` | ¿Lleva contador de hojas? |
+
+`CONDICIONAL` existe porque hay documentos que dependen del caso —una constancia
+que en algunas agencias llega escaneada y en otras en original—, y forzarlos a
+`SI`/`NO` obligaba a elegir una mentira.
+
+**Nueve documentos** llevan contador de hojas: antecedentes FELCC, REJAP, título
+legalizado, seguro de accidentes, seguro de vida, impedimento de auditor,
+declaración jurada de prohibiciones, LGI-FT y examen de la UIF. Es el dato que
+permite cuadrar el archivador de papel con el sistema.
+
+> **Tres estados, no dos.** *No lleva conteo* (es digital), *lleva conteo y está en
+> cero* (falta contarlo) y *lleva conteo con un número* son cosas distintas, y la
+> diferencia entre las dos primeras es la que decide si alguien tiene que ir al
+> archivador. Por eso en los reportes y en el Excel la celda queda **vacía** —no en
+> cero— cuando el documento no lleva conteo, y en el informe impreso un entregado
+> con conteo en cero sale marcado «sin contar».
+
+El tope es de 999 hojas, validado en el backend (`doc2ValidarHojasFisicas_`). No es
+arbitrario: un dedo pegado en el teclado que escriba 99 999 hojas contamina los
+totales del libro anual con cifras que nadie puede explicar.
+
+### 2.6 La hoja `Auxiliar`
+
+Tres columnas alimentan los desplegables del alta: `agencia_bdp`, `gerencia_bdp` y
+`cargo_bdp`. La lectura tiene tres reglas que salieron de tres fallos reales:
+
+1. **La cabecera se localiza normalizada.** «Agencia BDP», «agencia_bdp» y
+   «AGENCIA  BDP» son la misma columna.
+2. **Se lee hasta la última fila del libro, sin detenerse en huecos.** Una fila
+   vacía en medio de la lista no es el final de la lista.
+3. **Se escribe debajo de la última fila realmente ocupada de esa columna.** Antes
+   se usaba el alto de la hoja, así que añadir una agencia podía **pisar** un valor
+   existente.
+
+El backend crea la cabecera `cargo_bdp` al instalar el modelo, pero **no puede
+inventar los cargos**: los pega el área. Ver `DOCUMENTACION_DESPLIEGUE.md`.
+
+Un cargo que no esté en la lista genera un hallazgo de gobernanza
+(`cargo-fuera-catalogo`) que es **siempre una advertencia, nunca un bloqueo**: es
+un dato que hay que revisar, no un motivo para impedir que se registre a alguien
+que ya empezó a trabajar.
 
 ---
 
@@ -355,6 +436,35 @@ su caché se dice —con la fecha del cálculo, no un «desde caché» sin conte
 
 ### 4.5 El expediente
 
+Vive en `ui/ExpedienteVentana.tsx` (antes `ExpedienteLateral.tsx`; el cambio de
+nombre viene de que dejó de ser un cajón lateral). La superficie es `HojaCentral`:
+una ventana **central** con aire a los dos lados, en lugar de un panel pegado al
+borde. El motivo es que el expediente es el trabajo, no un detalle del trabajo, y
+un cajón de 480 px obligaba a leer veinticinco documentos en una columna estrecha.
+
+`HojaCentral` cumple los invariantes de las superposiciones del sistema: candado
+de scroll con recuento, foco atrapado y devuelto, cierre con Escape, `aria-modal`,
+apilamiento por debajo de `Z.dialog` —para que una confirmación pueda montarse
+encima— y confirmación propia, nunca `window.confirm`.
+
+Dos detalles que salieron de fallos medidos en un navegador real:
+
+- **El foco inicial va al campo marcado con `data-foco-inicial`**, y se comprueba
+  el marcador **antes** que el resto: `querySelector` con una lista separada por
+  comas devuelve el primer elemento en *orden de documento*, así que el botón de
+  cerrar de la cabecera le robaba el foco al formulario y quien escribía de
+  inmediato perdía los primeros caracteres.
+- **La devolución del foco al cerrar comprueba a dónde va.** Si lo capturado es
+  `document.body` —porque la hoja se montó ya abierta y nadie tenía el foco— o un
+  nodo que ya no está en el documento, no se toca nada: enfocar el `body` **borra**
+  el foco activo, y la rama pensada para no perder el sitio era la que lo perdía.
+
+La ventana se pinta en **dos tiempos**: primero el armazón (cabecera, identidad,
+pestañas, avance) y en el fotograma siguiente el cuerpo, con el esqueleto
+ocupando su sitio mientras. Junto con la memoización del árbol de secciones y el
+paso de la animación de las filas a CSS, eso bajó la apertura de 1 336 ms a 691 ms
+con CPU estrangulada 4x.
+
 La cabecera del expediente tiene tres franjas con jerarquía deliberada:
 **situación** (estado, rama, avance y desglose), **qué desbloquea el expediente**
 (el siguiente requisito que el backend señala, con el motivo y un salto directo) y
@@ -377,11 +487,73 @@ Cada fila lleva chips de un toque en el orden del área —entregado, pendiente,
 entregado, no aplica— con verde, ámbar, rojo y gris, una cinta lateral del color
 del estado para leer la lista de un barrido, y la prórroga con su cuenta regresiva.
 
+Los requisitos llegan **agrupados por subsección** cuando la rama las tiene, con
+el título del bloque encima: en un Tipo 2 se ve «1 Garante con Bien Inmueble» y
+«2 Garante Familiar», y ya no hay dos «Título de propiedad» sin dueño.
+
+Los nueve documentos que se archivan en papel llevan su **contador de hojas**
+(`ui/ContadorHojas.tsx`), y hay un filtro «Hojas sin contar» para encontrarlos.
+
+> **El contador es un `input type="text"`, no `type="number"`.** Un
+> `type="number"` cambia de valor al hacer scroll con el puntero encima, y en una
+> lista de veinticinco documentos eso es una forma silenciosa de corromper datos.
+> Usa `inputMode="numeric"` para que el teclado del móvil salga numérico; la
+> validación de que es un entero entre 0 y 999 vive en el backend, que es donde
+> tiene que estar.
+
 El guardado por bloque se mantiene, y ahora se **nombra**: sin cambios, cambios
 por escribir, guardando, guardado en el servidor, conflicto de versión. El panel
 no se cierra por accidente mientras escribe, y si hay cambios sin guardar pide
 confirmación **en la propia interfaz** —no con `window.confirm`, que bloquea el
 hilo y se puede silenciar desde el navegador—.
+
+### 4.5 bis Caché, precarga y cola de salida
+
+Tres almacenes en `state/` que son la razón de que el módulo se sienta rápido y
+no pierda trabajo.
+
+**`cacheExpedientes.ts`** — LRU de 40 entradas en memoria, persistida en IndexedDB
+con recaída a `localStorage`. Dos plazos con propósitos distintos: **60 segundos**
+para considerar la copia fresca y no revalidar, **24 horas** para seguir sirviendo
+sin backend. `VERSION_CACHE` descarta lo guardado cuando cambia la forma del dato,
+y `vaciarCache()` se ejecuta al cambiar de perfil: son datos personales.
+
+La revalidación silenciosa compara un sello que incluye **la suma de las versiones
+de los requisitos**, no solo `version_registro` de la cabecera. El motivo es
+concreto: marcar un documento como entregado bumpea la versión del requisito, no
+la de la cabecera, así que la comparación original no saltaba nunca en el caso que
+ocurre todos los días.
+
+**`precarga.ts`** — trae los expedientes de la lista visible antes de que nadie
+los pida, con cuatro reglas: nunca compite con lo que la persona pide ahora
+(se pausa **en el clic**, no cuando empieza la lectura), concurrencia limitada a
+dos, en lotes de ocho en **una** llamada, y cancelable al navegar.
+
+**`salida.ts`** — cola de escritura persistente con **identificador de solicitud**
+estable que sobrevive a los reintentos, así que reenviar es seguro. Encolar **no**
+envía: quien encola decide cuándo, porque quiere esperar la confirmación para poder
+decir la verdad en pantalla en lugar de un «se está guardando» permanente.
+
+### 4.5 ter «Esta pantalla»: autodiagnóstico y preferencias
+
+`ui/PestanaEstaPantalla.tsx`, dentro de Configuración. Responde a una pregunta
+concreta: qué hace alguien en una agencia cuando algo no funciona, sin consola de
+JavaScript y sin acceso a Apps Script.
+
+Cinco botones grandes —probar conexión, volver a sincronizar, vaciar caché local,
+descargar respaldo, recuperar borrador— más la cola de salida con nombre,
+antigüedad, intentos y el **error exacto** del backend, con dos salidas por
+entrada: reintentar o descartar sabiendo qué se pierde.
+
+Debajo, las preferencias locales: tema, densidad, tamaño de letra, modo ligero,
+animaciones, precarga, orden por defecto y columnas visibles. **Sin condición de
+permiso**, a propósito: pedir un rol para agrandar la letra es la clase de detalle
+que hace que la gente trabaje incómoda durante años sin decir nada.
+
+> **Dónde vive cada ajuste.** La densidad, la vista y el modo de la lista ya vivían
+> en `state/consola.ts`; el panel las lee de allí y no de `state/preferencias.ts`.
+> Dos claves persistidas para el mismo ajuste dan el resultado clásico de que la
+> pantalla y el panel muestran valores distintos.
 
 ### 4.6 Sistema visual del módulo
 
@@ -439,17 +611,26 @@ abrirlo.
 ## 5. Verificación
 
 ```bash
-npm run doc:check    # 20 comprobaciones de coherencia
+npm run doc:check    # 30 comprobaciones de coherencia
 npm run typecheck    # tipos
-npx vitest run       # 519 pruebas
+npx vitest run       # 743 pruebas
 npm run build        # compilación
 ```
 
 `doc:check` comprueba lo que un compilador no puede ver en Apps Script:
 funciones duplicadas en el espacio global, acciones que el frontend llama y el
 backend no atiende **y al revés**, escrituras declaradas distinto en las dos
-partes, acciones heredadas que hayan desaparecido, el catálogo con sus 38
-documentos y sus códigos originales, y el vocabulario compartido.
+partes, acciones heredadas que hayan desaparecido, el catálogo con sus 39
+entradas y sus códigos originales, y el vocabulario compartido.
+
+Las comprobaciones añadidas en la reforma integral vigilan cosas que se rompen en
+silencio: que los 16 documentos generales estén en el orden de la lista del área,
+que los retirados sigan presentes y marcados, los recuentos exactos por rama, que
+la subsección cambie de valor entre Tipo 2 y Tipo 3, que el contador de hojas solo
+aparezca donde la presentación es física, que la hoja `Auxiliar` declare sus tres
+columnas y el selector del frontend las conozca, que las hojas físicas y la
+subsección lleguen a los reportes y al informe mensual, y que el modo ligero apague
+de verdad los desenfoques y las sombras proyectadas del armazón.
 
 Las pruebas del backend no son simulaciones: `scripts/documentacion-backend.mjs`
 carga los 22 archivos `.gs` reales en una máquina virtual de Node con dobles de
@@ -469,6 +650,12 @@ veces sobre un libro sembrado con datos heredados.
 | `backend.volumen` | 1 000 expedientes: hojas leídas y tamaño de respuesta |
 | `backend.regresion` | 23 acciones heredadas, 39 columnas, colores, menú |
 | `consola` | la interfaz contra el backend real, no contra datos falsos |
+| `backend.auxiliares` | las tres columnas de la hoja `Auxiliar`: lectura completa, sin pisar valores |
+| `backend.hojasFisicas` | validación del conteo, tope de 999, solo donde el catálogo lo pide |
+| `backend.identificador` | carnet sin formato impuesto, duplicados, normalización |
+| `cacheYSalida` | caché con revalidación, cola de salida idempotente, preferencias a prueba de `localStorage` editado |
+| `superficies` | hoja central: candado de scroll, foco, apilamiento, contador de hojas |
+| `panelPantalla` | autodiagnóstico, cambios pendientes y preferencias escribiendo donde el módulo lee |
 
 ### 5.1 Verificación visual
 
@@ -493,6 +680,34 @@ cero errores de consola.
 Playwright no está en las dependencias del proyecto para no arrastrar 100 MB de
 navegador en cada instalación; el propio guion explica cómo instalarlo.
 
+### 5.2 Sondas de medición
+
+Además de las capturas, hay cinco sondas que **afirman** en lugar de mostrar. Se
+apoyan en un arnés compartido (`qa/doc-arnes.mjs`) y están documentadas una por una
+en `qa/README.md`.
+
+| Sonda | Qué afirma |
+|---|---|
+| `sonda-contraste.mjs` | ~2 800 nodos de texto, 7 pantallas × 2 temas, contra WCAG AA |
+| `sonda-rendimiento.mjs` | Con CPU 4x: interactivo, desplazamiento, apertura, ms por tecla, tareas largas por fase, fugas |
+| `sonda-alta-expediente.mjs` | El alta de punta a punta, comprobada en el libro y contando llamadas |
+| `sonda-modal-expediente.mjs` | Foco atrapado y devuelto, apilamiento, 20 ciclos sin basura, el guardado no miente |
+| `sonda-cache-expedientes.mjs` | Precarga en lote, apertura instantánea, conflicto de versión, backend caído |
+
+> **Lo que encontraron estas sondas.** El foco robado por el botón de cerrar al
+> abrir una superficie; la confirmación enterrada bajo la hoja del expediente
+> (`z-index` 110 contra 120); la apertura del expediente en 1 336 ms; el modo
+> ligero que no ahorraba nada porque dejaba las sombras y no cubría la cabecera
+> pegajosa de la tabla; la reconciliación de versión que no se disparaba nunca en
+> el caso real; el módulo cayéndose sin `ThemeProvider`; y la devolución de foco al
+> `body`, que lo borraba. Ninguna prueba en jsdom había visto ninguno.
+
+> **Una advertencia sobre medir en un navegador sin ventana.** El
+> `requestAnimationFrame` de un Chromium headless va a 4-5 Hz **aunque no se
+> estrangule nada**. Los fotogramas por segundo no son un criterio válido allí, y
+> la sonda de rendimiento no afirma sobre ellos: solo los informa. Sus
+> afirmaciones son sobre trabajo (milisegundos de tarea) y sobre proporciones.
+
 ---
 
 ## 6. Qué queda fuera
@@ -507,3 +722,13 @@ Dicho de frente, para que nadie lo descubra en producción:
 - **El expediente laboral** se prepara con un contrato documentado, pero no hay
   destino real al que enviarlo.
 - **Sin IA.** El resumen del expediente es una plantilla determinista.
+- **La migración no rellena los conteos de hojas.** Todos quedan en cero, que
+  significa «sin contar». Inventarlos sería fabricar el dato que el área necesita
+  que sea real. Consecuencia práctica: tras migrar, todos los documentos físicos ya
+  entregados aparecen como «sin contar» hasta que alguien los cuente.
+- **El modo auditoría no respeta las columnas ocultas.** Es deliberado: es la vista
+  que se imprime para demostrar algo, y poder ocultarle columnas sería poder
+  producir una prueba incompleta sin darse cuenta.
+- **La cola de salida solo cubre los cambios de requisitos.** Es la escritura que
+  ocurre cien veces al día; el resto sigue siendo síncrona con su propio manejo de
+  error.

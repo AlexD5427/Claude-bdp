@@ -82,6 +82,40 @@ describe("escala de apilamiento", () => {
     expect(Z.toast).toBeGreaterThan(Z.dialog);
   });
 
+  /**
+   * ── El fallo que esta comprobación añade ─────────────────────────────────
+   * La prueba anterior verificaba que `Z.dialog` supera a la superficie más
+   * alta, pero NO que la confirmación use `Z.dialog`. Y eso volvió a fallar: al
+   * convertir el expediente en una hoja central (`z-[120]`), la confirmación
+   * seguía con su `z-[110]` escrito a mano y aparecía por detrás. El clic sobre
+   * «Cerrar y descartar» lo interceptaba la hoja, así que quien tenía cambios
+   * sin guardar no podía cerrar la ventana: exactamente la misma trampa que en
+   * Perfiles, con otra pantalla.
+   *
+   * Así que se comprueba lo que importa de verdad: la confirmación del módulo
+   * toma su apilamiento de la ESCALA, no de un literal.
+   */
+  it("la confirmación del módulo toma su apilamiento de la escala, no de un literal", () => {
+    const piezas = readFileSync(join(RAIZ, "features", "documentacion", "ui", "piezas.tsx"), "utf8");
+    const desde = piezas.indexOf("export function Confirmacion(");
+    expect(desde, "no se encontró el componente Confirmacion").toBeGreaterThan(-1);
+    const bloque = piezas.slice(desde, piezas.indexOf("export interface Notita", desde));
+    expect(bloque).toContain("zIndex: Z.dialog");
+    // Y no queda ningún `z-[NNN]` escrito a mano en esa superficie.
+    expect(/inset-0[^"]*z-\[\d+\]/.test(bloque)).toBe(false);
+  });
+
+  it("ninguna superficie del módulo se apila por encima de la confirmación", () => {
+    const superficies = zetasLiterales().filter((z) => z.archivo.includes("features/documentacion"));
+    for (const superficie of superficies) {
+      expect(
+        superficie.valor < Z.dialog,
+        `${superficie.archivo} usa z-index ${superficie.valor} y la confirmación vive en ${Z.dialog}: ` +
+          "quien tenga cambios sin guardar no podría cerrar esa superficie.",
+      ).toBe(true);
+    }
+  });
+
   it("el orden de la escala es el esperado", () => {
     expect(Z.base).toBeLessThan(Z.sticky);
     expect(Z.sticky).toBeLessThan(Z.dropdown);

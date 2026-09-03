@@ -42,6 +42,13 @@ const NOMBRES = [
 
 function sembrar() {
   const h = loadInstalledBackend();
+  // Los catálogos auxiliares que alimentan los desplegables del alta.
+  h.ok("documentacion.auxiliares.agregar", { columna: "agencia_bdp", valores: AGENCIAS });
+  h.ok("documentacion.auxiliares.agregar", { columna: "gerencia_bdp", valores: GERENCIAS });
+  h.ok("documentacion.auxiliares.agregar", {
+    columna: "cargo_bdp",
+    valores: ["OFICIAL DE NEGOCIOS", "ANALISTA", "AUDITOR INTERNO", "CAJERO"],
+  });
   const anio = new Date().getFullYear();
   const creados = [];
 
@@ -212,8 +219,11 @@ async function main() {
 
   const fila = pagina.getByRole("table").first().getByRole("row").nth(1);
   await fila.getByRole("cell").nth(1).click();
-  await pagina.waitForTimeout(2000);
-  await capturar("03-expediente-lateral");
+  /* Se espera al diálogo, no a un tiempo fijo: el expediente ahora se abre en una
+     hoja central y, si está precargado, se pinta en dos tiempos. */
+  await pagina.waitForSelector('[role="dialog"]', { timeout: 20000 });
+  await pagina.waitForTimeout(2200);
+  await capturar("03-expediente-ventana");
   await pagina.keyboard.press("Escape");
   await pagina.waitForTimeout(700);
 
@@ -228,6 +238,13 @@ async function main() {
     await irA(etiqueta);
     await capturar(nombre);
   }
+
+  /* La pestaña de autodiagnóstico y preferencias: es la pantalla a la que se
+     manda a alguien por teléfono cuando algo no funciona, así que conviene que
+     esté documentada con una imagen y no solo con palabras. */
+  await pagina.getByRole("tab", { name: "Esta pantalla" }).click();
+  await pagina.waitForTimeout(1200);
+  await capturar("11-autodiagnostico");
 
   // Móvil: la tabla se convierte en tarjetas.
   const movil = await navegador.newContext({ viewport: ANCHO_MOVIL, deviceScaleFactor: 1, isMobile: true, hasTouch: true });

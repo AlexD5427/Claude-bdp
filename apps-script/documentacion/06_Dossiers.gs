@@ -118,6 +118,7 @@ function docRowFromDossier_(dossier, actor, anterior) {
     pendientes: informe.pendientes,
     observados: informe.observados,
     paginas: informe.paginas,
+    hojas_detalle: docText_(dossier.hojasFisicasDetalle || '', 900),
     estado: informe.estado,
     prorroga_hasta: informe.prorrogaHasta,
     ultimo_aviso: docLastEmailAt_(dossier),

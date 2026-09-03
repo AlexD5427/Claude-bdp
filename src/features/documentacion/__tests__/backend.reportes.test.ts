@@ -44,7 +44,7 @@ function escenario(h: any) {
   h.ok("documentacion.revision.decidir", {
     revision: { expedienteDocumentoId: cvB.expedienteDocumentoId, estado: "OBSERVADO", motivo: "FALTAN_DATOS", comentario: "Sin firma." },
   });
-  const certB = b.requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+  const certB = b.requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
   h.ok("documentacion.prorroga.crear", {
     prorroga: { expedienteDocumentoId: certB.expedienteDocumentoId, fechaProrroga: h.read("doc2FechaMasDias_(20)"), motivo: "Trámite en curso." },
   });
@@ -291,6 +291,76 @@ describe("documentación · exportaciones", () => {
     const res = h.pedir("documentacion.exportacion.iniciar", { tipo: "completo" }, { actor: "pasante@bdp.com" });
     expect(res.ok).toBe(false);
     expect(res.error.code).toBe("PERMISO_INSUFICIENTE");
+  });
+
+  /**
+   * Hojas físicas y subsección en los reportes.
+   *
+   * El área trabaja con dos legajos: el digital y el de papel. El conteo de
+   * hojas es lo único que permite cruzarlos, y la subsección es lo que
+   * distingue el título del garante 1 del del garante 2. Un reporte sin esas dos
+   * columnas obliga a volver al sistema expediente por expediente, que es
+   * exactamente lo que el reporte venía a evitar.
+   */
+  it("el reporte de pendientes trae la subsección y las hojas contadas", () => {
+    const h = loadInstalledBackend();
+    const c = crearExpediente(h, {
+      identificador: "CI-HOJ-2026",
+      nombre: "Hojas Contadas",
+      tipoFuncionario: "COMERCIAL",
+      tipoGarantia: "COMERCIAL_2",
+    });
+    const conConteo = c.requisitos.filter((r: any) => r.requiereConteoHojas);
+    expect(conConteo.length).toBeGreaterThan(0);
+    // Uno entregado con hojas, otro con conteo pero todavía pendiente.
+    h.ok("documentacion.requisito.actualizar", {
+      expedienteDocumentoId: conConteo[0].expedienteDocumentoId,
+      cambios: { estado: "ENTREGADO", hojasFisicas: 7 },
+    });
+
+    const reporte = h.ok("documentacion.reporte", { tipo: "pendientes", filtros: {} });
+    expect(reporte.columnas).toContain("Subsección");
+    expect(reporte.columnas).toContain("Hojas físicas");
+
+    const iSub = reporte.columnas.indexOf("Subsección");
+    const iHojas = reporte.columnas.indexOf("Hojas físicas");
+    // Al menos un pendiente de la rama de garantía llega con su subsección.
+    expect(reporte.filas.some((f: any[]) => String(f[iSub]).length > 0)).toBe(true);
+    /* Y la columna de hojas está VACÍA —no en cero— en los documentos que no
+       llevan conteo: un cero afirmaría que el documento tiene cero hojas. */
+    const conteoDeSemilla = h.read("doc2ConConteoDeHojasEnSemilla_()");
+    const iReq = reporte.columnas.indexOf("Requisito");
+    expect(iReq).toBeGreaterThanOrEqual(0);
+    const sinConteo = reporte.filas.filter((f: any[]) => f[iHojas] === "");
+    expect(sinConteo.length).toBeGreaterThan(0);
+    expect(conteoDeSemilla.length).toBe(9);
+  });
+
+  it("la hoja de requisitos de la exportación completa lleva subsección, presentación y hojas", () => {
+    const h = loadInstalledBackend();
+    const c = crearExpediente(h, {
+      identificador: "CI-EXP-2026",
+      nombre: "Export Hojas",
+      tipoFuncionario: "COMERCIAL",
+      tipoGarantia: "COMERCIAL_1",
+    });
+    const conConteo = c.requisitos.find((r: any) => r.requiereConteoHojas)!;
+    h.ok("documentacion.requisitos.guardar", {
+      expedienteId: c.expedienteId,
+      cambios: [{ expedienteDocumentoId: conConteo.expedienteDocumentoId, estado: "ENTREGADO", hojasFisicas: 12 }],
+    });
+
+    const trabajo = h.ok("documentacion.exportacion.iniciar", { tipo: "completo" });
+    const lote = h.ok("documentacion.exportacion.lote", { exportacionId: trabajo.exportacionId });
+    const cabecera = lote.datos.Requisitos[0];
+    expect(cabecera).toContain("Subsección");
+    expect(cabecera).toContain("Hojas físicas");
+    expect(cabecera).toContain("Presentación física");
+
+    const iCodigo = cabecera.indexOf("Código");
+    const iHojas = cabecera.indexOf("Hojas físicas");
+    const fila = lote.datos.Requisitos.slice(1).find((f: any[]) => f[iCodigo] === conConteo.codigo)!;
+    expect(fila[iHojas]).toBe(12);
   });
 
   it("queda constancia de quién exportó qué", () => {

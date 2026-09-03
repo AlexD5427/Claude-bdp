@@ -229,8 +229,25 @@ export function GaugeInput({ label, hint, value, onChange }: GaugeInputProps) {
             onFocus={(e) => {
               setDraft(value === null ? "" : String(value));
               setFocused(true);
-              // Select all so the operator can overwrite immediately.
-              requestAnimationFrame(() => e.target.select());
+              /**
+               * Se selecciona TODO de forma síncrona, no en el fotograma
+               * siguiente.
+               *
+               * ── El fallo que esto corrige ──────────────────────────────────
+               * Antes era `requestAnimationFrame(() => e.target.select())`, y en
+               * cuanto la máquina va cargada ese fotograma llega DESPUÉS de la
+               * primera tecla: la selección se hace sobre el «7» recién escrito
+               * y el «7» siguiente lo reemplaza en lugar de añadirse. Resultado:
+               * quien pulsa el campo y escribe de inmediato pierde el primer
+               * dígito, y una nota de 77 queda en 7.
+               *
+               * Es el mismo patrón que ya se había corregido en la hoja central
+               * del módulo de Documentación: cualquier cosa que mueva el foco o
+               * la selección con retardo compite con el teclado de la persona, y
+               * el teclado siempre gana la carrera en las máquinas lentas, que es
+               * donde importa.
+               */
+              e.currentTarget.select();
             }}
             onChange={(e) => {
               const t = e.target.value.replace(/[^0-9]/g, "").slice(0, 3);

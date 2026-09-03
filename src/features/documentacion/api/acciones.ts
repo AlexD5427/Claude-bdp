@@ -37,12 +37,25 @@ export interface EstadoModulo {
   problema?: string;
 }
 
+/** Forma de presentación declarada en el catálogo. El `SÍ*` del área es `CONDICIONAL`. */
+export type Presentacion = "SI" | "NO" | "CONDICIONAL";
+
 export interface CatalogoDocumento {
   codigo: string;
   nombre: string;
   descripcion: string;
   textoObservacion: string;
   seccion: string;
+  /** Título de la subsección resuelto para «sin garantía». */
+  subseccion: string;
+  /**
+   * Subsección por rama.
+   *
+   * `garante-inmueble` aplica a Comercial Tipo 1 y Tipo 3 y pertenece a
+   * subsecciones distintas en cada una, así que el título no puede ser un texto
+   * único. La clave es el tipo de garantía; `*` es el valor para cualquiera.
+   */
+  subsecciones: Record<string, string>;
   grupo: string;
   orden: number;
   obligatorio: boolean;
@@ -51,22 +64,38 @@ export interface CatalogoDocumento {
   permiteProrroga: boolean;
   tipoFuncionario: string[];
   tipoGarantia: string[];
+  presentacionFisica: Presentacion;
+  presentacionDigital: "SI" | "NO";
+  /** Solo los documentos físicos anotan cuántas hojas tienen. */
+  requiereConteoHojas: boolean;
   confidencialidad: string;
   requiereRevision: boolean;
   requiereAprobacion: boolean;
   activo: boolean;
+  /** Requisito retirado de la lista vigente: se muestra como heredado. */
+  retirado: boolean;
   versionCatalogo: number;
   vigenciaDesde: string;
   vigenciaHasta: string;
   columnaLibro: string;
 }
 
+/** Los tres catálogos por columna de la hoja `Auxiliar`. */
+export interface CatalogosAuxiliares {
+  agencia_bdp: string[];
+  gerencia_bdp: string[];
+  cargo_bdp: string[];
+}
+
+/** Cabecera de la hoja `Auxiliar` que alimenta un campo con sugerencias. */
+export type ColumnaAuxiliar = keyof CatalogosAuxiliares;
+
 export interface CatalogoCliente {
   version: number;
   esquema: number;
   documentos: CatalogoDocumento[];
   vocabulario: Record<string, unknown>;
-  auxiliares: { agencia_bdp: string[]; gerencia_bdp: string[] };
+  auxiliares: CatalogosAuxiliares;
   aplicabilidad: {
     tipoFuncionario: string;
     etiqueta: string;
@@ -74,7 +103,9 @@ export interface CatalogoCliente {
     habilitada: boolean;
     total: number;
     obligatorios: number;
+    conConteoHojas: number;
     codigos: string[];
+    subsecciones: string[];
     nota: string;
   }[];
 }
@@ -404,12 +435,18 @@ export const docApi = {
   guardarCatalogo: (catalogo: unknown[], o?: OpcionesLlamada) =>
     llamar<{ guardados: number; creados: number; rechazados: unknown[] }>("documentacion.catalogo.guardar", { catalogo }, o),
   auxiliares: (o?: OpcionesLlamada) =>
-    llamar<{ auxiliares: { agencia_bdp: string[]; gerencia_bdp: string[] }; revision: Record<string, unknown> }>(
-      "documentacion.auxiliares",
-      {},
-      o,
-    ),
-  agregarAuxiliar: (columna: string, valores: string[], o?: OpcionesLlamada) =>
+    llamar<{
+      auxiliares: CatalogosAuxiliares;
+      revision: {
+        columnas: { columna: string; valores: number; cabecera: boolean }[];
+        duplicados: { columna: string; valor: string; coincideCon: string }[];
+        sospechosos: { columna: string; valor: string; motivo: string }[];
+        sinCabecera: string[];
+        vacias: string[];
+        falta?: boolean;
+      };
+    }>("documentacion.auxiliares", {}, o),
+  agregarAuxiliar: (columna: ColumnaAuxiliar, valores: string[], o?: OpcionesLlamada) =>
     llamar<{ columna: string; agregados: string[]; total: number }>("documentacion.auxiliares.agregar", { columna, valores }, o),
   permisos: (o?: OpcionesLlamada) =>
     llamar<{ rol: string; actor: string; actorId: string; capacidades: Capacidades; matriz: Record<string, string[]>; roles: string[] }>(
@@ -488,12 +525,43 @@ export const docApi = {
     llamar<ListadoExpedientes>("documentacion.expedientes.listar", { filtros }, o),
   obtenerExpediente: (expedienteId: string, extras: Record<string, unknown> = {}, o?: OpcionesLlamada) =>
     llamar<ExpedienteOperativo>("documentacion.expediente.obtener", { expedienteId, ...extras }, o),
-  crearExpediente: (expediente: Record<string, unknown>, o?: OpcionesLlamada) =>
-    llamar<{ expedienteId: string; creado: boolean; requisitos?: number; repetido?: boolean }>(
-      "documentacion.expediente.crear",
-      { expediente },
-      o,
-    ),
+  /**
+   * Crea un expediente. Acepta el alta COMPLETA en una sola llamada.
+   *
+   * `requisitos`, `prorrogas` y `devolverDetalle` los entiende el backend nuevo;
+   * uno antiguo los ignora sin fallar y devuelve `altaCompleta` sin definir, que
+   * es la señal para caer a la ruta de cuatro pasos.
+   */
+  crearExpediente: (
+    expediente: Record<string, unknown>,
+    o?: OpcionesLlamada,
+  ) =>
+    llamar<{
+      expedienteId: string;
+      creado: boolean;
+      requisitos?: number;
+      repetido?: boolean;
+      altaCompleta?: boolean;
+      requisitosAplicados?: number;
+      requisitosFallidos?: { indice: number; motivo: string }[];
+      prorrogasCreadas?: string[];
+      prorrogasFallidas?: { indice: number; codigo: string; motivo: string }[];
+      detalle?: ExpedienteOperativo;
+    }>("documentacion.expediente.crear", { expediente }, o),
+  /**
+   * Detalle de varios expedientes en una sola llamada.
+   *
+   * Es lo que hace que la precarga cueste un viaje de red en lugar de N. El
+   * backend tiene un tope prudente y devuelve en `omitidos` lo que no entró.
+   */
+  detalleMultiple: (expedienteIds: string[], o?: OpcionesLlamada) =>
+    llamar<{
+      expedientes: Record<string, ExpedienteOperativo>;
+      devueltos: number;
+      omitidos: string[];
+      fallidos: { expedienteId: string; motivo: string }[];
+      tope: number;
+    }>("documentacion.expedientes.detalle", { expedienteIds }, o),
   actualizarExpediente: (expedienteId: string, cambios: Record<string, unknown>, version?: number, o?: OpcionesLlamada) =>
     llamar<{ expedienteId: string; cambios: number; sincronizacion?: unknown }>(
       "documentacion.expediente.actualizar",

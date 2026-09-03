@@ -66,7 +66,7 @@ function docTestUtilidades_() {
 /** El catalogo de columnas: es la base de todo lo demas. */
 function docTestManifiesto_() {
   var columnas = docYearColumns_();
-  docCheckEq_('la pestana anual tiene 39 columnas', columnas.length, 39);
+  docCheckEq_('la pestana anual tiene 40 columnas', columnas.length, 40);
   docCheckEq_('la base tiene 23 columnas', DOC_BASE_COLUMNS.length, 23);
 
   docCheckEq_('se conserva el espacio final de Tipo de Empleado',
@@ -92,7 +92,7 @@ function docTestManifiesto_() {
   }
   docCheckEq_('no hay claves internas repetidas', repetidas.length, 0);
 
-  docCheckEq_('el catalogo trae 38 documentos', DOC_CATALOGO_SEMILLA.length, 38);
+  docCheckEq_('el catalogo heredado trae 39 documentos', DOC_CATALOGO_SEMILLA.length, 39);
   docCheckEq_('docColumnByKey_ encuentra la columna', docColumnByKey_('rejap').encabezado, 'REJAP');
   docCheck_('docYearColumnPosition_ ubica el identificador', docYearColumnPosition_('id') === 24);
 }
@@ -223,15 +223,29 @@ function docTestModelo_() {
   }
   docCheckEq_('ninguna hoja del modelo repite nombre', duplicadas, 0);
 
-  docCheckEq_('el catalogo canonico trae 38 documentos', DOC2_CATALOGO_SEMILLA.length, 38);
-  docCheckEq_('un funcionario general sin garantia exige 18',
-    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 18);
-  docCheckEq_('un comercial con garantia exige 23',
-    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 23);
-  docCheckEq_('cumplimiento exige 20',
-    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 20);
+  docCheckEq_('el catalogo canonico trae 39 documentos', DOC2_CATALOGO_SEMILLA.length, 39);
+  docCheckEq_('dos generales estan retirados', doc2CodigosRetirados_().length, 2);
+  docCheckEq_('un funcionario general sin garantia exige 16',
+    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 16);
+  docCheckEq_('comercial tipo 1 exige 21',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 21);
+  docCheckEq_('comercial tipo 2 exige 25',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_2').length, 25);
+  docCheckEq_('comercial tipo 3 exige 21',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_3').length, 21);
+  docCheckEq_('auditoria exige 17',
+    doc2AplicablesDeSemilla_('AUDITORIA', 'NINGUNA').length, 17);
+  docCheckEq_('cumplimiento exige 19',
+    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 19);
   docCheckEq_('la garantia sola no anade documentos a un general',
-    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 18);
+    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 16);
+  docCheckEq_('el bien inmueble cambia de subseccion segun la rama',
+    doc2ResolverSubseccion_(doc2SemillaPorCodigo_('garante-inmueble').subseccion, 'COMERCIAL_3'),
+    'Postulante con inmueble propio');
+  docCheckEq_('y en tipo 1 pertenece a la del garante',
+    doc2ResolverSubseccion_(doc2SemillaPorCodigo_('garante-inmueble').subseccion, 'COMERCIAL_1'),
+    '1 Garante con Bien Inmueble');
+  docCheckEq_('nueve requisitos llevan conteo de hojas', doc2ConConteoDeHojasEnSemilla_().length, 9);
 
   docCheck_('de BORRADOR se puede pasar a EN_RECOLECCION',
     doc2TransicionPermitida_('expediente', DOC2_ESTADO_EXPEDIENTE.BORRADOR, DOC2_ESTADO_EXPEDIENTE.EN_RECOLECCION));
@@ -252,7 +266,7 @@ function docTestModelo_() {
   docCheck_('un rol inventado cae en invitado',
     doc2CapacidadesDe_('duenio-del-banco').length === doc2CapacidadesDe_('invitado').length);
 
-  docCheckEq_('hay cuatro migraciones declaradas', DOC2_MIGRACIONES.length, 4);
+  docCheckEq_('hay cinco migraciones declaradas', DOC2_MIGRACIONES.length, 5);
   docCheckEq_('y la primera es la estructural', DOC2_MIGRACIONES[0].version, '4.0.0-estructura');
 }
 
@@ -409,14 +423,14 @@ function docTestIntegracion_() {
     docCheckEq_('el expediente heredado se migro', expedientes.length, 1);
     docCheckEq_('conservando su identificador', expedientes[0].identificador, 'CI-999-2026');
     var requisitos = doc2By_(DOC2_SHEET.EXPEDIENTE_DOCS, 'expediente_id', expedientes[0].expediente_id, true);
-    docCheck_('con sus requisitos derivados del catalogo', requisitos.length >= 18);
+    docCheck_('con sus requisitos derivados del catalogo', requisitos.length >= 16);
     docCheckEq_('el catalogo quedo sembrado',
       doc2All_(DOC2_SHEET.CATALOGO, true).length, DOC2_CATALOGO_SEMILLA.length);
 
     doc2Reset_();
     var panel = doc2Panel_({}, doc2CtxActual_('pruebas'));
     docCheckEq_('el panel cuenta el expediente', panel.expedientes, 1);
-    docCheck_('y el embudo ve los requisitos', panel.embudo.total >= 18);
+    docCheck_('y el embudo ve los requisitos', panel.embudo.total >= 16);
 
     // Segunda pasada: la migracion es idempotente.
     doc2Reset_();

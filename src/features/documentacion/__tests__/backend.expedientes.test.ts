@@ -18,11 +18,13 @@ describe("documentación · alta de expedientes", () => {
     const h = loadInstalledBackend();
     const { expediente, requisitos } = crearExpediente(h);
 
-    expect(requisitos.length).toBe(18);
+    // 16 documentos generales vigentes (catálogo v3): `cert-trabajo` y `rc-iva`
+    // se retiraron de la lista del área y ya no se crean en un alta nueva.
+    expect(requisitos.length).toBe(16);
     expect(expediente.estado).toBe("EN_RECOLECCION");
     expect(expediente.porcentaje).toBe(0);
-    expect(expediente.totales.requisitos).toBe(18);
-    expect(expediente.totales.pendientes).toBe(18);
+    expect(expediente.totales.requisitos).toBe(16);
+    expect(expediente.totales.pendientes).toBe(16);
     for (const requisito of requisitos) {
       expect(requisito.estado).toBe("PENDIENTE");
       expect(requisito.estadoRevision).toBe("SIN_REVISION");
@@ -119,14 +121,18 @@ describe("documentación · edición y progreso", () => {
       cambios: { estado: "ENTREGADO", observaciones: "Recibido en original." },
     });
     expect(res.resumen.total_entregados).toBe(1);
-    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 18) * 100));
+    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 16) * 100));
     expect(res.resumen.estado_expediente).toBe("EN_RECOLECCION");
   });
 
   it("los no aplica salen del denominador del avance", () => {
     const h = loadInstalledBackend();
     const { expedienteId, requisitos } = crearExpediente(h);
-    const opcional = requisitos.find((r: any) => r.codigo === "rc-iva")!;
+    // `rc-iva` era el otro requisito opcional de la lista anterior; retirado el
+    // catálogo v3, los dos «no aplica» que necesita la prueba son el carnet de
+    // heredero (opcional) y el título académico (que admite «no aplica» para
+    // quien es egresado o técnico).
+    const opcional = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
     const otro = requisitos.find((r: any) => r.codigo === "carnet-heredero")!;
 
     h.ok("documentacion.requisitos.guardar", {
@@ -137,10 +143,12 @@ describe("documentación · edición y progreso", () => {
       ],
     });
 
-    const obligatorios = requisitos.filter((r: any) => r.obligatorio);
+    const exigibles = requisitos.filter(
+      (r: any) => r.codigo !== "titulo-legalizado" && r.codigo !== "carnet-heredero",
+    );
     const res = h.ok("documentacion.requisitos.guardar", {
       expedienteId,
-      cambios: obligatorios.map((r: any) => ({ expedienteDocumentoId: r.expedienteDocumentoId, estado: "ENTREGADO" })),
+      cambios: exigibles.map((r: any) => ({ expedienteDocumentoId: r.expedienteDocumentoId, estado: "ENTREGADO" })),
     });
     expect(res.resumen.total_no_aplica).toBe(2);
     expect(res.resumen.porcentaje_completitud).toBe(100);

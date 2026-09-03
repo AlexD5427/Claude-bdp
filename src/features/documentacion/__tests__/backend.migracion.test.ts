@@ -82,7 +82,14 @@ describe("documentación · migración: importación de datos", () => {
     expect(porCodigo["titulo-legalizado"].estado).toBe("ENTREGADO");
     expect(porCodigo["titulo-legalizado"].estadoRevision).toBe("OBSERVADO");
     expect(porCodigo["titulo-legalizado"].observaciones).toMatch(/legalización/i);
+    /* `rc-iva` y `cert-trabajo` salieron de la lista vigente en el catálogo v3.
+       La migración los conserva igual porque el expediente heredado los tenía
+       CON DATOS —marcados «no aplica» y con prórroga—, y descartarlos borraría
+       trabajo registrado. Llegan marcados como heredados y nunca obligatorios. */
     expect(porCodigo["rc-iva"].estado).toBe("NO_APLICA");
+    expect(porCodigo["rc-iva"].heredado).toBe(true);
+    expect(porCodigo["rc-iva"].obligatorio).toBe(false);
+    expect(porCodigo["cert-trabajo"].heredado).toBe(true);
 
     // La prórroga heredada se convierte en un registro propio.
     expect(detalle.prorrogas.length).toBe(1);
@@ -198,12 +205,12 @@ describe("documentación · migración: importación de datos", () => {
     seedLegacyBook(h, 2026);
     const antes = h.ok("documentacion.migraciones.estado");
     expect(antes.aplicadas).toEqual([]);
-    expect(antes.pendientes.length).toBe(4);
+    expect(antes.pendientes.length).toBe(5);
 
     h.pedir("documentacion.instalar", { conRespaldo: false });
     const despues = h.ok("documentacion.migraciones.estado");
     expect(despues.pendientes).toEqual([]);
-    expect(despues.aplicadas.length).toBe(4);
+    expect(despues.aplicadas.length).toBe(5);
   });
 
   it("el respaldo previo guarda los expedientes del libro antes de tocar nada", () => {

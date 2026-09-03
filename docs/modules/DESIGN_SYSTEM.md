@@ -68,6 +68,38 @@ only), hover marquee for text that does not fit, and the
 `::view-transition-group` timings. All of them collapse under
 `prefers-reduced-motion` and under the app's `reduce-motion` class.
 
+### Intent tokens are theme-scoped now
+
+`src/design-system/tokens.ts` used to hold `INTENT` as literal colours. They are
+CSS variables (`--intent-*`) declared per theme in `src/index.css`, so an intent
+means the same thing in both themes and neither is left to chance.
+
+Two tokens were added for a measured reason: `--doc-solido-fg` and
+`--doc-solido-peligro-fg` carry the **foreground** of solid fills. With a fixed
+dark ink, the primary button in the light theme measured 3.53:1 against its own
+background — AA asks for 4.5. See ACCESSIBILITY.md for how that was found.
+
+### Sheet surface and its curve
+
+`--doc-ease-hoja` is the entrance curve of `HojaCentral`, the module's modal
+surface. It is the iOS sheet curve rather than the system's `--doc-ease-out-expo`:
+a sheet that slides in from the centre reads as a *sheet* only if it decelerates
+like one. `.doc-hoja`, `.doc-velo`, `.doc-categoria` and `.doc-hojas` are its
+companion classes.
+
+### Light mode is part of the system, not a per-screen hack
+
+`[data-doc-ligero="si"]` flattens the two properties that cost real frames:
+`backdrop-filter` blurs and projected box-shadows. It covers `.glass`,
+`.glass-heavy`, `.doc-velo`, `.doc-hoja`, `.doc-raised`, `.doc-categoria` **and
+`.doc-table thead th`**.
+
+That last one was missing and a performance probe caught it: ten sticky header
+cells with `blur(8px)` fixed over scrolling content is the most expensive case
+there is, and it was the one the switch did not touch. Its blurred background also
+had to be replaced with an opaque one — without the blur, row text showed *through*
+the header. A `doc:check` assertion now guards both lists.
+
 ## Accessibility of the visuals
 
 Readable forms and dense content take priority over transparency. The system

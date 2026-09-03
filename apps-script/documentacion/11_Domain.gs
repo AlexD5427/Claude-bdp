@@ -32,8 +32,16 @@
  * resolvía, sin un segundo motor paralelo que mantener.
  */
 
-/** Versión del modelo normalizado. La migración compara contra este número. */
-var DOC2_SCHEMA_VERSION = 4;
+/**
+ * Versión del modelo normalizado. La migración compara contra este número.
+ *
+ * v5 añade el conteo de hojas de los documentos físicos (`hojas_fisicas` en
+ * `ExpedienteDocumentos`) y los metadatos de presentación del catálogo
+ * (`presentacion_fisica`, `presentacion_digital`, `requiere_conteo_hojas`,
+ * `subseccion`). Subirla también renueva las claves de caché, que la incluyen:
+ * una respuesta cacheada con la forma anterior no puede sobrevivir al despliegue.
+ */
+var DOC2_SCHEMA_VERSION = 5;
 
 /** Identidad de la arquitectura nueva, para las metas de las respuestas. */
 var DOC2_BACKEND = {
@@ -91,8 +99,14 @@ var DOC2_SHEET = {
  * y la reparación pueden crear la cabecera y AÑADIR valores nuevos; jamás borran
  * uno existente, porque un valor histórico —una agencia que ya cerró— sigue
  * siendo necesario para leer los expedientes antiguos.
+ *
+ * `cargo_bdp` es la tercera columna y la más reciente. El campo «Cargo» del alta
+ * no tenía fuente de datos: cada persona lo escribía a su manera y la lista de
+ * cargos del banco no existía en ningún sitio consultable. Ahora se lee de la
+ * hoja con exactamente la misma lógica que agencia y gerencia. La cabecera la
+ * crea el backend si falta; los valores los pega el área, porque son su lista.
  */
-var DOC2_AUXILIAR_COLUMNS = ['agencia_bdp', 'gerencia_bdp'];
+var DOC2_AUXILIAR_COLUMNS = ['agencia_bdp', 'gerencia_bdp', 'cargo_bdp'];
 
 /** Semilla mínima: las gerencias del banco. Solo se usa si la columna está vacía. */
 var DOC2_GERENCIA_SEMILLA = [
@@ -376,81 +390,422 @@ var DOC2_SECCIONES = [
 /* ========================================================================== */
 
 /**
- * El catálogo canónico: 18 documentos generales, 17 de garantía comercial (por
- * rama) y 3 de cumplimiento, en el MISMO orden funcional que la implementación
- * anterior.
+ * Formas de presentación de un requisito.
+ *
+ * El área distingue tres casos y hasta ahora los llevaba en una tabla aparte, en
+ * papel. `CONDICIONAL` es el «SÍ*» de su lista: el original físico se pide solo
+ * en ciertos casos (por ejemplo, cuando la copia digital no basta para el legajo)
+ * y por eso lleva asterisco y leyenda al pie, en lugar de un texto suelto
+ * cableado en la interfaz.
+ */
+var DOC2_PRESENTACION = { SI: 'SI', NO: 'NO', CONDICIONAL: 'CONDICIONAL' };
+
+/**
+ * El catálogo canónico (versión 3).
+ *
+ * ── Qué cambió en la versión 3 ──────────────────────────────────────────────
+ * 1. Los documentos GENERALES pasan a ser exactamente los 16 de la lista que el
+ *    área entregó, con su redacción literal. `cert-trabajo` («Certificados de
+ *    trabajo») y `rc-iva` («Certificado de saldo a favor del dependiente») dejan
+ *    de pedirse: se marcan `activo: false` y `fecha_fin_vigencia`, así que el
+ *    motor de aplicabilidad no los incluye nunca más en un alta nueva, pero
+ *    siguen en el catálogo —y en los expedientes antiguos que los referencian—
+ *    identificados como heredados. Sus filas NO se borran: hay expedientes de
+ *    2023 con esos requisitos entregados y borrarlos sería destruir el registro.
+ * 2. Cada requisito declara CÓMO se presenta (`presentacionFisica`,
+ *    `presentacionDigital`) y si lleva contador de hojas
+ *    (`requiereConteoHojas`). La interfaz ya no cablea la lista de documentos
+ *    físicos: la deduce del catálogo, que es la única fuente.
+ * 3. Las ramas de garantía se organizan en SUBSECCIONES con título. La
+ *    subsección puede declararse por rama: `garante-inmueble` y `garante-folio`
+ *    aplican a Tipo 1 y a Tipo 3 y pertenecen a subsecciones distintas en cada
+ *    una, así que `subseccion` admite un mapa `{ COMERCIAL_1: '…', COMERCIAL_3: '…' }`
+ *    además de un texto único.
+ * 4. Cumplimiento gana un requisito nuevo: la declaración jurada de
+ *    prohibiciones del personal de la Unidad de Cumplimiento.
  *
  * `codigo` conserva los identificadores que ya existían (`foto-4x4`,
  * `garante-ci`…). No se renombran: los expedientes guardados los referencian y
- * cambiarlos obligaría a una migración de datos a cambio de nada.
+ * cambiarlos obligaría a una migración de datos a cambio de nada. Lo que cambia
+ * es `nombre_visible`.
  *
  * `tipo_funcionario` y `tipo_garantia` son listas de aplicabilidad. Vacío
  * significa «para todos». El motor de 13_Catalog.gs las interpreta.
+ *
+ * Recuentos que produce esta semilla (comprobados por `10_Tests.gs` y por
+ * `npm run doc:check`): General 16 · Comercial T1 21 · T2 25 · T3 21 ·
+ * Auditoría 17 · Cumplimiento 19.
  */
 var DOC2_CATALOGO_SEMILLA = [
-  /* ── 18 Documentos Generales ──────────────────────────────────────────── */
-  { codigo: 'foto-4x4', nombre: 'Fotografía digital 4x4', descripcion: 'Fondo blanco, vestimenta formal.', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'antecedentes-felcc', nombre: 'Certificado de antecedentes policiales (FELCC)', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'rejap', nombre: 'Registro Judicial de Antecedentes Penales (REJAP)', seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'rejap' },
-  { codigo: 'ci-copia', nombre: 'Fotocopia o escaneado de Carnet de Identidad', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'factura-servicios', nombre: 'Factura de servicios básicos', descripcion: 'Luz o agua, fotocopia o escaneado.', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'croquis-domicilio', nombre: 'Croquis domiciliario', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'cv', nombre: 'Currículum Vitae actualizado', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'cv-respaldo', nombre: 'Documentos de respaldo del Currículum Vitae', descripcion: 'Títulos de formación académica.', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'cert-trabajo', nombre: 'Certificados de trabajo', seccion: 'generales', grupo: 'personal', obligatorio: true, prorroga: true, observacion: 'Admite prórroga cuando el empleador anterior demora la emisión.' },
-  { codigo: 'titulo-legalizado', nombre: 'Fotocopia legalizada del Título académico', seccion: 'generales', grupo: 'personal', obligatorio: true, prorroga: true, noAplica: true, columna: 'titulo_legalizado', observacion: 'Admite prórroga mientras el título esté en legalización.' },
-  { codigo: 'cuenta-bancaria', nombre: 'Número de cuenta bancaria', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'extracto-gestora', nombre: 'Fotocopia de extracto de la Gestora Pública', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'djj-no-vinculacion', nombre: 'Declaración jurada de no vinculación', descripcion: 'Parentesco ni favorecimiento crediticio.', seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'djj_no_codificacion' },
-  { codigo: 'djj-bienes-rentas', nombre: 'Declaración jurada de bienes y rentas', descripcion: 'Recepcionada por la Contraloría General del Estado.', seccion: 'generales', grupo: 'personal', obligatorio: true },
-  { codigo: 'seguro-accidentes', nombre: 'Seguro de accidentes personales', seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'seguros_alianza' },
-  { codigo: 'seguro-vida', nombre: 'Seguro de vida individual', seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'crediseguro' },
-  { codigo: 'rc-iva', nombre: 'Certificado de saldo a favor del dependiente (RC-IVA)', seccion: 'generales', grupo: 'personal', obligatorio: false, noAplica: true },
-  { codigo: 'carnet-heredero', nombre: 'Fotocopia de carnet de heredero de contrato', seccion: 'generales', grupo: 'personal', obligatorio: false, noAplica: true },
+  /* ── 16 Documentos Generales, en el orden de la lista del área ─────────── */
+  {
+    codigo: 'foto-4x4',
+    nombre: '1 Fotografía en formato digital 4X4 fondo blanco y vestimenta formal (actualizada de los últimos 6 meses), debe ser entregada por correo electrónico, WhatsApp.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'antecedentes-felcc',
+    nombre: 'Certificado de antecedentes policiales expedido por la FELCC (vigente).',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'CONDICIONAL', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    codigo: 'rejap',
+    nombre: 'Registro Judicial de Antecedentes Penales REJAP (vigente).',
+    seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'rejap',
+    presentacionFisica: 'CONDICIONAL', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    codigo: 'ci-copia',
+    nombre: 'Fotocopia simple / escaneado de Carnet de Identidad.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'factura-servicios',
+    nombre: 'Fotocopia / escaneado de factura, comprobante, boleta, recibo o respaldo de servicios básicos emitida por la empresa de servicios que corresponda o Certificado de la Comunidad (en todos los casos que mencione la dirección de su domicilio).',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'croquis-domicilio',
+    nombre: 'Croquis domiciliario.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'cv',
+    nombre: 'Curriculum Vitae actualizado.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'cv-respaldo',
+    nombre: 'Documentos de respaldo del Curriculum Vitae actualizado.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'titulo-legalizado',
+    nombre: 'Fotocopia legalizada del Título académico del último grado alcanzado, de acuerdo al perfil de cargo (No aplica para grado académico técnico medio o superior o egresados).',
+    seccion: 'generales', grupo: 'personal', obligatorio: true, prorroga: true, noAplica: true,
+    columna: 'titulo_legalizado',
+    observacion: 'Admite prórroga mientras el título esté en legalización.',
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    codigo: 'cuenta-bancaria',
+    nombre: 'N° de Cuenta Bancaria (BCP para zonas urbanas y Banco Unión para zonas rurales).',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'extracto-gestora',
+    nombre: 'Extracto de la Gestora Pública de la Seguridad Social a Largo Plazo donde figure el número NUA o CUA.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'djj-no-vinculacion',
+    nombre: 'Declaración Jurada de No vinculación por parentesco ni Favorecimiento Crediticio.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'djj_no_codificacion',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'djj-bienes-rentas',
+    nombre: 'Fotocopia / escaneado de la Declaración Jurada de Bienes y Rentas recepcionada por la Contraloría General del Estado.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'seguro-accidentes',
+    nombre: 'Seguro de Accidentes Personales (formulario proporcionado por el banco).',
+    seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'seguros_alianza',
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    codigo: 'seguro-vida',
+    nombre: 'Seguro de Vida Individual (formulario proporcionado por el banco).',
+    seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'crediseguro',
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    codigo: 'carnet-heredero',
+    nombre: 'Fotocopia simple / escaneado de carnet de heredero de contrato.',
+    seccion: 'generales', grupo: 'personal', obligatorio: false, noAplica: true,
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+
+  /* ── Generales RETIRADOS ───────────────────────────────────────────────────
+   * Siguen declarados para que su fila exista, su nombre se pueda mostrar y el
+   * catálogo heredado siga completo, pero `retirado: true` los deja inactivos:
+   * `doc2Aplicables_` lee solo los activos, así que un alta nueva no los pide.
+   * Un expediente que ya los tenía los sigue viendo, marcados como heredados. */
+  {
+    codigo: 'cert-trabajo', nombre: 'Certificados de trabajo (requisito retirado)',
+    seccion: 'generales', grupo: 'personal', obligatorio: false, noAplica: true, prorroga: true,
+    observacion: 'Requisito retirado de la lista del área. Se conserva para los expedientes que ya lo tenían.',
+    presentacionFisica: 'NO', presentacionDigital: 'SI', retirado: true
+  },
+  {
+    codigo: 'rc-iva', nombre: 'Certificado de saldo a favor del dependiente (RC-IVA) (requisito retirado)',
+    seccion: 'generales', grupo: 'personal', obligatorio: false, noAplica: true,
+    observacion: 'Requisito retirado de la lista del área. Se conserva para los expedientes que ya lo tenían.',
+    presentacionFisica: 'NO', presentacionDigital: 'SI', retirado: true
+  },
 
   /* ── Garantía comercial ────────────────────────────────────────────────────
    * Tres ramas mutuamente excluyentes de FUNCIONARIO ÁREA COMERCIAL. El motor de
    * 13_Catalog.gs filtra por `garantia`, así que un expediente ve SOLO los
    * documentos de su tipo. El ORDEN del arreglo fija el orden de presentación
-   * dentro de cada rama (el `orden` se deriva de la posición). No se renombra
-   * ningún código heredado: los expedientes ya migrados los referencian.
+   * dentro de cada rama (el `orden` se deriva de la posición) y, con él, el orden
+   * de las subsecciones. Todo digital y sin contador de hojas: son fotocopias.
    *
    * ── Tipo 1 · garante con bien inmueble + garante familiar (4° grado) ── */
-  { codigo: 'garante-ci', nombre: 'Fotocopia de CI del garante', seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'contrato_fianza', funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1'] },
-  { codigo: 'garante-inmueble', nombre: 'Bien inmueble con o sin hipoteca', descripcion: 'Documento del bien inmueble ofrecido en garantía.', seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'contrato_fianza', funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1', 'COMERCIAL_3'] },
-  { codigo: 'garante-folio', nombre: 'Fotocopia de folio / información rápida', descripcion: 'Antigüedad no menor a un mes.', seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'vista_informacion_rapida', funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1', 'COMERCIAL_3'] },
-  { codigo: 'garante-t1-fam-ci', nombre: 'Fotocopia de CI del garante familiar', descripcion: 'Garante familiar hasta 4° grado de consanguinidad.', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1'] },
-  { codigo: 'garante-t1-fam-croquis', nombre: 'Croquis de domicilio del garante familiar', descripcion: 'Garante familiar hasta 4° grado de consanguinidad.', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1'] },
+  {
+    codigo: 'garante-ci', nombre: 'Fotocopia de CI del garante',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'contrato_fianza',
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1'],
+    subseccion: '1 Garante con Bien Inmueble',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-inmueble', nombre: 'Bien Inmueble con o sin hipoteca',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'contrato_fianza',
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1', 'COMERCIAL_3'],
+    /* La trampa de este catálogo: el mismo documento pertenece a subsecciones
+       distintas según la rama. Un texto único mentiría en una de las dos. */
+    subseccion: { COMERCIAL_1: '1 Garante con Bien Inmueble', COMERCIAL_3: 'Postulante con inmueble propio' },
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-folio', nombre: 'Fotocopia de folio / Información rápida con antigüedad no menor a un mes',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'vista_informacion_rapida',
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1', 'COMERCIAL_3'],
+    subseccion: { COMERCIAL_1: '1 Garante con Bien Inmueble', COMERCIAL_3: 'Postulante con inmueble propio' },
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-t1-fam-ci', nombre: 'Fotocopia de CI',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1'],
+    subseccion: '1 Garante Familiar (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-t1-fam-croquis', nombre: 'Croquis domicilio',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1'],
+    subseccion: '1 Garante Familiar (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
 
   /* ── Tipo 2 · garante que demuestre ingresos + dos garantes familiares ── */
-  { codigo: 'garante-t2-ci', nombre: 'Fotocopia de CI', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-t2-croquis', nombre: 'Croquis de domicilio', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-croquis-negocio', nombre: 'Croquis del negocio / fuente laboral', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-boletas', nombre: '3 últimas boletas de pago (dependiente)', seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'vista_informacion_rapida', funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-form-200-400', nombre: 'Formulario 200 - 400 de las tres últimas declaraciones juradas (independiente)', seccion: 'garantia', grupo: 'garantia', obligatorio: false, noAplica: true, columna: 'vista_informacion_rapida', funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-fam1-ci', nombre: 'Fotocopia de CI - Garante familiar 1', descripcion: 'Garante familiar hasta 4° grado de consanguinidad.', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-fam1-croquis', nombre: 'Croquis de domicilio - Garante familiar 1', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-fam2-ci', nombre: 'Fotocopia de CI - Garante familiar 2', descripcion: 'Garante familiar hasta 4° grado de consanguinidad.', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
-  { codigo: 'garante-fam2-croquis', nombre: 'Croquis de domicilio - Garante familiar 2', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'] },
+  {
+    codigo: 'garante-t2-ci', nombre: 'Fotocopia de CI',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '1 Garante que demuestre ingresos',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-t2-croquis', nombre: 'Croquis domicilio',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '1 Garante que demuestre ingresos',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-croquis-negocio', nombre: 'Croquis del negocio / Fuente laboral',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '1 Garante que demuestre ingresos',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-boletas', nombre: '3 últimas boletas de pago (Dependiente)',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'vista_informacion_rapida',
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '1 Garante que demuestre ingresos',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-form-200-400', nombre: 'Formulario 200-400 de las tres últimas declaraciones juradas (Independiente)',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: false, noAplica: true, columna: 'vista_informacion_rapida',
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '1 Garante que demuestre ingresos',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-fam1-ci', nombre: 'Fotocopia de CI · Garante familiar 1',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '2 Garantes Familiares (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-fam1-croquis', nombre: 'Croquis domicilio · Garante familiar 1',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '2 Garantes Familiares (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-fam2-ci', nombre: 'Fotocopia de CI · Garante familiar 2',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '2 Garantes Familiares (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-fam2-croquis', nombre: 'Croquis domicilio · Garante familiar 2',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_2'],
+    subseccion: '2 Garantes Familiares (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
 
   /* ── Tipo 3 · postulante con inmueble propio + garante familiar ──
-   * Reutiliza `garante-inmueble` y `garante-folio` (declarados arriba, que también
-   * aplican a COMERCIAL_3); aquí van sus documentos exclusivos. */
-  { codigo: 'garante-t3-ci', nombre: 'Fotocopia de CI', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_3'] },
-  { codigo: 'garante-t3-fam-ci', nombre: 'Fotocopia de CI - Garante familiar', descripcion: 'Garante familiar hasta 4° grado de consanguinidad.', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_3'] },
-  { codigo: 'garante-t3-fam-croquis', nombre: 'Croquis de domicilio - Garante familiar', seccion: 'garantia', grupo: 'garantia', obligatorio: true, funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_3'] },
+   * Reutiliza `garante-inmueble` y `garante-folio` (declarados arriba); aquí van
+   * sus documentos exclusivos. */
+  {
+    codigo: 'garante-t3-ci', nombre: 'Fotocopia de CI',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_3'],
+    subseccion: 'Postulante con inmueble propio',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-t3-fam-ci', nombre: 'Fotocopia de CI',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_3'],
+    subseccion: '1 Garante Familiar (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
+  {
+    codigo: 'garante-t3-fam-croquis', nombre: 'Croquis domicilio',
+    seccion: 'garantia', grupo: 'garantia', obligatorio: true,
+    funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_3'],
+    subseccion: '1 Garante Familiar (hasta 4to grado de consanguinidad)',
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
+  },
 
   /* ── Cumplimiento y UIF ─────────────────────────────────────────────────────
    * AUDITORÍA exige SOLO la declaración de impedimento; CUMPLIMIENTO exige la
-   * acreditación LGI/FT y el examen de la UIF. Antes `lgi-ft` aplicaba a las dos
-   * ramas y mezclaba requisitos: ahora cada rama ve únicamente lo suyo. */
-  { codigo: 'impedimento-auditor', nombre: 'Declaración de impedimento para ser auditor interno', seccion: 'cumplimiento', grupo: 'cumplimiento', obligatorio: true, funcionario: ['AUDITORIA'], revision: true },
-  { codigo: 'lgi-ft', nombre: 'Conocimientos acreditados en temas de prevención, detección, control y reporte de LGI/FT', descripcion: 'Prevención, detección, control y reporte.', seccion: 'cumplimiento', grupo: 'cumplimiento', obligatorio: true, columna: 'conozca_funcionario', funcionario: ['CUMPLIMIENTO'], revision: true },
-  { codigo: 'examen-uif', nombre: 'Presentar el examen presencial de la UIF', seccion: 'cumplimiento', grupo: 'cumplimiento', obligatorio: true, prorroga: true, funcionario: ['CUMPLIMIENTO'], revision: true, aprobacion: true }
+   * declaración de prohibiciones, la acreditación LGI/FT y el examen de la UIF.
+   * Los cuatro son documentos FÍSICOS con contador de hojas: se archivan en el
+   * legajo en papel. */
+  {
+    codigo: 'impedimento-auditor', nombre: 'Declaración de impedimento para ser Auditor Interno.',
+    seccion: 'cumplimiento', grupo: 'cumplimiento', obligatorio: true,
+    funcionario: ['AUDITORIA'], revision: true,
+    subseccion: 'Requisito propio de Auditoría',
+    presentacionFisica: 'SI', presentacionDigital: 'NO', requiereConteoHojas: true
+  },
+  {
+    codigo: 'djj-prohibiciones-cumplimiento',
+    nombre: 'Declaración Jurada de prohibiciones para personal de la Unidad de Cumplimiento',
+    seccion: 'cumplimiento', grupo: 'cumplimiento', obligatorio: true,
+    funcionario: ['CUMPLIMIENTO'], revision: true,
+    subseccion: 'Requisitos propios de Cumplimiento',
+    presentacionFisica: 'SI', presentacionDigital: 'NO', requiereConteoHojas: true
+  },
+  {
+    codigo: 'lgi-ft',
+    nombre: 'Conocimientos acreditados en temas de prevención, detección, control y reporte de LGI/FT',
+    seccion: 'cumplimiento', grupo: 'cumplimiento', obligatorio: true, columna: 'conozca_funcionario',
+    funcionario: ['CUMPLIMIENTO'], revision: true,
+    subseccion: 'Requisitos propios de Cumplimiento',
+    presentacionFisica: 'SI', presentacionDigital: 'NO', requiereConteoHojas: true
+  },
+  {
+    codigo: 'examen-uif',
+    nombre: 'Examen presencial de la UIF, el cual se realizará dentro de los tres meses de haber sido contratado',
+    seccion: 'cumplimiento', grupo: 'cumplimiento', obligatorio: true, prorroga: true,
+    funcionario: ['CUMPLIMIENTO'], revision: true, aprobacion: true,
+    subseccion: 'Requisitos propios de Cumplimiento',
+    observacion: 'El plazo son tres meses desde la contratación: se registra como prórroga con su cuenta regresiva.',
+    presentacionFisica: 'SI', presentacionDigital: 'NO', requiereConteoHojas: true
+  }
 ];
 
-/** Versión del catálogo. Se sella en cada requisito para poder auditar cambios. */
-var DOC2_CATALOGO_VERSION = 2;
+/**
+ * Versión del catálogo. Se sella en cada requisito para poder auditar cambios.
+ *
+ * Subirla es lo que dispara el refresco de los metadatos estructurales en
+ * `doc2SeedCatalogo_` (sección, aplicabilidad, presentación, subsección) sin
+ * pisar lo que el área haya editado a mano.
+ */
+var DOC2_CATALOGO_VERSION = 3;
+
+/**
+ * Códigos generales retirados de la lista vigente.
+ *
+ * Se deriva de la semilla para no repetir la lista en dos sitios. Lo consultan
+ * la interfaz (para marcar el requisito como heredado) y el diagnóstico.
+ */
+function doc2CodigosRetirados_() {
+  var out = [];
+  for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) {
+    if (DOC2_CATALOGO_SEMILLA[i].retirado === true) out.push(DOC2_CATALOGO_SEMILLA[i].codigo);
+  }
+  return out;
+}
+
+/** Definición de la semilla por su código, o `null`. Solo lectura. */
+function doc2SemillaPorCodigo_(codigo) {
+  for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) {
+    if (DOC2_CATALOGO_SEMILLA[i].codigo === String(codigo)) return DOC2_CATALOGO_SEMILLA[i];
+  }
+  return null;
+}
+
+/** Códigos de la semilla que llevan contador de hojas físicas. */
+function doc2ConConteoDeHojasEnSemilla_() {
+  var out = [];
+  for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) {
+    if (DOC2_CATALOGO_SEMILLA[i].requiereConteoHojas === true) out.push(DOC2_CATALOGO_SEMILLA[i].codigo);
+  }
+  return out;
+}
+
+/**
+ * Subsección de un requisito para una rama concreta.
+ *
+ * Acepta las dos formas en que puede venir declarada —texto único o mapa por
+ * tipo de garantía— y devuelve cadena vacía cuando el requisito no pertenece a
+ * ninguna. Es la función que usan el asistente, la vista del expediente, los
+ * reportes y las exportaciones: si cada uno lo resolviera a su manera, el mismo
+ * documento acabaría bajo dos títulos distintos.
+ */
+function doc2ResolverSubseccion_(valor, tipoGarantia) {
+  if (!valor) return '';
+  if (typeof valor === 'string') {
+    var texto = String(valor).trim();
+    if (!texto) return '';
+    if (texto.charAt(0) !== '{') return texto;
+    var mapa = docParseJson_(texto, null);
+    if (!mapa) return texto;
+    return doc2ResolverSubseccion_(mapa, tipoGarantia);
+  }
+  var clave = docKey_(tipoGarantia || '').replace(/[ \-]/g, '_');
+  if (clave && valor[clave]) return String(valor[clave]);
+  if (valor['*']) return String(valor['*']);
+  // Sin rama que resolver, se devuelve la primera declarada: es mejor un título
+  // aproximado que ninguno cuando alguien lista el catálogo entero.
+  for (var k in valor) {
+    if (Object.prototype.hasOwnProperty.call(valor, k)) return String(valor[k]);
+  }
+  return '';
+}
+
+/** Serializa la subsección para guardarla en la hoja: texto o JSON compacto. */
+function doc2SerializarSubseccion_(valor) {
+  if (!valor) return '';
+  if (typeof valor === 'string') return valor;
+  return docWriteJson_(valor);
+}
 
 /* ========================================================================== */
 /* Motivos de revisión                                                         */
@@ -650,6 +1005,16 @@ var DOC2_LIMITS = {
   MAX_TEXTO_LARGO: 8000,
   MAX_COMENTARIO: 4000,
   MAX_SELECCION_MASIVA: 500,
+  /**
+   * Tope del contador de hojas de un documento físico.
+   *
+   * No es una restricción de negocio: es un cortafuegos contra el dedo pegado en
+   * el teclado. Un legajo de mil hojas no existe, y un `999999` guardado
+   * distorsiona el total de hojas del libro anual sin que nadie lo note.
+   */
+  MAX_HOJAS_FISICAS: 999,
+  /** Tope de expedientes por lectura múltiple: seis minutos de Apps Script manda. */
+  MAX_DETALLE_MULTIPLE: 12,
   CACHE_PANEL_SEG: 120,
   CACHE_CATALOGO_SEG: 600,
   CACHE_AUXILIAR_SEG: 600
@@ -729,7 +1094,8 @@ doc2Registrar_(DOC2_SHEET.EXPEDIENTE_DOCS,
   'expediente_documento_id',
   [
     'expediente_documento_id:k', 'expediente_id:t', 'codigo_documento:t', 'version_catalogo:i',
-    'seccion:t', 'grupo:t', 'orden:i', 'estado_documental:t', 'observaciones:l',
+    'seccion:t', 'subseccion:t', 'grupo:t', 'orden:i', 'estado_documental:t', 'observaciones:l',
+    'hojas_fisicas:i',
     'obligatorio:b', 'permite_no_aplica:b', 'permite_prorroga:b',
     'tipo_funcionario:t', 'tipo_garantia:t', 'estado_revision:t',
     'revision_actual_id:t', 'aprobacion_actual_id:t', 'version_registro:i',
@@ -751,8 +1117,9 @@ doc2Registrar_(DOC2_SHEET.CATALOGO,
   'codigo_documento',
   [
     'codigo_documento:k', 'nombre_visible:t', 'descripcion:l', 'texto_observacion:l',
-    'seccion:t', 'grupo:t', 'orden:i', 'obligatorio:b', 'estados_permitidos:t',
+    'seccion:t', 'subseccion:l', 'grupo:t', 'orden:i', 'obligatorio:b', 'estados_permitidos:t',
     'permite_no_aplica:b', 'permite_prorroga:b', 'tipo_funcionario:t', 'tipo_garantia:t',
+    'presentacion_fisica:t', 'presentacion_digital:t', 'requiere_conteo_hojas:b',
     'nivel_confidencialidad:t', 'requiere_revision:b', 'requiere_aprobacion:b',
     'activo:b', 'version_catalogo:i', 'fecha_inicio_vigencia:d', 'fecha_fin_vigencia:d',
     'columna_libro:t'
@@ -1093,6 +1460,9 @@ function doc2Vocabulario_() {
     tiposFuncionario: DOC2_TIPO_FUNCIONARIO,
     tiposGarantia: DOC2_TIPO_GARANTIA,
     secciones: DOC2_SECCIONES,
+    presentaciones: DOC2_PRESENTACION,
+    codigosRetirados: doc2CodigosRetirados_(),
+    maxHojasFisicas: DOC2_LIMITS.MAX_HOJAS_FISICAS,
     motivosRevision: DOC2_MOTIVOS_REVISION,
     automatizaciones: DOC2_AUTOMATIZACIONES,
     capacidades: DOC2_CAPACIDAD,

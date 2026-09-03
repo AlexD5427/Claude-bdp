@@ -42,9 +42,17 @@ import {
   TRANSICIONES_DOCUMENTO,
   type EstadoDocumento,
 } from "../domain/vocabulario";
-import { agruparRequisitos, fechaCorta, fechaHora, type RequisitoVista } from "../domain/progreso";
+import {
+  agruparPorSubseccion,
+  agruparRequisitos,
+  fechaCorta,
+  fechaHora,
+  totalHojasFisicas,
+  type RequisitoVista,
+} from "../domain/progreso";
 import { categoriaDe, estiloCategoria } from "../domain/categorias";
 import { diasDesdeHoy, fechaLegible } from "./CampoFecha";
+import { ContadorHojas, LeyendaCondicional, SelloPresentacion } from "./ContadorHojas";
 import { AreaTexto, BarraAvance, Boton, Campo, ChipEstado, TONO } from "./piezas";
 import { CURVA, DURACION, useMovimientoReducido } from "./DocMotion";
 import { Cifra } from "./DocTexto";
@@ -54,14 +62,20 @@ import { hace } from "./DocSyncIndicator";
 /* Filtros                                                             */
 /* ------------------------------------------------------------------ */
 
-type FiltroId = "todos" | "faltan" | "observados" | "prorroga" | "entregados";
+type FiltroId = "todos" | "faltan" | "observados" | "prorroga" | "entregados" | "sinContar";
 
-const FILTROS: { id: FiltroId; etiqueta: string; intencion: keyof typeof TONO }[] = [
+const FILTROS: { id: FiltroId; etiqueta: string; intencion: keyof typeof TONO; titulo?: string }[] = [
   { id: "todos", etiqueta: "Todos", intencion: "neutral" },
   { id: "faltan", etiqueta: "Por conseguir", intencion: "aviso" },
   { id: "observados", etiqueta: "Observados", intencion: "peligro" },
   { id: "prorroga", etiqueta: "En prórroga", intencion: "acento" },
   { id: "entregados", etiqueta: "Entregados", intencion: "exito" },
+  {
+    id: "sinContar",
+    etiqueta: "Hojas sin contar",
+    intencion: "info",
+    titulo: "Documentos físicos entregados a los que todavía no se les anotó el número de hojas",
+  },
 ];
 
 /** Estados en el orden que pidió el área: entregado, pendiente, no entregado. */
@@ -82,6 +96,18 @@ function normalizar(texto: string): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+/** Cambios sin enviar de un requisito. Los mantiene la ventana del expediente. */
+export interface BorradorRequisito {
+  estado?: EstadoDocumento;
+  observaciones?: string;
+  hojasFisicas?: number;
+}
+
+/** ¿Es un documento físico entregado al que le falta el conteo de hojas? */
+function faltaContar(r: RequisitoVista, hojas: number, estado: EstadoDocumento): boolean {
+  return r.requiereConteoHojas && estado !== "NO_APLICA" && hojas <= 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* Vista                                                               */
 /* ------------------------------------------------------------------ */
@@ -98,12 +124,12 @@ export function RequisitosExpediente({
   onProrrogar,
 }: {
   datos: ExpedienteOperativo;
-  borrador: Record<string, { estado?: EstadoDocumento; observaciones?: string }>;
+  borrador: Record<string, BorradorRequisito>;
   foco: string | null;
   puedeEditar: boolean;
   puedeRevisar: boolean;
   onFoco: (id: string | null) => void;
-  onBorrador: (id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) => void;
+  onBorrador: (id: string, patch: BorradorRequisito) => void;
   onRevisar: (requisito: RequisitoVista) => void;
   onProrrogar: (requisito: RequisitoVista) => void;
 }) {
@@ -116,6 +142,7 @@ export function RequisitosExpediente({
   const categoria = categoriaDe(datos.expediente.tipoFuncionario);
 
   const estadoDe = (r: RequisitoVista): EstadoDocumento => borrador[r.expedienteDocumentoId]?.estado ?? r.estado;
+  const hojasDe = (r: RequisitoVista): number => borrador[r.expedienteDocumentoId]?.hojasFisicas ?? r.hojasFisicas ?? 0;
 
   /* Recuentos del encabezado: se calculan sobre el estado EFECTIVO (con los
      cambios sin guardar aplicados), porque si no, marcar un documento no movería
@@ -129,6 +156,7 @@ export function RequisitosExpediente({
       observados: activos.filter(esObservado).length,
       prorroga: activos.filter((r) => Boolean(prorrogaVigente(r))).length,
       entregados: conEstado.filter(({ estado }) => estado === "ENTREGADO").length,
+      sinContar: conEstado.filter(({ r, estado }) => faltaContar(r, hojasDe(r), estado)).length,
     } as Record<FiltroId, number>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datos.requisitos, borrador]);
@@ -149,6 +177,8 @@ export function RequisitosExpediente({
         return Boolean(prorrogaVigente(r));
       case "entregados":
         return estado === "ENTREGADO";
+      case "sinContar":
+        return faltaContar(r, hojasDe(r), estado);
       default:
         return true;
     }
@@ -261,49 +291,78 @@ export function RequisitosExpediente({
           </div>
         </div>
       ) : (
-        gruposVisibles.map((grupo) => (
-          <section key={grupo.seccion} className="doc-raised doc-print-keep overflow-hidden rounded-[var(--doc-radius,14px)]">
-            <header
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-[color:var(--doc-border)] px-3 py-2.5"
-              style={{ background: grupo.seccion === "generales" ? "transparent" : "var(--cat-tinte)" }}
-            >
-              <div className="min-w-0">
-                <h4 className="doc-balance text-sm font-semibold text-[color:var(--doc-text)]">{grupo.etiqueta}</h4>
-                <p className="text-[11px] text-[color:var(--doc-text-muted)]">
-                  {grupo.resueltos} de {grupo.total} resueltos
-                  {grupo.visibles.length !== grupo.total ? ` · ${grupo.visibles.length} en pantalla` : ""}
-                  {grupo.seccion !== "generales" ? ` · ${categoria.etiquetaCorta}` : ""}
-                </p>
-              </div>
-              <div className="w-28 shrink-0">
-                <BarraAvance valor={grupo.porcentaje} etiqueta={`Avance de ${grupo.etiqueta}`} />
-              </div>
-            </header>
+        gruposVisibles.map((grupo) => {
+          /* Las ramas de garantía se leen por bloques con título: son personas
+             distintas y mezclar sus documentos en una lista plana es la causa de
+             que alguien adjunte el croquis del garante 1 en el hueco del 2. La
+             subsección la declara el catálogo, POR RAMA, y llega en cada
+             requisito ya resuelta. */
+          const bloques = agruparPorSubseccion(grupo.visibles);
+          const hojasGrupo = totalHojasFisicas(grupo.visibles);
+          const hayCondicional = grupo.visibles.some((r) => r.presentacionFisica === "CONDICIONAL");
+          return (
+            <section key={grupo.seccion} className="doc-raised doc-print-keep overflow-hidden rounded-[var(--doc-radius,16px)]">
+              <header
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-[color:var(--doc-border)] px-3.5 py-3"
+                style={{ background: grupo.seccion === "generales" ? "transparent" : "var(--cat-tinte)" }}
+              >
+                <div className="min-w-0">
+                  <h4 className="doc-balance text-[14px] font-bold tracking-tight text-[color:var(--doc-text)]">
+                    {grupo.etiqueta}
+                  </h4>
+                  <p className="doc-metric text-[11px] text-[color:var(--doc-text-muted)]">
+                    {grupo.resueltos} de {grupo.total} resueltos
+                    {grupo.visibles.length !== grupo.total ? ` · ${grupo.visibles.length} en pantalla` : ""}
+                    {grupo.seccion !== "generales" ? ` · ${categoria.etiquetaCorta}` : ""}
+                    {hojasGrupo > 0 ? ` · ${hojasGrupo} hoja${hojasGrupo === 1 ? "" : "s"} físicas` : ""}
+                  </p>
+                </div>
+                <div className="w-28 shrink-0">
+                  <BarraAvance valor={grupo.porcentaje} etiqueta={`Avance de ${grupo.etiqueta}`} />
+                </div>
+              </header>
 
-            <ul className="doc-list-long divide-y divide-[color:var(--doc-border)]">
-              <AnimatePresence initial={false}>
-                {grupo.visibles.map((requisito, i) => (
-                  <FilaRequisito
-                    key={requisito.expedienteDocumentoId}
-                    requisito={requisito}
-                    estado={estadoDe(requisito)}
-                    sucio={Boolean(borrador[requisito.expedienteDocumentoId])}
-                    observacionBorrador={borrador[requisito.expedienteDocumentoId]?.observaciones}
-                    enFoco={foco === requisito.expedienteDocumentoId}
-                    puedeEditar={puedeEditar}
-                    puedeRevisar={puedeRevisar}
-                    reducido={reducido}
-                    orden={i}
-                    onFoco={onFoco}
-                    onBorrador={onBorrador}
-                    onRevisar={onRevisar}
-                    onProrrogar={onProrrogar}
-                  />
-                ))}
-              </AnimatePresence>
-            </ul>
-          </section>
-        ))
+              {bloques.map((bloque) => (
+                <div key={bloque.titulo || "sin-subseccion"}>
+                  {bloque.titulo && (
+                    <h5
+                      className="flex items-center gap-2 border-b border-[color:var(--doc-border)] px-3.5 py-2 text-[12px] font-bold tracking-tight text-[color:var(--doc-text)]"
+                      style={{ background: "var(--doc-surface-sunken)" }}
+                    >
+                      <span className="h-3.5 w-1 rounded-full" style={{ background: "var(--cat-color, var(--doc-info))" }} aria-hidden />
+                      {bloque.titulo}
+                      <span className="doc-metric font-normal text-[color:var(--doc-text-faint)]">
+                        {bloque.requisitos.length}
+                      </span>
+                    </h5>
+                  )}
+                  <ul className="doc-list-long divide-y divide-[color:var(--doc-border)]">
+                    {bloque.requisitos.map((requisito, i) => (
+                        <FilaRequisito
+                          key={requisito.expedienteDocumentoId}
+                          requisito={requisito}
+                          estado={estadoDe(requisito)}
+                          hojas={hojasDe(requisito)}
+                          sucio={Boolean(borrador[requisito.expedienteDocumentoId])}
+                          observacionBorrador={borrador[requisito.expedienteDocumentoId]?.observaciones}
+                          enFoco={foco === requisito.expedienteDocumentoId}
+                          puedeEditar={puedeEditar}
+                          puedeRevisar={puedeRevisar}
+                          reducido={reducido}
+                          orden={i}
+                          onFoco={onFoco}
+                          onBorrador={onBorrador}
+                          onRevisar={onRevisar}
+                          onProrrogar={onProrrogar}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              ))}
+              {hayCondicional && <div className="px-3.5 pb-3"><LeyendaCondicional /></div>}
+            </section>
+          );
+        })
       )}
     </div>
   );
@@ -316,6 +375,7 @@ export function RequisitosExpediente({
 function FilaRequisito({
   requisito,
   estado,
+  hojas,
   sucio,
   observacionBorrador,
   enFoco,
@@ -330,6 +390,8 @@ function FilaRequisito({
 }: {
   requisito: RequisitoVista;
   estado: EstadoDocumento;
+  /** Hojas efectivas: las del borrador si hay, las guardadas si no. */
+  hojas: number;
   sucio: boolean;
   observacionBorrador?: string;
   enFoco: boolean;
@@ -338,7 +400,7 @@ function FilaRequisito({
   reducido: boolean;
   orden: number;
   onFoco: (id: string | null) => void;
-  onBorrador: (id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) => void;
+  onBorrador: (id: string, patch: BorradorRequisito) => void;
   onRevisar: (r: RequisitoVista) => void;
   onProrrogar: (r: RequisitoVista) => void;
 }) {
@@ -352,15 +414,18 @@ function FilaRequisito({
   ).sort((a, b) => ORDEN_ESTADOS.indexOf(a) - ORDEN_ESTADOS.indexOf(b));
 
   return (
-    <motion.li
-      layout={reducido ? false : "position"}
-      initial={reducido ? false : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={reducido ? undefined : { opacity: 0, height: 0, transition: { duration: DURACION.rapida } }}
-      transition={
-        reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaExpo, delay: Math.min(orden * 0.015, 0.12) }
-      }
-      className="doc-print-keep relative overflow-hidden"
+    /**
+     * Fila normal, con la entrada en CSS.
+     *
+     * Antes era un `motion.li` con `layout="position"`: veinticinco resortes y
+     * veinticinco mediciones de caja por renderizado en un expediente Tipo 2.
+     * Medido con CPU estrangulada 4x, era la mayor parte de los 864 ms que
+     * costaba abrir la ventana. La entrada escalonada se ve igual y la compone
+     * el navegador sin tocar el hilo principal.
+     */
+    <li
+      className={`doc-print-keep relative overflow-hidden ${reducido ? "" : "doc-fila-entra"}`}
+      style={reducido ? undefined : ({ "--doc-fila": orden } as React.CSSProperties)}
     >
       {/* Cinta lateral con el color del estado: da la lectura de la lista completa
           con un barrido de la vista, sin leer una sola etiqueta. */}
@@ -389,7 +454,33 @@ function FilaRequisito({
               <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">{requisito.descripcion}</p>
             )}
 
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <SelloPresentacion fisica={requisito.presentacionFisica} digital={requisito.presentacionDigital} />
+              {/* Contador de hojas: SOLO en los requisitos que el catálogo marca
+                  como físicos. Los digitales no lo llevan ni oculto. Si el
+                  documento se marca «no aplica» se deshabilita pero conserva el
+                  valor, por si se revierte la decisión. */}
+              {requisito.requiereConteoHojas && (
+                <ContadorHojas
+                  valor={hojas}
+                  onChange={(v) => {
+                    onBorrador(requisito.expedienteDocumentoId, { hojasFisicas: v });
+                    onFoco(requisito.expedienteDocumentoId);
+                  }}
+                  deshabilitado={!puedeEditar || estado === "NO_APLICA"}
+                  nombreDocumento={requisito.nombre}
+                  condicional={requisito.presentacionFisica === "CONDICIONAL"}
+                />
+              )}
+              {requisito.heredado && (
+                <span
+                  className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                  style={{ background: "var(--doc-offline-bg)", color: "var(--doc-offline-fg)" }}
+                  title="Requisito retirado del proceso. Se conserva porque este expediente ya lo tenía registrado."
+                >
+                  Heredado
+                </span>
+              )}
               {requisito.estadoRevision !== "SIN_REVISION" && (
                 <ChipEstado
                   estado={requisito.estadoRevision}
@@ -501,7 +592,7 @@ function FilaRequisito({
           )}
         </div>
       </div>
-    </motion.li>
+    </li>
   );
 }
 

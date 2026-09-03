@@ -135,9 +135,12 @@ describe("consola de Documentación · integración con el backend", () => {
     const panel = await screen.findByRole("dialog", {}, { timeout: 12000 });
     // La cabecera trae el resumen textual que genera el backend.
     await waitFor(() => expect(within(panel).getByText(/Avance 0%/)).toBeInTheDocument());
-    expect(within(panel).getByText("Documentos generales")).toBeInTheDocument();
-    expect(within(panel).getByText("Currículum Vitae actualizado")).toBeInTheDocument();
-    expect(within(panel).getByRole("tab", { name: /Requisitos\s*18/ })).toBeInTheDocument();
+    /* El cuerpo llega en la segunda pasada del pintado —ver el comentario de la
+       prueba del bloque—, así que la lista de requisitos se espera, no se asume
+       presente en el mismo fotograma que la cabecera. */
+    await waitFor(() => expect(within(panel).getByText("Documentos generales")).toBeInTheDocument(), { timeout: 12000 });
+    expect(within(panel).getByText("Curriculum Vitae actualizado.")).toBeInTheDocument();
+    expect(within(panel).getByRole("tab", { name: /Requisitos\s*16/ })).toBeInTheDocument();
   }, 20000);
 
   it("marcar un requisito no escribe hasta guardar el bloque", async () => {
@@ -151,7 +154,24 @@ describe("consola de Documentación · integración con el backend", () => {
     await userEvent.click(tabla.getByText("Bloque Guardado"));
 
     const panel = await screen.findByRole("dialog", {}, { timeout: 12000 });
-    const fila = (await within(panel).findByText("Fotografía digital 4x4")).closest("li")!;
+    /* La cabecera del expediente también nombra el siguiente pendiente, así que
+       hay que quedarse con la aparición que está DENTRO de la lista de
+       requisitos (un `<li>`).
+
+       Y hay que ESPERARLA, no tomar la primera que aparezca: con la caché de
+       expedientes en juego la ventana se pinta en dos tiempos —cabecera primero,
+       lista después—, así que durante unos milisegundos la única aparición del
+       nombre del documento es la de la cabecera. Antes de la caché el pintado era
+       de una sola pasada y la diferencia no existía. */
+    const fila = await waitFor(
+      () => {
+        const apariciones = within(panel).queryAllByText(/^1 Fotografía en formato digital 4X4/);
+        const li = apariciones.map((n) => n.closest("li")).find((n): n is HTMLLIElement => Boolean(n));
+        expect(li).toBeTruthy();
+        return li!;
+      },
+      { timeout: 12000 },
+    );
     await userEvent.click(within(fila).getByRole("button", { name: "Entregado" }));
 
     // Aviso de cambios sin guardar y, sobre todo, NADA escrito todavía.

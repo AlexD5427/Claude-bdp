@@ -28,10 +28,14 @@ export interface DocInforme {
   codigo: string;
   nombre: string;
   seccion: string;
+  /** Bloque dentro de la sección: «Garante 1 · Inmueble», por ejemplo. */
+  subseccion: string;
   estado: string;
   estadoEtiqueta: string;
   observaciones: string;
   prorroga: string;
+  /** Hojas contadas. `null` cuando el documento no lleva conteo. */
+  hojasFisicas: number | null;
 }
 
 export interface PersonaInforme {
@@ -49,6 +53,10 @@ export interface PersonaInforme {
   noEntregados: number;
   noAplica: number;
   observados: number;
+  /** Suma de las hojas contadas en los documentos que llevan conteo. */
+  hojasFisicas: number;
+  /** Documentos que llevan conteo y todavía están en cero. */
+  hojasSinContar: number;
   documentos: DocInforme[];
 }
 
@@ -115,10 +123,15 @@ export function construirInforme(expedientes: ExpedienteOperativo[], mes: string
           codigo: r.codigo,
           nombre: r.nombre,
           seccion: SECCION_ETIQUETA[r.seccion] ?? r.seccion,
+          subseccion: r.subseccion ?? "",
           estado: r.estado,
           estadoEtiqueta: etiquetaDocumento(r.estado),
           observaciones: r.observaciones ?? "",
           prorroga: prorrogaVigente ? `${prorrogaVigente.fechaProrroga} (${prorrogaVigente.situacion})` : "",
+          /* `null` y no `0` cuando el documento no lleva conteo. Un cero se lee
+             como «cero hojas», que es una afirmación; `null` es «esta columna no
+             le aplica», que es la verdad. */
+          hojasFisicas: r.requiereConteoHojas ? (r.hojasFisicas ?? 0) : null,
         };
       });
 
@@ -137,6 +150,11 @@ export function construirInforme(expedientes: ExpedienteOperativo[], mes: string
       noEntregados: cab.totales.noEntregados,
       noAplica: cab.totales.noAplica,
       observados: cab.totales.observados,
+      hojasFisicas: documentos.reduce((n, d) => n + (d.hojasFisicas ?? 0), 0),
+      /* Solo cuentan los que YA se entregaron: un documento pendiente sin hojas
+         contadas no es una omisión del conteo, es un documento que no ha
+         llegado. Mezclarlos convertiría el aviso en ruido permanente. */
+      hojasSinContar: documentos.filter((d) => d.hojasFisicas === 0 && d.estado === "ENTREGADO").length,
       documentos,
     };
 
@@ -189,19 +207,28 @@ export function informeALibro(informe: InformeMensual): Libro {
     ["Personas del mes", informe.totalPersonas],
     ["Avance promedio", `${informe.avancePromedio}%`],
     [],
-    ["Categoría", "Personas", "Avance promedio"],
-    ...informe.categorias.map((c) => [c.etiqueta, c.personas.length, `${c.avancePromedio}%`] as Celda[]),
+    ["Categoría", "Personas", "Avance promedio", "Hojas físicas", "Entregados sin contar hojas"],
+    ...informe.categorias.map(
+      (c) =>
+        [
+          c.etiqueta,
+          c.personas.length,
+          `${c.avancePromedio}%`,
+          c.personas.reduce((n, p) => n + p.hojasFisicas, 0),
+          c.personas.reduce((n, p) => n + p.hojasSinContar, 0),
+        ] as Celda[],
+    ),
   ];
 
   const detalle: Celda[][] = [
-    ["Categoría", "Identificador", "Nombre", "Cargo", "Agencia", "Gerencia", "Fecha ingreso", "Sección", "Documento", "Estado", "Observación", "Prórroga"],
+    ["Categoría", "Identificador", "Nombre", "Cargo", "Agencia", "Gerencia", "Fecha ingreso", "Sección", "Subsección", "Documento", "Estado", "Hojas físicas", "Observación", "Prórroga"],
   ];
   const observaciones: Celda[][] = [["Categoría", "Nombre", "Documento", "Estado", "Observación"]];
 
   for (const cat of informe.categorias) {
     for (const p of cat.personas) {
       for (const d of p.documentos) {
-        detalle.push([cat.etiqueta, p.identificador, p.nombre, p.cargo, p.agencia, p.gerencia, p.fechaIngreso, d.seccion, d.nombre, d.estadoEtiqueta, d.observaciones, d.prorroga]);
+        detalle.push([cat.etiqueta, p.identificador, p.nombre, p.cargo, p.agencia, p.gerencia, p.fechaIngreso, d.seccion, d.subseccion, d.nombre, d.estadoEtiqueta, d.hojasFisicas ?? "", d.observaciones, d.prorroga]);
         if (d.observaciones.trim()) observaciones.push([cat.etiqueta, p.nombre, d.nombre, d.estadoEtiqueta, d.observaciones]);
       }
     }
@@ -242,9 +269,20 @@ export function informeAHtml(informe: InformeMensual): string {
             .map(
               (d) => `
         <tr>
-          <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px">${esc(d.seccion)}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px">${esc(d.subseccion || d.seccion)}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px">${esc(d.nombre)}</td>
           <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center">${chipEstadoHtml(d.estado, d.estadoEtiqueta)}</td>
+          <td style="padding:4px 8px;border-bottom:1px solid #eee;text-align:center;font-size:12px">${
+            /* Guion cuando el documento no lleva conteo y «—» resaltado cuando lo
+               lleva y todavía está en cero: en el informe que se imprime, la
+               diferencia entre «no aplica» y «falta contar» es la que decide si
+               alguien tiene que ir al archivador. */
+            d.hojasFisicas === null
+              ? "<span style=\"color:#cbd5e1\">·</span>"
+              : d.hojasFisicas > 0
+                ? String(d.hojasFisicas)
+                : '<span style="color:#b45309;font-weight:600">sin contar</span>'
+          }</td>
           <td style="padding:4px 8px;border-bottom:1px solid #eee;font-size:12px;color:#475569">${esc(d.observaciones || "—")}</td>
         </tr>`,
             )
@@ -259,12 +297,14 @@ export function informeAHtml(informe: InformeMensual): string {
           <div style="font-size:12px;color:#334155">${p.porcentaje}% · ${esc(p.agencia || "Sin agencia")}</div>
         </div>
         <div style="font-size:11px;color:#64748b;margin:3px 0">
-          Ingreso: ${esc(p.fechaIngreso || "—")} · Entregados ${p.entregados} · Pendientes ${p.pendientes} · No entregados ${p.noEntregados} · Observados ${p.observados}
+          Ingreso: ${esc(p.fechaIngreso || "—")} · Entregados ${p.entregados} · Pendientes ${p.pendientes} · No entregados ${p.noEntregados} · Observados ${p.observados} · ${p.hojasFisicas} hoja(s) física(s)${
+            p.hojasSinContar ? ` · <strong style="color:#b45309">${p.hojasSinContar} entregado(s) sin contar hojas</strong>` : ""
+          }
         </div>
         <table style="width:100%;border-collapse:collapse;margin-top:4px">
           <thead>
             <tr style="text-align:left;color:#94a3b8;font-size:10px;text-transform:uppercase">
-              <th style="padding:4px 8px">Sección</th><th style="padding:4px 8px">Documento</th><th style="padding:4px 8px;text-align:center">Estado</th><th style="padding:4px 8px">Observación</th>
+              <th style="padding:4px 8px">Sección</th><th style="padding:4px 8px">Documento</th><th style="padding:4px 8px;text-align:center">Estado</th><th style="padding:4px 8px;text-align:center">Hojas</th><th style="padding:4px 8px">Observación</th>
             </tr>
           </thead>
           <tbody>${filas}</tbody>
