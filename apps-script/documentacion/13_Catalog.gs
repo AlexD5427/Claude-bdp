@@ -50,10 +50,17 @@ function doc2SeedCatalogo_(contexto) {
 
     var fila = {
       codigo_documento: def.codigo,
-      nombre_visible: doc2Texto_((legado && legado.etiqueta) || def.nombre, 300),
+      // El nombre visible del área llega a 250+ caracteres («Fotografía en
+      // formato digital 4X4 fondo blanco…»): se guarda como texto largo, no
+      // recortado a 300, porque recortarlo cambiaría el requisito.
+      nombre_visible: doc2TextoLargo_((legado && legado.etiqueta) || def.nombre, DOC2_LIMITS.MAX_TEXTO_MEDIO),
       descripcion: doc2TextoLargo_(def.descripcion || '', DOC2_LIMITS.MAX_TEXTO_MEDIO),
       texto_observacion: doc2TextoLargo_(def.observacion || '', DOC2_LIMITS.MAX_TEXTO_MEDIO),
       seccion: def.seccion,
+      subseccion: doc2SubseccionTexto_(def.subseccion),
+      presentacion_fisica: doc2Enum_(def.fisica || 'NO', ['SI', 'NO', 'CONDICIONAL'], 'NO'),
+      presentacion_digital: doc2Enum_(def.digital || 'SI', ['SI', 'NO'], 'SI'),
+      requiere_conteo_hojas: def.hojas === true,
       grupo: def.grupo,
       orden: legado && legado.orden ? docInt_(legado.orden, (i + 1) * 10) : (i + 1) * 10,
       obligatorio: legado && legado.obligatorio !== null && legado.obligatorio !== undefined
@@ -69,9 +76,15 @@ function doc2SeedCatalogo_(contexto) {
       nivel_confidencialidad: def.confidencial || 'INTERNO',
       requiere_revision: def.revision === true,
       requiere_aprobacion: def.aprobacion === true,
-      activo: legado && legado.activo === false ? false : true,
+      // Un requisito RETIRADO por el área entra desactivado, sin importar lo que
+      // dijera el catálogo heredado: la lista vigente la manda el proceso, no la
+      // hoja antigua.
+      activo: def.activo === false ? false : (legado && legado.activo === false ? false : true),
       version_catalogo: DOC2_CATALOGO_VERSION,
       fecha_inicio_vigencia: '',
+      // Un requisito retirado se descarta por `activo`, no por fecha: una fecha
+      // de fin calculada con el reloj haría que la semilla diera un resultado
+      // distinto cada día y que reinstalar dejara de ser comparable.
       fecha_fin_vigencia: '',
       columna_libro: def.columna || ''
     };
@@ -82,14 +95,28 @@ function doc2SeedCatalogo_(contexto) {
     } else if (docInt_(existente.version_catalogo, 0) < DOC2_CATALOGO_VERSION) {
       // Actualización de versión de catálogo: se refrescan los metadatos
       // estructurales (sección, aplicabilidad, orden) y se conserva lo editable.
+      // Al subir de versión se refrescan los metadatos ESTRUCTURALES —sección,
+      // subsección, aplicabilidad, presentación, conteo de hojas y actividad— y
+      // se conserva lo que el área puede haber editado (orden, obligatoriedad,
+      // prórroga). El nombre visible sí se refresca cuando el área reescribió el
+      // requisito: es el caso de los 16 generales de esta versión, cuya redacción
+      // literal es parte de la especificación.
       doc2Update_(DOC2_SHEET.CATALOGO, def.codigo, {
+        nombre_visible: fila.nombre_visible,
+        descripcion: fila.descripcion,
+        texto_observacion: fila.texto_observacion,
         seccion: fila.seccion,
+        subseccion: fila.subseccion,
+        presentacion_fisica: fila.presentacion_fisica,
+        presentacion_digital: fila.presentacion_digital,
+        requiere_conteo_hojas: fila.requiere_conteo_hojas,
         grupo: fila.grupo,
         tipo_funcionario: fila.tipo_funcionario,
         tipo_garantia: fila.tipo_garantia,
         estados_permitidos: fila.estados_permitidos,
         requiere_revision: fila.requiere_revision,
         requiere_aprobacion: fila.requiere_aprobacion,
+        activo: fila.activo,
         version_catalogo: DOC2_CATALOGO_VERSION
       }, ctx);
       actualizados++;
@@ -411,16 +438,26 @@ function doc2MapaAplicabilidad_() {
       if (!tipo.activo) {
         salida.push({
           tipoFuncionario: tipo.codigo, etiqueta: tipo.etiqueta, tipoGarantia: garantias[g],
-          habilitada: false, total: 0, obligatorios: 0, codigos: [], nota: tipo.descripcion
+          habilitada: false, total: 0, obligatorios: 0, conConteoHojas: 0,
+          codigos: [], subsecciones: {}, nota: tipo.descripcion
         });
         continue;
       }
       var aplicables = doc2Aplicables_({ tipoFuncionario: tipo.codigo, tipoGarantia: garantias[g] });
       var codigos = [];
       var obligatorios = 0;
+      var conHojas = 0;
+      // La subsección ya RESUELTA para esta rama: es lo que el asistente y la
+      // vista del expediente necesitan para agrupar sin volver a razonar sobre el
+      // mapa. Resolverla aquí, una sola vez, es lo que evita que el asistente y
+      // el visor lleguen a conclusiones distintas sobre el mismo documento.
+      var subsecciones = {};
       for (var i = 0; i < aplicables.length; i++) {
         codigos.push(aplicables[i].codigo_documento);
         if (aplicables[i].obligatorio === true) obligatorios++;
+        if (aplicables[i].requiere_conteo_hojas === true) conHojas++;
+        var sub = doc2SubseccionDe_(aplicables[i].subseccion, garantias[g]);
+        if (sub) subsecciones[String(aplicables[i].codigo_documento)] = sub;
       }
       salida.push({
         tipoFuncionario: tipo.codigo,
@@ -429,7 +466,9 @@ function doc2MapaAplicabilidad_() {
         habilitada: true,
         total: aplicables.length,
         obligatorios: obligatorios,
+        conConteoHojas: conHojas,
         codigos: codigos,
+        subsecciones: subsecciones,
         nota: ''
       });
     }
@@ -461,6 +500,13 @@ function doc2CatalogoParaCliente_() {
       descripcion: c.descripcion || '',
       textoObservacion: c.texto_observacion || '',
       seccion: c.seccion,
+      // La subsección viaja SIN resolver: el asistente la resuelve con la rama
+      // que la persona está eligiendo en ese momento, que puede no ser la del
+      // expediente todavía.
+      subseccion: doc2SubseccionMapa_(c.subseccion),
+      presentacionFisica: c.presentacion_fisica || 'NO',
+      presentacionDigital: c.presentacion_digital || 'SI',
+      requiereConteoHojas: c.requiere_conteo_hojas === true,
       grupo: c.grupo,
       orden: docInt_(c.orden, 0),
       obligatorio: c.obligatorio === true,
@@ -478,6 +524,7 @@ function doc2CatalogoParaCliente_() {
       vigenciaHasta: c.fecha_fin_vigencia || '',
       columnaLibro: c.columna_libro || ''
     });
+    if (c.activo !== true) items[items.length - 1].retirado = true;
   }
 
   var salida = {
@@ -493,6 +540,25 @@ function doc2CatalogoParaCliente_() {
   return salida;
 }
 
+/**
+ * Subsección tal como viaja al cliente: siempre un mapa `rama -> título`.
+ *
+ * En la hoja puede estar como texto (misma subsección en todas las ramas) o como
+ * JSON (una por rama). El cliente recibe siempre la misma forma, con la clave
+ * `*` para el caso uniforme, y así no tiene que distinguir dos formatos.
+ */
+function doc2SubseccionMapa_(valor) {
+  if (!valor) return {};
+  var texto = String(valor).trim();
+  if (!texto) return {};
+  if (texto.charAt(0) === '{') {
+    var parseado = docParseJson_(texto, null);
+    if (parseado && typeof parseado === 'object') return parseado;
+    return {};
+  }
+  return { '*': texto };
+}
+
 /* ========================================================================== */
 /* Catálogos auxiliares: siembra y mantenimiento                                */
 /* ========================================================================== */
@@ -506,10 +572,17 @@ function doc2CatalogoParaCliente_() {
  */
 function doc2SeedAuxiliares_() {
   doc2EnsureAuxiliar_();
-  var agencias = [];
-  var gerencias = [];
-  var vistoA = {};
-  var vistoG = {};
+  var recogidos = { agencia_bdp: [], gerencia_bdp: [], cargo_bdp: [] };
+  var vistos = { agencia_bdp: {}, gerencia_bdp: {}, cargo_bdp: {} };
+
+  function recoger(columna, valor) {
+    var texto = doc2LimpiarAuxiliar_(valor);
+    if (!texto) return;
+    var clave = docKey_(texto);
+    if (vistos[columna][clave]) return;
+    vistos[columna][clave] = true;
+    recogidos[columna].push(texto);
+  }
 
   var anios = [];
   try { anios = docListYears_(); } catch (e) { anios = []; }
@@ -518,10 +591,12 @@ function doc2SeedAuxiliares_() {
     try { cargada = docLoadYear_(anios[a], false); } catch (e) { cargada = null; }
     if (!cargada) continue;
     for (var r = 0; r < cargada.rows.length; r++) {
-      var oficina = String(cargada.rows[r].oficina || '').replace(/\s+/g, ' ').trim();
-      var gerencia = String(cargada.rows[r].gerencia || '').replace(/\s+/g, ' ').trim();
-      if (oficina && !vistoA[docKey_(oficina)]) { vistoA[docKey_(oficina)] = true; agencias.push(oficina); }
-      if (gerencia && !vistoG[docKey_(gerencia)]) { vistoG[docKey_(gerencia)] = true; gerencias.push(gerencia); }
+      recoger('agencia_bdp', cargada.rows[r].oficina);
+      recoger('gerencia_bdp', cargada.rows[r].gerencia);
+      // Los cargos del banco no se inventan: llevan años escritos en la columna
+      // «Cargo» del libro. Sembrar la columna con ellos deja el desplegable útil
+      // desde el primer día, sin obligar al área a teclear trescientos valores.
+      recoger('cargo_bdp', cargada.rows[r].cargo);
     }
   }
 
@@ -529,23 +604,28 @@ function doc2SeedAuxiliares_() {
   try {
     var expedientes = doc2All_(DOC2_SHEET.EXPEDIENTES, true);
     for (var e = 0; e < expedientes.length; e++) {
-      var ag = String(expedientes[e].agencia || '').replace(/\s+/g, ' ').trim();
-      var ge = String(expedientes[e].gerencia || '').replace(/\s+/g, ' ').trim();
-      if (ag && !vistoA[docKey_(ag)]) { vistoA[docKey_(ag)] = true; agencias.push(ag); }
-      if (ge && !vistoG[docKey_(ge)]) { vistoG[docKey_(ge)] = true; gerencias.push(ge); }
+      recoger('agencia_bdp', expedientes[e].agencia);
+      recoger('gerencia_bdp', expedientes[e].gerencia);
+      recoger('cargo_bdp', expedientes[e].cargo);
     }
   } catch (err) { /* todavía sin expedientes normalizados */ }
 
   var actuales = doc2Auxiliares_();
-  if (!gerencias.length && !actuales.gerencia_bdp.length) gerencias = DOC2_GERENCIA_SEMILLA.slice();
+  if (!recogidos.gerencia_bdp.length && !(actuales.gerencia_bdp || []).length) {
+    recogidos.gerencia_bdp = DOC2_GERENCIA_SEMILLA.slice();
+  }
 
-  var rAg = doc2AgregarAuxiliar_('agencia_bdp', agencias);
-  var rGe = doc2AgregarAuxiliar_('gerencia_bdp', gerencias);
-
-  return {
-    agencias: { agregadas: rAg.agregados.length, total: rAg.total },
-    gerencias: { agregadas: rGe.agregados.length, total: rGe.total }
-  };
+  var salida = {};
+  for (var c = 0; c < DOC2_AUXILIAR_COLUMNS.length; c++) {
+    var columna = DOC2_AUXILIAR_COLUMNS[c];
+    var res = doc2AgregarAuxiliar_(columna, recogidos[columna] || []);
+    salida[columna] = { agregadas: res.agregados.length, total: res.total };
+  }
+  // Nombres antiguos, que la migración y el instalador siguen leyendo.
+  salida.agencias = salida.agencia_bdp;
+  salida.gerencias = salida.gerencia_bdp;
+  salida.cargos = salida.cargo_bdp;
+  return salida;
 }
 
 /**
@@ -585,22 +665,23 @@ function doc2DiagnosticarAuxiliar_() {
   return salida;
 }
 
-/** Valores de un catálogo auxiliar TAL CUAL están escritos, sin deduplicar. */
+/**
+ * Valores de un catálogo auxiliar TAL CUAL están escritos, sin deduplicar.
+ *
+ * Es lo que necesita el diagnóstico: para poder decir «hay dos agencias que se
+ * llaman igual» hace falta ver las dos. La localización de la columna y el
+ * recorrido son los mismos que en la lectura normal, así que un cambio de
+ * cabecera no puede dejar el diagnóstico mirando otra columna.
+ */
 function doc2LeerAuxiliarCrudo_(columna) {
   var ss = docSpreadsheet_();
   var hoja = ss.getSheetByName(DOC2_SHEET.AUXILIAR);
   if (!hoja) return [];
-  var ancho = hoja.getLastColumn();
-  if (ancho < 1) return [];
-  var cabeceras = hoja.getRange(1, 1, 1, ancho).getValues()[0];
-  var indice = -1;
-  for (var i = 0; i < cabeceras.length; i++) {
-    if (String(cabeceras[i] || '').trim() === columna) { indice = i + 1; break; }
-  }
+  var indice = doc2ColumnaAuxiliar_(hoja, columna);
   if (indice < 0) return [];
-  var filas = hoja.getLastRow();
-  if (filas < 2) return [];
-  var valores = hoja.getRange(2, indice, filas - 1, 1).getValues();
+  var ultima = doc2UltimaFilaDeColumna_(hoja, indice);
+  if (ultima < 2) return [];
+  var valores = hoja.getRange(2, indice, ultima - 1, 1).getValues();
   var out = [];
   for (var r = 0; r < valores.length; r++) {
     var texto = docUntext_(valores[r][0]);

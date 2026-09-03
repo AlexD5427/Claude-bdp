@@ -49,7 +49,20 @@ var DOC2_API = {
   },
   'documentacion.catalogo': {
     escribe: false, capacidad: DOC2_CAPACIDAD.VER,
-    fn: function () { return doc2CatalogoParaCliente_(); }
+    /**
+     * `refrescar: true` invalida la caché del servidor antes de responder.
+     *
+     * ── Por qué hace falta ────────────────────────────────────────────────
+     * El catálogo y los auxiliares se cachean diez minutos, y eso está bien
+     * para el uso normal. Pero el área pega los cargos del banco DIRECTAMENTE
+     * en la hoja `Auxiliar`, y sin una forma de forzar la lectura tendría que
+     * esperar diez minutos sin saber por qué el desplegable sigue vacío. El
+     * botón «Comprobar el catálogo» del autodiagnóstico usa esta bandera.
+     */
+    fn: function (p) {
+      if (p && p.refrescar === true) doc2CacheInvalidar_([DOC2_CACHE.CATALOGO, DOC2_CACHE.AUXILIAR]);
+      return doc2CatalogoParaCliente_();
+    }
   },
   'documentacion.catalogo.guardar': {
     escribe: true, capacidad: DOC2_CAPACIDAD.CATALOGOS,
@@ -57,7 +70,10 @@ var DOC2_API = {
   },
   'documentacion.auxiliares': {
     escribe: false, capacidad: DOC2_CAPACIDAD.VER,
-    fn: function () { return { auxiliares: doc2Auxiliares_(), revision: doc2DiagnosticarAuxiliar_() }; }
+    fn: function (p) {
+      if (p && p.refrescar === true) doc2CacheInvalidar_([DOC2_CACHE.AUXILIAR]);
+      return { auxiliares: doc2Auxiliares_(), revision: doc2DiagnosticarAuxiliar_() };
+    }
   },
   'documentacion.auxiliares.agregar': {
     escribe: true, capacidad: DOC2_CAPACIDAD.CATALOGOS,
@@ -152,7 +168,47 @@ var DOC2_API = {
   },
   'documentacion.expediente.crear': {
     escribe: true, capacidad: DOC2_CAPACIDAD.EDITAR,
+    /**
+     * Acepta el alta MÍNIMA (identidad + rama) y la COMPLETA, que trae además los
+     * estados, las observaciones, las hojas físicas y las prórrogas que el
+     * asistente ya conoce. La forma ampliada es opcional a propósito: un frontend
+     * desplegado antes que este backend sigue funcionando con la ruta de cuatro
+     * pasos, y un frontend nuevo contra un backend viejo lo detecta porque la
+     * respuesta no trae `completa: true`.
+     */
     fn: function (p, ctx) { return doc2CrearExpediente_(p.expediente || p, ctx); }
+  },
+  /**
+   * ¿Hay ya un expediente con este carnet?
+   *
+   * Devuelve lo mínimo para avisar y ofrecer abrirlo: identificador, nombre, id y
+   * estado. Existe porque la búsqueda por texto de `expedientes.listar` compara
+   * cadenas y el mismo carnet vive en el libro de muchas formas —«1234567 LP»,
+   * «1234567 - 45 - 2026», «1234567-lp»—; aquí se compara por la clave de
+   * identidad (solo dígitos y letras), que es la misma que usa el alta para
+   * rechazar duplicados. Así el asistente avisa MIENTRAS se escribe y no después
+   * de cinco pasos.
+   */
+  'documentacion.expediente.porCarnet': {
+    escribe: false, capacidad: DOC2_CAPACIDAD.VER,
+    fn: function (p, ctx) {
+      var fila = doc2BuscarPorCarnet_(p.identificador || p.carnet || '');
+      if (!fila) return { encontrado: false };
+      return {
+        encontrado: true,
+        expedienteId: fila.expediente_id,
+        identificador: fila.identificador,
+        nombre: fila.nombre || '',
+        estado: fila.estado || '',
+        archivado: !!fila.archived_at
+      };
+    }
+  },
+  'documentacion.expedientes.detalle': {
+    escribe: false, capacidad: DOC2_CAPACIDAD.VER,
+    fn: function (p, ctx) {
+      return doc2DetalleEnLote_(p.expedienteIds || p.ids || [], ctx, { incluirArchivados: p.incluirArchivados === true });
+    }
   },
   'documentacion.expediente.actualizar': {
     escribe: true, capacidad: DOC2_CAPACIDAD.EDITAR,

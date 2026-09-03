@@ -92,7 +92,7 @@ function docTestManifiesto_() {
   }
   docCheckEq_('no hay claves internas repetidas', repetidas.length, 0);
 
-  docCheckEq_('el catalogo trae 38 documentos', DOC_CATALOGO_SEMILLA.length, 38);
+  docCheckEq_('el catalogo heredado trae 39 documentos', DOC_CATALOGO_SEMILLA.length, 39);
   docCheckEq_('docColumnByKey_ encuentra la columna', docColumnByKey_('rejap').encabezado, 'REJAP');
   docCheck_('docYearColumnPosition_ ubica el identificador', docYearColumnPosition_('id') === 24);
 }
@@ -223,15 +223,51 @@ function docTestModelo_() {
   }
   docCheckEq_('ninguna hoja del modelo repite nombre', duplicadas, 0);
 
-  docCheckEq_('el catalogo canonico trae 38 documentos', DOC2_CATALOGO_SEMILLA.length, 38);
-  docCheckEq_('un funcionario general sin garantia exige 18',
-    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 18);
-  docCheckEq_('un comercial con garantia exige 23',
-    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 23);
-  docCheckEq_('cumplimiento exige 20',
-    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 20);
+  // Catalogo v3: 37 requisitos vigentes + los 2 generales retirados, que se
+  // conservan desactivados para poder leer los expedientes antiguos.
+  docCheckEq_('el catalogo canonico trae 39 filas', DOC2_CATALOGO_SEMILLA.length, 39);
+  docCheckEq_('un funcionario general sin garantia exige 16',
+    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 16);
+  docCheckEq_('un comercial tipo 1 exige 21',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 21);
+  docCheckEq_('un comercial tipo 2 exige 25',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_2').length, 25);
+  docCheckEq_('un comercial tipo 3 exige 21',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_3').length, 21);
+  docCheckEq_('auditoria exige 17',
+    doc2AplicablesDeSemilla_('AUDITORIA', 'NINGUNA').length, 17);
+  docCheckEq_('cumplimiento exige 19',
+    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 19);
   docCheckEq_('la garantia sola no anade documentos a un general',
-    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 18);
+    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 16);
+
+  // Los dos generales retirados siguen en el catalogo, desactivados.
+  var retirados = 0;
+  for (var ret = 0; ret < DOC2_CATALOGO_SEMILLA.length; ret++) {
+    if (DOC2_CATALOGO_SEMILLA[ret].retirado === true) retirados++;
+  }
+  docCheckEq_('los dos generales retirados se conservan', retirados, 2);
+
+  // El contador de hojas es exactamente el de los requisitos fisicos.
+  var conHojas = 0;
+  var fisicos = 0;
+  for (var ch = 0; ch < DOC2_CATALOGO_SEMILLA.length; ch++) {
+    var defCh = DOC2_CATALOGO_SEMILLA[ch];
+    if (defCh.hojas === true) conHojas++;
+    if (defCh.fisica === 'SI' || defCh.fisica === 'CONDICIONAL') fisicos++;
+  }
+  docCheckEq_('nueve requisitos llevan conteo de hojas', conHojas, 9);
+  docCheckEq_('y son los mismos que se presentan en fisico', fisicos, conHojas);
+
+  // La subseccion compartida entre Tipo 1 y Tipo 3 se declara por rama.
+  var inmueble = null;
+  for (var im = 0; im < DOC2_CATALOGO_SEMILLA.length; im++) {
+    if (DOC2_CATALOGO_SEMILLA[im].codigo === 'garante-inmueble') inmueble = DOC2_CATALOGO_SEMILLA[im];
+  }
+  docCheckEq_('el inmueble del tipo 1 cae en el bloque del garante',
+    doc2SubseccionDe_(inmueble && inmueble.subseccion, 'COMERCIAL_1'), DOC2_SUBSECCION.T1_INMUEBLE);
+  docCheckEq_('y el del tipo 3 en el del postulante',
+    doc2SubseccionDe_(inmueble && inmueble.subseccion, 'COMERCIAL_3'), DOC2_SUBSECCION.T3_PROPIO);
 
   docCheck_('de BORRADOR se puede pasar a EN_RECOLECCION',
     doc2TransicionPermitida_('expediente', DOC2_ESTADO_EXPEDIENTE.BORRADOR, DOC2_ESTADO_EXPEDIENTE.EN_RECOLECCION));
@@ -252,7 +288,7 @@ function docTestModelo_() {
   docCheck_('un rol inventado cae en invitado',
     doc2CapacidadesDe_('duenio-del-banco').length === doc2CapacidadesDe_('invitado').length);
 
-  docCheckEq_('hay cuatro migraciones declaradas', DOC2_MIGRACIONES.length, 4);
+  docCheckEq_('hay cinco migraciones declaradas', DOC2_MIGRACIONES.length, 5);
   docCheckEq_('y la primera es la estructural', DOC2_MIGRACIONES[0].version, '4.0.0-estructura');
 }
 

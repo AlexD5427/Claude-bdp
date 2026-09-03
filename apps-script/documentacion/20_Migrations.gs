@@ -64,6 +64,12 @@ var DOC2_MIGRACIONES = [
     nombre: 'Reconstruir resúmenes y estados de los expedientes importados',
     porLotes: true,
     ejecutar: function (ctx, opciones) { return doc2MigracionResumenes_(ctx, opciones); }
+  },
+  {
+    version: '5.0.0-hojas-fisicas',
+    nombre: 'Columna de hojas físicas, catálogo v3 y catálogo auxiliar de cargos',
+    porLotes: true,
+    ejecutar: function (ctx, opciones) { return doc2MigracionHojasFisicas_(ctx, opciones); }
   }
 ];
 
@@ -543,7 +549,8 @@ function doc2ImportarFilaDelLibro_(entrada, ctx, simular) {
  * Requisitos aplicables calculados contra la semilla del código.
  *
  * Es el mismo criterio que el motor de aplicabilidad, pero sin leer la hoja: lo
- * usa la simulación cuando el catálogo todavía no existe.
+ * usa la simulación cuando el catálogo todavía no existe, y el verificador de
+ * coherencia del repositorio para comprobar los recuentos por rama.
  */
 function doc2AplicablesDeSemilla_(tipoFuncionario, tipoGarantia) {
   var funcionario = docKey_(tipoFuncionario || 'GENERAL');
@@ -551,6 +558,10 @@ function doc2AplicablesDeSemilla_(tipoFuncionario, tipoGarantia) {
   var salida = [];
   for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) {
     var def = DOC2_CATALOGO_SEMILLA[i];
+    // Mismo criterio que el motor real: un requisito desactivado —los dos
+    // generales retirados— no aplica a ningún expediente nuevo. Sin esta línea
+    // la simulación contaría dos requisitos que la migración no va a crear.
+    if (def.activo === false) continue;
     var funcionarios = def.funcionario || [];
     if (funcionarios.length && funcionarios.indexOf(funcionario) < 0) continue;
     var garantias = def.garantia || [];
@@ -800,6 +811,176 @@ function doc2MigracionResumenes_(ctx, opciones) {
     resumen: (simular ? 'Simulación: ' : '') + recalculados + ' resumen(es) recalculado(s)' +
       (quedan ? '. Quedan ' + (expedientes.length - siguiente) + '.' : '.')
   };
+}
+
+/* ========================================================================== */
+/* Migración 5: hojas físicas, catálogo v3 y cargos                            */
+/* ========================================================================== */
+
+/**
+ * Deja el libro listo para la versión 5 del esquema.
+ *
+ * ── Qué hace, en este orden ─────────────────────────────────────────────────
+ * 1. crea las columnas que faltan (`hojas_fisicas` en `ExpedienteDocumentos`;
+ *    `subseccion`, `presentacion_fisica`, `presentacion_digital` y
+ *    `requiere_conteo_hojas` en `CatalogoDocumentos`) reutilizando
+ *    `doc2EnsureSheets_`, que inserta la columna sin tocar los datos que ya hay;
+ * 2. siembra el catálogo v3: reescribe la redacción de los 16 generales, declara
+ *    las subsecciones y RETIRA `cert-trabajo` y `rc-iva`;
+ * 3. crea la cabecera `cargo_bdp` en `Auxiliar` y la siembra con los cargos que
+ *    ya aparecen en el libro y en los expedientes;
+ * 4. recupera de `DETALLE JSON` el conteo de hojas que el módulo antiguo ya
+ *    guardaba (`items[].pages`) y lo escribe en la columna nueva, por lotes y con
+ *    punto de control.
+ *
+ * ── Qué NO hace ─────────────────────────────────────────────────────────────
+ * No borra una fila, no vacía una celda, no degrada un estado resuelto y no toca
+ * las columnas A-W del libro anual. El paso 4 solo escribe donde la columna está
+ * vacía: si alguien ya contó las hojas a mano, gana lo que hay escrito.
+ */
+function doc2MigracionHojasFisicas_(ctx, opciones) {
+  var contexto = ctx || doc2CtxActual_();
+  var o = opciones || {};
+  var simular = o.simular === true;
+  var lote = docInt_(o.lote, DOC2_LIMITS.LOTE_MIGRACION);
+  var desde = Math.max(docInt_(o.desde, 0), 0);
+
+  if (simular) {
+    var faltaColumna = !doc2TieneColumnaEnHoja_(DOC2_SHEET.EXPEDIENTE_DOCS, 'hojas_fisicas');
+    var conPaginas = doc2ContarPaginasEnLibro_();
+    var retirados = 0;
+    try {
+      for (var c = 0; c < DOC2_CATALOGO_SEMILLA.length; c++) {
+        if (DOC2_CATALOGO_SEMILLA[c].retirado === true) retirados++;
+      }
+    } catch (e) { retirados = 0; }
+    return {
+      quedan: false, filas: 0,
+      detalle: {
+        columnaPorCrear: faltaColumna,
+        catalogoVersion: DOC2_CATALOGO_VERSION,
+        generalesRetirados: retirados,
+        conteosRecuperables: conPaginas
+      },
+      resumen: 'Simulación: ' + (faltaColumna ? 'se crearía la columna hojas_fisicas; ' : 'la columna ya existe; ') +
+        'se sembraría el catálogo v' + DOC2_CATALOGO_VERSION + ' (' + retirados + ' requisito(s) retirado(s)) y ' +
+        'se recuperarían hasta ' + conPaginas + ' conteo(s) de hojas del DETALLE JSON.'
+    };
+  }
+
+  // Paso 1: columnas. Es idempotente y no toca los datos existentes.
+  if (desde === 0) {
+    doc2EnsureSheets_({ silencioso: true });
+    doc2CatalogoReset_();
+    // Paso 2 y 3: catálogo v3 y cargos.
+    doc2SeedCatalogo_(contexto);
+    doc2EspejoCatalogoHeredado_();
+    doc2EnsureAuxiliar_();
+    doc2SeedAuxiliares_();
+    doc2CacheInvalidar_([DOC2_CACHE.CATALOGO, DOC2_CACHE.AUXILIAR, DOC2_CACHE.PANEL]);
+  }
+
+  // Paso 4: recuperar el conteo de hojas del libro anual, por lotes.
+  var conteos = doc2ConteosDeHojasDelLibro_();
+  var claves = Object.keys(conteos);
+  var procesados = 0;
+  var escritos = 0;
+
+  for (var i = desde; i < claves.length && procesados < lote; i++) {
+    procesados++;
+    var identificador = claves[i];
+    var expediente = doc2BuscarPorIdentificador_(doc2NormalizarIdentificador_(identificador));
+    if (!expediente) continue;
+    var requisitos = doc2RequisitosDe_(expediente.expediente_id, true);
+    for (var r = 0; r < requisitos.length; r++) {
+      var fila = requisitos[r];
+      var paginas = conteos[identificador][String(fila.codigo_documento)];
+      if (paginas === undefined || paginas === null) continue;
+      var valor = docInt_(paginas, 0);
+      if (valor <= 0) continue;
+      // Lo escrito a mano manda: solo se rellena lo que está vacío.
+      if (docInt_(fila.hojas_fisicas, 0) > 0) continue;
+      if (!doc2RequiereConteoHojas_(fila)) continue;
+      doc2Update_(DOC2_SHEET.EXPEDIENTE_DOCS, fila.expediente_documento_id, { hojas_fisicas: valor }, contexto);
+      escritos++;
+    }
+  }
+
+  var siguiente = desde + procesados;
+  var quedan = siguiente < claves.length;
+  if (!quedan) doc2CacheInvalidar_([DOC2_CACHE.PANEL]);
+
+  return {
+    quedan: quedan,
+    siguiente: siguiente,
+    progreso: claves.length ? Math.round((siguiente / claves.length) * 100) : 100,
+    checkpoint: { indice: siguiente, total: claves.length },
+    filas: escritos,
+    detalle: { expedientesConPaginas: claves.length, procesados: procesados, conteosEscritos: escritos },
+    resumen: escritos + ' conteo(s) de hojas recuperado(s) del libro' +
+      (quedan ? '. Quedan ' + (claves.length - siguiente) + ' expediente(s).' : '.')
+  };
+}
+
+/** ¿Tiene esa hoja esa columna? Tolera que la hoja todavía no exista. */
+function doc2TieneColumnaEnHoja_(hoja, columna) {
+  try {
+    var ss = docSpreadsheet_();
+    var destino = ss.getSheetByName(hoja);
+    if (!destino) return false;
+    var ancho = destino.getLastColumn();
+    if (ancho < 1) return false;
+    var cabeceras = destino.getRange(1, 1, 1, ancho).getValues()[0];
+    for (var i = 0; i < cabeceras.length; i++) {
+      if (String(cabeceras[i] || '').trim() === columna) return true;
+    }
+  } catch (e) { /* libro sin instalar */ }
+  return false;
+}
+
+/**
+ * Conteos de hojas guardados en `DETALLE JSON`, por identificador y código.
+ *
+ * El módulo anterior ya guardaba `items[].pages` en el JSON de la fila anual: son
+ * hojas que alguien contó de verdad y que se perderían si la columna nueva
+ * arrancara en cero. Recuperarlas es gratis y evita rehacer un trabajo manual.
+ */
+function doc2ConteosDeHojasDelLibro_() {
+  var salida = {};
+  var anios = [];
+  try { anios = docListYears_(); } catch (e) { return salida; }
+  for (var a = 0; a < anios.length; a++) {
+    var cargada = null;
+    try { cargada = docLoadYear_(anios[a], false); } catch (e) { cargada = null; }
+    if (!cargada) continue;
+    for (var f = 0; f < cargada.rows.length; f++) {
+      var fila = cargada.rows[f];
+      var detalle = fila.detalle_json;
+      if (typeof detalle === 'string') detalle = docParseJson_(detalle, null);
+      if (!detalle || !detalle.items) continue;
+      var identificador = String(fila.id || '');
+      if (!identificador) continue;
+      for (var i = 0; i < detalle.items.length; i++) {
+        var item = detalle.items[i] || {};
+        var paginas = docInt_(item.pages, 0);
+        if (!item.id || paginas <= 0) continue;
+        if (!salida[identificador]) salida[identificador] = {};
+        salida[identificador][String(item.id)] = paginas;
+      }
+    }
+  }
+  return salida;
+}
+
+/** Cuántos conteos de hojas hay recuperables. Solo para la simulación. */
+function doc2ContarPaginasEnLibro_() {
+  var conteos = doc2ConteosDeHojasDelLibro_();
+  var total = 0;
+  for (var identificador in conteos) {
+    if (!Object.prototype.hasOwnProperty.call(conteos, identificador)) continue;
+    total += Object.keys(conteos[identificador]).length;
+  }
+  return total;
 }
 
 /* ========================================================================== */

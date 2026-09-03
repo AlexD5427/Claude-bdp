@@ -387,10 +387,16 @@ function docColumnSpec_(sheetName, columnName) {
 /* ------------------------- Catálogo de documentos ------------------------- */
 
 /**
- * Los 38 documentos que hoy exige el proceso, con el mismo `id` que usa el
- * frontend (`src/lib/docTemplate.ts`). Se siembran en la hoja `_CATALOGO` la
- * primera vez y a partir de ahí manda la hoja: si el equipo añade, quita o
- * renombra un documento allí, el módulo lo respeta sin tocar código.
+ * Catálogo HEREDADO, con el mismo `id` que usa la vista local
+ * (`src/lib/docTemplate.ts`). Se siembra en la hoja `_CATALOGO` la primera vez y
+ * a partir de ahí manda la hoja.
+ *
+ * ── Por qué sigue existiendo ────────────────────────────────────────────────
+ * La vista local de contingencia y las acciones antiguas del router leen de aquí.
+ * Es un ESPEJO: la fuente de verdad es `DOC2_CATALOGO_SEMILLA` (11_Domain.gs) y
+ * `doc2EspejoCatalogoHeredado_` lo reescribe desde ella. Las dos listas tienen
+ * que describir los mismos documentos, y `npm run doc:check` falla si un código
+ * de esta lista no existe en la otra.
  */
 var DOC_CATALOGO_SEMILLA = [
   { id: 'foto-4x4', etiqueta: 'Fotografía 4x4 fondo blanco', grupo: 'personal', prorroga: false, obligatorio: true },
@@ -431,6 +437,7 @@ var DOC_CATALOGO_SEMILLA = [
   { id: 'garante-t3-fam-croquis', etiqueta: 'Croquis del garante familiar (Tipo 3)', grupo: 'garantia', prorroga: false, obligatorio: false },
 
   { id: 'impedimento-auditor', etiqueta: 'Declaración de impedimento de auditor', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
+  { id: 'djj-prohibiciones-cumplimiento', etiqueta: 'DJJ de prohibiciones · Unidad de Cumplimiento', grupo: 'cumplimiento', prorroga: false, obligatorio: true },
   { id: 'lgi-ft', etiqueta: 'Capacitación LGI/FT', grupo: 'cumplimiento', prorroga: false, obligatorio: true, columna: 'conozca_funcionario' },
   { id: 'examen-uif', etiqueta: 'Examen UIF aprobado', grupo: 'cumplimiento', prorroga: true, obligatorio: true }
 ];

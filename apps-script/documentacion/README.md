@@ -57,8 +57,21 @@ ExportacionesDocumentacion  FiltrosDocumentacion   ConfiguracionDocumentacion
 MigracionesDocumentacion
 ```
 
-Mas `Auxiliar`, con los catalogos sueltos (`agencia_bdp`, `gerencia_bdp`) que
-crecen solos y de los que **nunca se quita un valor** aunque deje de usarse.
+Mas `Auxiliar`, con los catalogos sueltos —`agencia_bdp`, `gerencia_bdp` y
+`cargo_bdp`— que crecen solos y de los que **nunca se quita un valor** aunque
+deje de usarse.
+
+Tres detalles de esa hoja que costaron datos y que ahora estan resueltos:
+
+- la cabecera se reconoce **normalizada**: `Cargo_BDP`, `cargo bdp ` o un espacio
+  al final apuntan a la misma columna, en lugar de dejar el desplegable vacio y
+  crear una columna duplicada al lado;
+- se lee la **columna entera**, con sus huecos, y se devuelve ordenada y sin
+  repetidos (`localeCompare('es')`), sin tope de filas;
+- al anadir un valor se escribe **despues de la ultima fila con contenido de esa
+  columna**. La version anterior calculaba la fila con la lista ya deduplicada
+  (`2 + actuales.length`) y, en una columna con duplicados o huecos, **pisaba
+  valores reales del area**.
 
 **Pestanas anuales** `CONTROL INGRESOS <ano>`. Columnas A-W identicas al Excel
 original (incluidos el espacio final de `Tipo de Empleado ` y las dos columnas
@@ -117,6 +130,7 @@ guardar el archivo no basta.
 | `4.0.1-catalogos` | Siembra el catalogo y los auxiliares desde el libro |
 | `4.0.2-expedientes` | Convierte cada fila anual en expediente + requisitos |
 | `4.0.3-resumenes` | Recalcula avances, estados y colores |
+| `5.0.0-hojas-fisicas` | Crea `hojas_fisicas` en `ExpedienteDocumentos` y las columnas de subseccion y presentacion en `CatalogoDocumentos`; siembra el catalogo v3 (39 filas); crea y siembra `cargo_bdp`; recupera los conteos de hojas del `DETALLE JSON` sin pisar lo escrito a mano |
 
 Tres garantias:
 
@@ -130,6 +144,38 @@ Tres garantias:
 
 Se guarda un respaldo antes de empezar.
 
+## Catalogo
+
+`DOC2_CATALOGO_SEMILLA` tiene **39 filas**: 37 vigentes y 2 retiradas
+(`cert-trabajo`, `rc-iva`, con `activo: false` y `retirado: true`). Los retirados
+**no se borran** porque los expedientes de anos anteriores tienen requisitos que
+apuntan a esos codigos; simplemente no se piden nunca mas.
+
+Recuentos por rama, comprobados por `npm run doc:check` y por `10_Tests.gs`:
+
+| Rama | Requisitos |
+|---|---|
+| General | 16 |
+| Comercial garantia tipo 1 | 21 |
+| Comercial garantia tipo 2 | 25 |
+| Comercial garantia tipo 3 | 21 |
+| Auditoria | 17 |
+| Cumplimiento | 19 |
+
+Campos nuevos por documento:
+
+- `subseccion` — los 17 documentos de garantia se agrupan como en la hoja del
+  area. `garante-inmueble` y `garante-folio` cambian de subseccion segun la rama,
+  asi que la subseccion se resuelve **por rama** (`doc2SubseccionMapa_`), no por
+  documento.
+- `fisica` / `digital` — `SI`, `NO` o `CONDICIONAL`. El condicional se pinta
+  «Fisico*» con su leyenda: la copia fisica se pide solo en algunos casos.
+- `requiere_conteo_hojas` — los **9** documentos que se archivan en papel piden el
+  numero de hojas, que se guarda en `ExpedienteDocumentos.hojas_fisicas` y se
+  escribe en la columna `PAGINAS` del libro anual.
+- `persona`, `plazo_dias`, `hojas` — de quien es el documento, el plazo por
+  omision y el numero de hojas esperado.
+
 ## Acciones
 
 Todas por `POST` con cuerpo JSON enviado como `text/plain` y `redirect: "follow"`.
@@ -139,6 +185,7 @@ Modelo nuevo, `documentacion.<recurso>.<verbo>`:
 ```
 expediente.crear | actualizar | obtener | estado | sincronizar | recalcular
 expediente.archivar | restaurar | conservacion | laboral | expedientes.listar
+expediente.porCarnet | expedientes.detalle
 requisito.actualizar | requisitos.guardar
 prorroga.crear | actualizar | estado | prorrogas.listar
 solicitud.crear | estado | seguimiento
@@ -189,6 +236,32 @@ Respuesta siempre con la misma forma, con alias para no romper clientes viejos:
 Cuando `ok` es falso llega `error` con `codigo` (y `code`), `mensaje`, `pista`,
 `detalle` y `campos`. La `pista` es lo que el frontend convierte en boton de
 solucion; `campos` es lo que se pinta junto a cada campo del formulario.
+
+### Tres acciones que merecen explicacion
+
+- **`expediente.crear` hace todo el alta.** Acepta, ademas de la identidad y la
+  rama, las listas `requisitos` (estado, observaciones y hojas fisicas) y
+  `prorrogas`, y lo aplica todo en una escritura idempotente. Antes eran cuatro
+  llamadas y un corte a mitad dejaba un expediente creado y sin marcar. Responde
+  `completa: true` con `aplicados`, `prorrogasCreadas` y `fallidos`; un frontend
+  nuevo contra un backend viejo detecta la ausencia de `completa` y recae en la
+  ruta antigua.
+- **`expedientes.detalle`** devuelve el detalle ligero de hasta 12 expedientes en
+  una llamada (`DOC2_MAX_DETALLE_LOTE`). Es lo que usa la precarga del frontend:
+  veinticinco expedientes se traen en tres llamadas y no en veinticinco.
+- **`expediente.porCarnet`** dice si un carnet ya tiene expediente, comparando por
+  **clave de identidad** (solo digitos y letras, `doc2ClaveIdentidad_`). En el
+  libro el mismo documento vive como «1234567 LP», «1234567 - 45 - 2026» y
+  «1234567-lp»; una busqueda por texto no reconoce ninguna de las otras dos. Es
+  lo que permite avisar del duplicado mientras se escribe.
+
+> `doc2ClaveIdentidad_` es una funcion **aparte** de
+> `doc2NormalizarIdentificador_`, que alimenta `doc2StableId_`. Tocar esa otra
+> habria cambiado el identificador estable de todos los expedientes existentes.
+
+`documentacion.catalogo` y `documentacion.auxiliares` aceptan `refrescar: true`,
+que invalida la cache del servidor: es lo que hace falta cuando el area acaba de
+pegar cargos o agencias a mano y no quiere esperar diez minutos.
 
 ## Por que `text/plain`
 

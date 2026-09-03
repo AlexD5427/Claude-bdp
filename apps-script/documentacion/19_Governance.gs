@@ -634,6 +634,12 @@ function doc2Inconsistencias_(ctx) {
     if (auxiliares.gerencia_bdp.length && e.gerencia && !doc2EnCatalogoAuxiliar_('gerencia_bdp', e.gerencia)) {
       anotar('gerencia-fuera-catalogo', { identificador: e.identificador, gerencia: e.gerencia });
     }
+    // Un cargo fuera del catálogo es un AVISO, nunca un bloqueo: el área abre
+    // expedientes de cargos nuevos antes de que nadie actualice la lista, y
+    // detener el registro por eso sería poner la lista por encima del trabajo.
+    if ((auxiliares.cargo_bdp || []).length && e.cargo && !doc2EnCatalogoAuxiliar_('cargo_bdp', e.cargo)) {
+      anotar('cargo-fuera-catalogo', { identificador: e.identificador, cargo: e.cargo });
+    }
   }
 
   // Requisitos.
@@ -950,7 +956,7 @@ function doc2Diagnostico_(ctx) {
   if (!ss.getSheetByName(DOC2_SHEET.AUXILIAR)) {
     hallazgos.push(doc2Hallazgo_(DOC2_SEVERIDAD.IMPORTANTE, 'auxiliar-faltante',
       'No existe la hoja Auxiliar.',
-      'Es donde viven los catálogos de agencias y gerencias.',
+      'Es donde viven los catálogos de agencias, gerencias y cargos.',
       'sembrar-auxiliar'));
   }
 
@@ -972,11 +978,21 @@ function doc2Diagnostico_(ctx) {
 
   try {
     var auxiliares = doc2Auxiliares_();
-    resumen.auxiliares = { agencias: auxiliares.agencia_bdp.length, gerencias: auxiliares.gerencia_bdp.length };
-    if (!auxiliares.gerencia_bdp.length) {
+    resumen.auxiliares = {
+      agencias: (auxiliares.agencia_bdp || []).length,
+      gerencias: (auxiliares.gerencia_bdp || []).length,
+      cargos: (auxiliares.cargo_bdp || []).length
+    };
+    if (!(auxiliares.gerencia_bdp || []).length) {
       hallazgos.push(doc2Hallazgo_(DOC2_SEVERIDAD.INFO, 'gerencias-vacias',
         'El catálogo de gerencias está vacío.',
         'Los filtros por gerencia quedarán sin opciones hasta poblarlo.',
+        'sembrar-auxiliar'));
+    }
+    if (!(auxiliares.cargo_bdp || []).length) {
+      hallazgos.push(doc2Hallazgo_(DOC2_SEVERIDAD.INFO, 'cargos-vacios',
+        'El catálogo de cargos está vacío.',
+        'El campo «Cargo» del alta funcionará escribiendo a mano, pero sin sugerencias. Pega los cargos del banco en la columna cargo_bdp de la hoja Auxiliar.',
         'sembrar-auxiliar'));
     }
     var revisionAux = doc2DiagnosticarAuxiliar_();
@@ -1135,7 +1151,12 @@ function doc2AplicarReparacion_(accion, ctx) {
     }
     case 'sembrar-auxiliar': {
       var aux = doc2SeedAuxiliares_();
-      return { accion: accion, cambios: aux.agencias.agregadas + aux.gerencias.agregadas, detalle: aux };
+      var cambiosAux = 0;
+      for (var ca = 0; ca < DOC2_AUXILIAR_COLUMNS.length; ca++) {
+        var entrada = aux[DOC2_AUXILIAR_COLUMNS[ca]];
+        if (entrada) cambiosAux += docInt_(entrada.agregadas, 0);
+      }
+      return { accion: accion, cambios: cambiosAux, detalle: aux };
     }
     case 'generar-ids': {
       var expedientes = doc2All_(DOC2_SHEET.EXPEDIENTES, true);

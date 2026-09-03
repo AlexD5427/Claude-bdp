@@ -292,6 +292,29 @@ var DOC2_REPORTES = [
  * `auditoria`: quien no la tiene recibe un error de permiso, no un reporte vacío,
  * porque un reporte vacío parece un error del sistema.
  */
+/**
+ * Cómo se presenta un requisito, en palabras para el área.
+ *
+ * El asterisco del «Física*» es el mismo de la tabla del área: la copia física se
+ * pide solo en algunos casos. Se conserva en el reporte porque quien lo lee es la
+ * misma persona que lo escribió en su Excel.
+ */
+function doc2EtiquetaPresentacion_(def) {
+  if (!def) return 'Digital';
+  var fisica = String(def.presentacion_fisica || 'NO');
+  if (fisica === 'SI') return 'Física y digital';
+  if (fisica === 'CONDICIONAL') return 'Física* y digital';
+  return 'Digital';
+}
+
+/** Total de hojas físicas registradas en un expediente. */
+function doc2HojasFisicasDe_(expedienteId) {
+  var filas = doc2By_(DOC2_SHEET.EXPEDIENTE_DOCS, 'expediente_id', expedienteId, false);
+  var total = 0;
+  for (var i = 0; i < filas.length; i++) total += docInt_(filas[i].hojas_fisicas, 0);
+  return total;
+}
+
 function doc2Reporte_(tipo, filtros, ctx) {
   var contexto = ctx || doc2CtxActual_();
   var codigo = String(tipo || 'resumen');
@@ -336,20 +359,21 @@ function doc2Reporte_(tipo, filtros, ctx) {
       break;
 
     case 'completitud':
-      salida.columnas = ['Identificador', 'Nombre', 'Cargo', 'Agencia', 'Gerencia', 'Tipo funcionario', 'Tipo garantía', 'Estado', 'Avance %', 'Requisitos', 'Entregados', 'Pendientes', 'No entregados', 'No aplica', 'Observados', 'Próxima fecha crítica'];
+      salida.columnas = ['Identificador', 'Nombre', 'Cargo', 'Agencia', 'Gerencia', 'Tipo funcionario', 'Tipo garantía', 'Estado', 'Avance %', 'Requisitos', 'Entregados', 'Pendientes', 'No entregados', 'No aplica', 'Observados', 'Hojas físicas', 'Próxima fecha crítica'];
       for (var c = 0; c < expedientes.length; c++) {
         var ex = expedientes[c];
         salida.filas.push([ex.identificador, ex.nombre, ex.cargo, ex.agencia, ex.gerencia,
           ex.tipoFuncionario, ex.tipoGarantia, ex.estado, ex.porcentaje, ex.totales.requisitos,
           ex.totales.entregados, ex.totales.pendientes, ex.totales.noEntregados, ex.totales.noAplica,
-          ex.totales.observados, ex.proximaFechaCritica]);
+          ex.totales.observados, doc2HojasFisicasDe_(ex.expedienteId), ex.proximaFechaCritica]);
       }
       break;
 
     case 'pendientes':
     case 'no_entregados':
     case 'observaciones':
-      salida.columnas = ['Identificador', 'Nombre', 'Agencia', 'Requisito', 'Sección', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado'];
+      salida.columnas = ['Identificador', 'Nombre', 'Agencia', 'Requisito', 'Sección', 'Subsección',
+        'Presentación', 'Hojas físicas', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado'];
       var requisitos = doc2All_(DOC2_SHEET.EXPEDIENTE_DOCS, false);
       for (var r = 0; r < requisitos.length; r++) {
         var req = requisitos[r];
@@ -362,8 +386,13 @@ function doc2Reporte_(tipo, filtros, ctx) {
         else if (codigo === 'no_entregados') incluir = estadoD === DOC2_ESTADO_DOCUMENTO.NO_ENTREGADO;
         else incluir = revision === DOC2_ESTADO_REVISION.OBSERVADO || revision === DOC2_ESTADO_REVISION.REQUIERE_CORRECCION || revision === DOC2_ESTADO_REVISION.RECHAZADO;
         if (!incluir) continue;
+        var defReq = doc2CatalogoItem_(req.codigo_documento);
         salida.filas.push([duenio.identificador, duenio.nombre, duenio.agencia,
-          doc2NombreRequisito_(req), req.seccion, estadoD, revision, req.observaciones || '', req.updated_at || '']);
+          doc2NombreRequisito_(req), req.seccion,
+          doc2SubseccionDe_(defReq && defReq.subseccion, duenio.tipoGarantia),
+          doc2EtiquetaPresentacion_(defReq),
+          doc2RequiereConteoHojas_(req) ? docInt_(req.hojas_fisicas, 0) : '',
+          estadoD, revision, req.observaciones || '', req.updated_at || '']);
       }
       break;
 
@@ -687,7 +716,8 @@ function doc2DatosExportacion_(expedienteIds, tipo, ctx, conEncabezado) {
   if (conEncabezado) {
     hojas.Resumen.push(['Identificador', 'Nombre', 'Cargo', 'Agencia', 'Gerencia', 'Tipo funcionario', 'Tipo garantía', 'Estado', 'Avance %', 'Pendientes', 'No entregados', 'Observados', 'Prórrogas', 'Próxima fecha crítica', 'Resumen']);
     hojas.Expedientes.push(['Identificador', 'Nombre', 'Cargo', 'Agencia', 'Gerencia', 'Fecha ingreso', 'Tipo funcionario', 'Tipo garantía', 'Responsable', 'Estado', 'Avance %', 'Requisitos', 'Entregados', 'Pendientes', 'No entregados', 'No aplica', 'Observados', 'Creado', 'Actualizado']);
-    hojas.Requisitos.push(['Identificador', 'Nombre', 'Sección', 'Requisito', 'Código', 'Obligatorio', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado']);
+    hojas.Requisitos.push(['Identificador', 'Nombre', 'Sección', 'Subsección', 'Requisito', 'Código',
+      'Obligatorio', 'Presentación', 'Hojas físicas', 'Estado documental', 'Estado revisión', 'Observaciones', 'Actualizado']);
     hojas.Prorrogas.push(['Identificador', 'Nombre', 'Requisito', 'Fecha original', 'Fecha prórroga', 'Días restantes', 'Situación', 'Estado', 'Motivo', 'Solicitada por', 'Aprobada por']);
     hojas.Solicitudes.push(['Identificador', 'Nombre', 'Título', 'Estado', 'Prioridad', 'Fecha solicitud', 'Fecha límite', 'Requisitos', 'Cumplidos', 'Recordatorios', 'Responsable']);
     hojas.Revisiones.push(['Identificador', 'Nombre', 'Requisito', 'Decisión', 'Motivo', 'Comentario', 'Revisor', 'Fecha']);
@@ -712,8 +742,11 @@ function doc2DatosExportacion_(expedienteIds, tipo, ctx, conEncabezado) {
 
     for (var r = 0; r < completo.requisitos.length; r++) {
       var req = completo.requisitos[r];
-      hojas.Requisitos.push([cab.identificador, cab.nombre, req.seccion, req.nombre, req.codigo,
-        req.obligatorio ? 'Sí' : 'No', req.estado, req.estadoRevision, req.observaciones, req.actualizadoEn]);
+      hojas.Requisitos.push([cab.identificador, cab.nombre, req.seccion, req.subseccion || '', req.nombre, req.codigo,
+        req.obligatorio ? 'Sí' : 'No',
+        req.requiereConteoHojas ? (req.presentacionFisica === 'CONDICIONAL' ? 'Física* y digital' : 'Física y digital') : 'Digital',
+        req.requiereConteoHojas ? req.hojasFisicas : '',
+        req.estado, req.estadoRevision, req.observaciones, req.actualizadoEn]);
     }
     for (var p = 0; p < completo.prorrogas.length; p++) {
       var pro = completo.prorrogas[p];
