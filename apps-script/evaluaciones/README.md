@@ -41,10 +41,25 @@ orden de carga: respétalo.
    - *Instalar o reparar estructura* — crea las trece hojas y el secreto de firma.
    - *Generar llave de administración* — cópiala; no se vuelve a mostrar.
    - *Ejecutar pruebas del backend* — 15 pruebas contra el libro real.
-4. Implementar → Nueva implementación → *Aplicación web*, ejecutando «como yo» y
-   con acceso «cualquier usuario». Copia la URL `…/exec`.
+4. Implementar → Nueva implementación → *Aplicación web*, con:
+   - **Ejecutar como: Yo.** Si se deja «usuario que accede», un postulante
+     anónimo no puede ejecutar el script y Google le devuelve su pantalla de
+     inicio de sesión en lugar de la evaluación.
+   - **Quién tiene acceso: Cualquier usuario.** No hace público el libro: la
+     autorización la sigue decidiendo el script en cada llamada. Lo que permite es
+     que el navegador de alguien de fuera pueda llamar sin cuenta de Google.
+
+   Copia la URL `…/exec`.
 5. En el ATS: **Evaluaciones → Conexión**, pega la URL y la llave, y pulsa
    «Guardar y probar».
+
+> **La URL importa más de lo que parece.** El enlace que se comparte con el
+> postulante lleva dentro la referencia de ESTE despliegue (`?b=AKfycb…`), y es lo
+> que hace que la prueba abra en un teléfono que nunca vio el ATS. Si se crea un
+> despliegue NUEVO (otra URL), los enlaces ya enviados siguen apuntando al
+> anterior: mientras ese despliegue exista, seguirán funcionando; si se borra, hay
+> que volver a copiar y reenviar los enlaces. El módulo tiene un botón
+> «Comprobar» que lo verifica en el momento.
 
 ## Propiedades del script
 
@@ -58,6 +73,15 @@ Ninguna es obligatoria para arrancar; todas se pueden dejar en blanco.
 | `EV_SPREADSHEET_ID` | Solo si el script NO está creado desde el libro. Acepta el id o la URL. |
 | `EV_LOG_LEVEL` | `debug` · `info` (por omisión) · `warn` · `error`. |
 | `EV_METRICS_ENABLED` | `false` para no escribir métricas. |
+
+## Límites que conviene conocer
+
+| Límite | Valor | Por qué |
+| --- | --- | --- |
+| `START_RATE_PER_MINUTE` | **40** | Inicios de intento por enlace y minuto. Era 12, y una convocatoria de veinte personas entrando a la vez lo agotaba: el postulante recibía «se alcanzó el límite», que no es algo que él pueda resolver. Con 40 caben las convocatorias reales y el freno contra el abuso sigue puesto. El cliente, además, reintenta solo con cuenta atrás cuando se topa con él. |
+| `LOCK_MS` | 25 000 | Espera máxima por el bloqueo de escritura. |
+| `BODY_CHARS` | 6 000 000 | Tamaño máximo de una petición. |
+| `PUBLIC_CACHE_SECONDS` | 1 800 | Vida del payload público de una versión en caché. |
 
 ## Autocuidado
 
