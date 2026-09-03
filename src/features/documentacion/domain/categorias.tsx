@@ -29,6 +29,19 @@ export interface Categoria {
   descripcion: string;
   /** Color de acento en hexadecimal; se usa para el borde, el icono y el tinte. */
   color: string;
+  /**
+   * El mismo acento, oscurecido para el tema claro.
+   *
+   * ── Por qué hacen falta dos ─────────────────────────────────────────────
+   * El acento se usa también como color de TEXTO —el distintivo de categoría
+   * en la cabecera del expediente, por ejemplo— sobre un tinte del mismo
+   * color al 14 %. En tema oscuro eso contrasta de sobra; en tema claro el
+   * mismo verde menta sobre blanco cae a 2.4:1, muy por debajo del 4.5:1 que
+   * exige la WCAG AA. Una función de JavaScript no puede saber en qué tema se
+   * está pintando, así que se declaran los dos y el CSS elige
+   * (`--cat-texto` en `documentacion.css`).
+   */
+  colorClaro: string;
   /** ¿Tiene rama de requisitos definida? `false` ⇒ «En construcción». */
   activa: boolean;
   /** ¿Exige elegir tipo de garantía comercial antes de continuar? */
@@ -118,6 +131,7 @@ export const CATEGORIAS: Categoria[] = [
     etiquetaCorta: "Comercial",
     descripcion: "Personal de agencias y negocios. Requiere garantía según el tipo que presente.",
     color: "#2dd4a7",
+    colorClaro: "#065f46",
     activa: true,
     pideGarantia: true,
     Icono: IconComercial,
@@ -128,6 +142,7 @@ export const CATEGORIAS: Categoria[] = [
     etiquetaCorta: "Auditoría",
     descripcion: "Auditoría interna. Añade la declaración de impedimento para ser auditor.",
     color: "#a78bfa",
+    colorClaro: "#5b21b6",
     activa: true,
     Icono: IconAuditoria,
   },
@@ -137,6 +152,7 @@ export const CATEGORIAS: Categoria[] = [
     etiquetaCorta: "Cumplimiento",
     descripcion: "Cumplimiento / UIF. Acreditación LGI/FT y examen presencial de la UIF.",
     color: "#38bdf8",
+    colorClaro: "#075985",
     activa: true,
     Icono: IconCumplimiento,
   },
@@ -146,6 +162,7 @@ export const CATEGORIAS: Categoria[] = [
     etiquetaCorta: "Ejecutivo / Directorio",
     descripcion: "En construcción: la lista de requisitos se definirá más adelante.",
     color: "#f5a524",
+    colorClaro: "#92400e",
     activa: false,
     Icono: IconEjecutivo,
   },
@@ -158,6 +175,7 @@ export const CATEGORIA_GENERAL: Categoria = {
   etiquetaCorta: "General",
   descripcion: "Requisitos generales de incorporación.",
   color: "#7c8aa5",
+  colorClaro: "#334155",
   activa: true,
   Icono: IconGeneral,
 };
@@ -186,6 +204,10 @@ export function estiloCategoria(codigo: string | undefined | null): CSSPropertie
   const c = categoriaDe(codigo);
   return {
     "--cat-color": c.color,
+    // El CSS elige entre las dos según el tema (`--cat-texto`). Los tintes se
+    // derivan del acento oscuro en los dos temas: al 14 % sobre una superficie
+    // clara el matiz apenas cambia, y lo que hay que corregir es el TEXTO.
+    "--cat-color-claro": c.colorClaro,
     "--cat-tinte": hexAlpha(c.color, 0.14),
     "--cat-tinte-fuerte": hexAlpha(c.color, 0.24),
     "--cat-borde": hexAlpha(c.color, 0.5),

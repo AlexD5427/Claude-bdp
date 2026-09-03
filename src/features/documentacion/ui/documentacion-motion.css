@@ -259,3 +259,67 @@
 .reduce-motion .doc-tap:active:not(:disabled) {
   transform: none !important;
 }
+
+/* =============================================================
+   ENTRADA DE FILA (sin framer-motion)
+
+   ── Por qué CSS y no un resorte por fila ─────────────────────
+   Un expediente comercial de Tipo 2 tiene 25 requisitos. Con un
+   `motion.li` por fila —cada uno con su resorte, su `layout` y su
+   retardo— el navegador mide el layout de veinticinco elementos en
+   cada renderizado y mantiene veinticinco animaciones vivas. Con la
+   CPU estrangulada 4× eso bajaba el desplazamiento a doce
+   fotogramas por segundo.
+
+   Esta animación son dos propiedades compuestas (`opacity` y
+   `transform`) que la GPU resuelve sin tocar el hilo principal, y
+   se ejecuta UNA vez por fila. `will-change` solo durante la
+   animación: dejarlo puesto reserva una capa por fila para siempre,
+   que es la otra forma de agotar la memoria de vídeo.
+   ============================================================= */
+
+.doc-fila-entra {
+  animation: doc-fila-entrada 220ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes doc-fila-entrada {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+    will-change: opacity, transform;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    will-change: auto;
+  }
+}
+
+/* Al revelar una elección (la garantía comercial), la sección entra
+   con la curva de las hojas de iOS: decidida y con frenada larga. */
+.doc-revelar {
+  animation: doc-revelado 380ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@keyframes doc-revelado {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-fila-entra,
+  .doc-revelar {
+    animation: none;
+  }
+}
+
+.doc-ligero .doc-fila-entra,
+.doc-ligero .doc-revelar {
+  animation: none;
+}

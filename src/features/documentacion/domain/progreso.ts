@@ -72,6 +72,15 @@ export interface RequisitoVista {
   nombre: string;
   descripcion: string;
   seccion: string;
+  /** Título del bloque dentro de la sección, ya resuelto para la rama de este expediente. */
+  subseccion: string;
+  presentacionFisica: "SI" | "NO" | "CONDICIONAL";
+  presentacionDigital: "SI" | "NO";
+  /** ¿Se anota cuántas hojas tiene el documento físico? */
+  requiereConteoHojas: boolean;
+  hojasFisicas: number;
+  /** Requisito retirado del proceso que este expediente conserva por tener datos. */
+  heredado: boolean;
   grupo: string;
   orden: number;
   estado: EstadoDocumento;
@@ -122,6 +131,22 @@ export interface GrupoRequisitos {
   total: number;
   resueltos: number;
   porcentaje: number;
+  /**
+   * Bloques con título dentro de la sección.
+   *
+   * En la garantía comercial cada bloque es una PERSONA distinta —el garante con
+   * inmueble, el garante familiar, el segundo garante familiar—, y el área junta
+   * los papeles por persona. Una sección sin subsecciones declaradas devuelve un
+   * único bloque sin título, para que quien la pinte no tenga dos caminos.
+   */
+  subgrupos: SubgrupoRequisitos[];
+}
+
+export interface SubgrupoRequisitos {
+  titulo: string;
+  requisitos: RequisitoVista[];
+  total: number;
+  resueltos: number;
 }
 
 /**
@@ -154,9 +179,38 @@ export function agruparRequisitos(requisitos: RequisitoVista[]): GrupoRequisitos
         total: ordenados.length,
         resueltos: entregados.length + (ordenados.length - aplicables.length),
         porcentaje: aplicables.length ? Math.round((entregados.length / aplicables.length) * 100) : 100,
+        subgrupos: agruparPorSubseccion(ordenados),
       };
     })
     .sort((a, b) => (orden.get(a.seccion)?.orden ?? 99) - (orden.get(b.seccion)?.orden ?? 99));
+}
+
+/**
+ * Parte una lista de requisitos en sus bloques con título.
+ *
+ * Conserva el orden de aparición de los títulos: el catálogo ya los ordena, y
+ * reordenarlos alfabéticamente pondría «2 Garantes Familiares» antes que «1
+ * Garante que demuestre ingresos», que es al revés de como se piden.
+ */
+export function agruparPorSubseccion(requisitos: RequisitoVista[]): SubgrupoRequisitos[] {
+  const bloques = new Map<string, RequisitoVista[]>();
+  for (const requisito of requisitos) {
+    const titulo = requisito.subseccion ?? "";
+    const lista = bloques.get(titulo) ?? [];
+    lista.push(requisito);
+    bloques.set(titulo, lista);
+  }
+  return [...bloques.entries()].map(([titulo, lista]) => ({
+    titulo,
+    requisitos: lista,
+    total: lista.length,
+    resueltos: lista.filter((r) => r.estado === "ENTREGADO" || r.estado === "NO_APLICA").length,
+  }));
+}
+
+/** Total de hojas físicas registradas en un expediente. Viaja a los reportes. */
+export function totalHojasFisicas(requisitos: RequisitoVista[]): number {
+  return requisitos.reduce((suma, r) => (r.archivado ? suma : suma + (r.hojasFisicas || 0)), 0);
 }
 
 /** Requisitos que hay que perseguir, en el orden en que conviene hacerlo. */

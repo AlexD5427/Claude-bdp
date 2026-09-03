@@ -38,7 +38,13 @@
   --doc-border: rgba(255, 255, 255, 0.12);
   --doc-border-strong: rgba(255, 255, 255, 0.22);
 
-  /* ---- Tinta ---- */
+  /* ---- Tinta ----
+     Tres peldaños, los tres OPACOS y con contraste comprobado sobre
+     las cuatro superficies del módulo en los dos temas (ver
+     `__tests__/contraste.test.ts`). La escala de la aplicación
+     (`--ink*`) ya trae los valores por tema; el módulo la reexpone
+     con su propio nombre para que un componente no dependa de una
+     variable global que otro módulo podría cambiar. */
   --doc-text: var(--ink);
   --doc-text-muted: var(--ink-soft);
   --doc-text-faint: var(--ink-faint);
@@ -76,6 +82,26 @@
 
   --doc-focus: #38bdf8;
 
+  /* ---- Relleno de los botones sólidos ----
+     ── Por qué son tokens propios ───────────────────────────────
+     El botón primario se pintaba con `--doc-info` de fondo y una
+     tinta oscura fija (#04121f). En tema oscuro eso da 12:1; en
+     tema claro `--doc-info` es un cian medio (#0e7490) y la tinta
+     oscura encima queda en 3.53:1 —por debajo del 4.5:1 de la
+     WCAG AA— en el botón MÁS pulsado del módulo («Nuevo
+     expediente», «Continuar», «Guardar»). El par fondo/tinta se
+     declara ahora por tema y `qa/sonda-contraste.mjs` lo mide en
+     un navegador real. */
+  --doc-primario-bg: #22d3ee;
+  --doc-primario-fg: #04121f;
+  --doc-peligro-bg: #fb7185;
+  --doc-peligro-fg: #1b0710;
+  /* Tinta que va ENCIMA de un relleno de acento (el número de un tipo
+     de garantía, la marca de selección). Es la única forma de que un
+     texto sobre un color de categoría contraste en los dos temas:
+     usar una superficie translúcida ahí daba 1:1. */
+  --doc-sobre-relleno: #04121f;
+
   /* ---- Forma ---- */
   --doc-radius-sm: 0.75rem;
   --doc-radius-md: 1rem;
@@ -90,6 +116,17 @@
   --doc-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --doc-ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --doc-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* La curva de las hojas de iOS: arranca decidida y frena muy largo.
+     Es la que hace que una tarjeta «llegue» en lugar de aparecer. */
+  --doc-ease-ios: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* ---- Materiales ----
+     Se declaran como variables para que el MODO LIGERO pueda ponerlos
+     a cero desde un solo sitio, sin que ningún componente sepa que
+     existe un modo ligero. */
+  --doc-blur: 18px;
+  --doc-blur-suave: 8px;
+  --doc-elevacion: 0 24px 64px -32px rgba(2, 12, 28, 0.55);
 
   color: var(--doc-text);
 }
@@ -138,8 +175,16 @@
 
   --doc-focus: #0369a1;
 
+  /* Azul institucional con tinta blanca: 6.8:1 sobre el botón. */
+  --doc-primario-bg: #005baa;
+  --doc-primario-fg: #ffffff;
+  --doc-peligro-bg: #a4133c;
+  --doc-peligro-fg: #ffffff;
+  --doc-sobre-relleno: #ffffff;
+
   --doc-shadow-sm: 0 1px 2px rgba(8, 47, 95, 0.08);
   --doc-shadow-md: 0 10px 28px rgba(8, 47, 95, 0.12);
+  --doc-elevacion: 0 24px 64px -32px rgba(8, 47, 95, 0.28);
 }
 
 /* =============================================================
@@ -501,4 +546,300 @@
     text-overflow: clip !important;
     white-space: normal !important;
   }
+}
+
+/* =============================================================
+   JERARQUÍA TIPOGRÁFICA
+   ── Por qué hace falta declararla ────────────────────────────
+   El módulo estaba escrito casi todo en `font-normal` con dos
+   tamaños. Con veinte o treinta decisiones por expediente, una
+   pantalla sin jerarquía obliga a LEERLO TODO para encontrar el
+   dato: no hay forma de barrer con la vista. Aquí se declaran los
+   peldaños con nombre, con negrita real donde manda y con itálica
+   donde el área usa itálica (notas y textos legales).
+   ============================================================= */
+
+/* Título de una superficie grande (asistente, ventana de expediente). */
+.doc-titulo {
+  font-size: 1.0625rem;
+  line-height: 1.35;
+  font-weight: 700;
+  letter-spacing: -0.011em;
+  color: var(--doc-text);
+  text-wrap: balance;
+}
+
+/* Título de bloque dentro de una superficie. */
+.doc-subtitulo {
+  font-size: 0.875rem;
+  line-height: 1.35;
+  font-weight: 650;
+  letter-spacing: -0.006em;
+  color: var(--doc-text);
+}
+
+/* Título de subsección: el nombre del bloque de garantía. */
+.doc-subseccion {
+  font-size: 0.75rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--doc-text-muted);
+}
+
+/* Cifra grande de un indicador: tabular y con peso, para comparar columnas. */
+.doc-cifra {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Nota, aclaración o texto legal del área. Itálica, como en sus documentos. */
+.doc-nota {
+  font-style: italic;
+  color: var(--doc-text-muted);
+}
+
+/* Texto del requisito: puede medir 250 caracteres y hay que poder leerlo. */
+.doc-requisito {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--doc-text);
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
+/* =============================================================
+   SUPERFICIE CENTRAL (hoja)
+   El asistente de alta y la ventana del expediente dejaron de
+   ocupar toda la pantalla: son hojas centradas con aire alrededor.
+   El material vive aquí para que el modo ligero lo pueda aplanar.
+   ============================================================= */
+
+/* ── Por qué el fondo es CASI opaco y no otro cristal ─────────
+   Dos motivos que apuntan al mismo sitio. Contraste: la hoja
+   llevaba `--doc-surface-raised` (blanco al 7 %) y dentro se
+   apilan otra superficie elevada y una plana; tres capas de blanco
+   sobre el azul oscuro aclaran el fondo lo suficiente para que el
+   texto tenue caiga a 3.3:1, medido en un navegador real. Y
+   rendimiento: cada capa translúcida con desenfoque obliga a leer
+   y recomponer lo que hay debajo en cada fotograma. Con una base
+   casi opaca el contraste es predecible y hay una capa compuesta
+   menos. */
+.doc-hoja {
+  background-color: rgba(9, 24, 46, 0.94);
+  border: 1px solid var(--doc-border);
+  border-radius: 26px;
+  box-shadow: var(--doc-elevacion);
+  backdrop-filter: blur(var(--doc-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--doc-blur)) saturate(1.4);
+  /* El navegador se ahorra pintar lo que queda fuera de la hoja. */
+  contain: layout paint;
+}
+
+/* El velo de detrás: un solo desenfoque, no uno por capa. */
+.doc-velo {
+  background-color: rgba(2, 12, 28, 0.55);
+  backdrop-filter: blur(var(--doc-blur-suave));
+  -webkit-backdrop-filter: blur(var(--doc-blur-suave));
+}
+
+.light .doc-hoja {
+  background-color: rgba(255, 255, 255, 0.95);
+}
+
+.light .doc-velo {
+  background-color: rgba(8, 47, 95, 0.38);
+}
+
+/* Respuesta física al pulsar: la escala se aplica al elemento, no al layout. */
+.doc-presion {
+  transition: transform var(--doc-duration-fast) var(--doc-ease-ios);
+}
+
+.doc-presion:active {
+  transform: scale(0.978);
+}
+
+/* =============================================================
+   MODO LIGERO
+   ── Qué apaga y por qué ──────────────────────────────────────
+   En un equipo sin GPU decente lo caro no son las animaciones:
+   son las CAPAS COMPUESTAS. Cada `backdrop-filter` obliga al
+   navegador a leer lo que hay debajo, desenfocarlo y volver a
+   componerlo en cada fotograma; con tres superficies apiladas, un
+   scroll baja a doce fotogramas por segundo. El modo ligero quita
+   el desenfoque, aplana las sombras grandes, sube la opacidad de
+   las superficies (para que sigan leyéndose sin vidrio) y acorta
+   las transiciones. NO cambia ni un color de estado ni una
+   etiqueta: la información es la misma.
+   ============================================================= */
+
+.doc-ligero .doc-console,
+.doc-console.doc-ligero {
+  --doc-blur: 0px;
+  --doc-blur-suave: 0px;
+  --doc-elevacion: 0 1px 0 var(--doc-border);
+  --doc-shadow-md: 0 1px 2px rgba(2, 12, 28, 0.2);
+  --doc-duration-normal: 140ms;
+  --doc-duration-slow: 180ms;
+  --doc-surface: rgba(255, 255, 255, 0.08);
+  --doc-surface-raised: rgba(255, 255, 255, 0.13);
+}
+
+.light .doc-ligero .doc-console,
+.light .doc-console.doc-ligero {
+  --doc-surface: #f4f8fd;
+  --doc-surface-raised: #ffffff;
+  --doc-elevacion: 0 1px 0 var(--doc-border);
+}
+
+.doc-ligero .glass,
+.doc-ligero .glass-heavy,
+.doc-ligero .doc-hoja,
+.doc-ligero .doc-velo {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.doc-ligero .doc-velo {
+  background-color: rgba(2, 12, 28, 0.78);
+}
+
+.light .doc-ligero .doc-velo {
+  background-color: rgba(8, 47, 95, 0.5);
+}
+
+.doc-ligero .doc-table thead th {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background-color: var(--doc-surface-raised);
+}
+
+/* El esqueleto deja de animarse: es una animación infinita en pantalla. */
+.doc-ligero .doc-skeleton::after {
+  animation: none;
+}
+
+/* -------------------------------------------------------------
+   MODO LIGERO, FUERA DEL MÓDULO
+
+   Apagar los efectos del módulo no movía la aguja porque el gasto
+   estaba fuera: el fondo del armazón son cuatro círculos de 42 rem
+   con `blur(120px)` animados en bucle, y el dock, la tira de
+   indicadores y la barra de filtros llevan `blur(40px)`–`blur(64px)`
+   permanente. Medido en la lista de expedientes con la CPU frenada
+   4×: 4 fps tal cual, 33 al esconder los círculos, 53 al quitar
+   también el desenfoque del vidrio.
+
+   La marca la pone `DocumentacionConsola` en `<html>` mientras el
+   módulo está abierto, y la retira al salir. Los círculos se
+   ESCONDEN en lugar de perder el desenfoque: sin él se verían cuatro
+   discos de color con el borde duro. Debajo queda `--mesh-base`, que
+   es un color plano, así que la pantalla sigue teniendo fondo y el
+   contraste del texto no cambia.
+   ------------------------------------------------------------- */
+
+html.doc-ligero-global .animate-blob {
+  display: none;
+}
+
+html.doc-ligero-global .glass,
+html.doc-ligero-global .glass-heavy {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* =============================================================
+   LISTAS LARGAS
+   `content-visibility` le dice al navegador que no calcule el
+   layout de lo que no se ve. Con veinticinco requisitos y sus
+   contadores es la diferencia entre pintar 25 filas y pintar 6.
+   ============================================================= */
+
+.doc-lista-virtual > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+
+/* =============================================================
+   COLOR DE CATEGORÍA POR TEMA
+
+   ── El problema ──────────────────────────────────────────────
+   El acento de cada categoría (verde menta para comercial, violeta
+   para auditoría…) se usa también como color de TEXTO: el
+   distintivo de la cabecera del expediente, el título del tipo de
+   garantía. Sobre el tinte del mismo color al 14 %, en tema oscuro
+   contrasta de sobra; en tema claro el verde menta cae a 1.5:1.
+
+   ── Por qué se resuelve en CSS y no en JavaScript ────────────
+   Porque una función que devuelve un `style` no sabe en qué tema
+   se está pintando, y pasarle el tema como argumento significaría
+   que cada componente tenga que conocerlo. `domain/categorias.tsx`
+   declara las DOS versiones del acento y esta regla elige.
+
+   ── Por qué la declaración va en la MISMA clase ──────────────
+   Un `--cat-texto: var(--cat-color)` declarado en un ancestro se
+   resuelve con el `--cat-color` DE ESE ancestro y los descendientes
+   heredan el valor ya calculado: poner `--cat-color` más abajo no
+   tendría efecto. De ahí que la clase `doc-cat` viaje en el mismo
+   elemento que las variables de la categoría.
+   ============================================================= */
+
+.doc-cat {
+  --cat-texto: var(--cat-color, currentColor);
+}
+
+.light .doc-cat {
+  --cat-texto: var(--cat-color-claro, var(--cat-color, currentColor));
+}
+
+/* =============================================================
+   ARMAZÓN DEL MÓDULO
+
+   ── Por qué el vidrio del armazón se atempera aquí ───────────
+   La cabecera y la navegación del módulo se pintan sobre `.glass`,
+   que en tema oscuro es blanco al 10 % con desenfoque. Sumado al
+   lavado de la página, el fondo efectivo de esos dos paneles sube
+   a una luminancia de 0.15: sobre eso, NINGÚN texto claro llega al
+   4.5:1 de la WCAG AA —ni el blanco puro—, así que el problema no
+   estaba en la tinta sino en el fondo. Medido en un navegador real
+   por `qa/sonda-contraste.mjs`.
+
+   Dentro del módulo, `.glass` pasa a apoyarse en el azul del
+   fondo en lugar de aclararlo. Se conserva el desenfoque y el
+   borde —la identidad Liquid Glass sigue ahí—, y de paso hay una
+   capa translúcida menos que recomponer en cada fotograma.
+   ============================================================= */
+
+.doc-console.glass,
+.doc-console .glass,
+.doc-console.glass-heavy,
+.doc-console .glass-heavy {
+  background-color: rgba(9, 24, 46, 0.72);
+}
+
+.light .doc-console.glass,
+.light .doc-console .glass,
+.light .doc-console.glass-heavy,
+.light .doc-console .glass-heavy {
+  background-color: rgba(255, 255, 255, 0.82);
+}
+
+/* En modo ligero, además, se aplanan del todo (ver el bloque del
+   modo ligero: quita el desenfoque). */
+.doc-ligero .doc-console.glass,
+.doc-ligero .doc-console .glass,
+.doc-ligero .doc-console.glass-heavy,
+.doc-ligero .doc-console .glass-heavy {
+  background-color: rgba(9, 24, 46, 0.96);
+}
+
+.light .doc-ligero .doc-console.glass,
+.light .doc-ligero .doc-console .glass,
+.light .doc-ligero .doc-console.glass-heavy,
+.light .doc-ligero .doc-console .glass-heavy {
+  background-color: #ffffff;
 }

@@ -27,36 +27,54 @@ interface IntentStyle {
   text: string;
 }
 
+/**
+ * Estilos por intención, expresados con los TONOS del tema.
+ *
+ * ── El fallo que corrige ────────────────────────────────────────────────────
+ * Estos chips llevaban colores fijos de Tailwind pensados para vidrio oscuro
+ * (`bg-cyan-500/15 text-cyan-200`). Sobre el tema claro, un `text-cyan-200` es
+ * casi blanco: el chip se veía, pero su etiqueta no. Medido: 1.6:1, frente al
+ * 4.5:1 que exige la WCAG AA.
+ *
+ * La corrección no es «poner otro azul»: es que el color lo elija el TEMA. Cada
+ * intención pide su trío `--tone-<nombre>-{bg,fg,ring,dot}`, que `src/index.css`
+ * declara dos veces —una por tema— con contraste comprobado. El componente pide
+ * la intención y no sabe de colores, que es lo que permite añadir un tema nuevo
+ * sin tocar un solo `.tsx`.
+ *
+ * `features/documentacion/__tests__/contraste.test.ts` mide estos tonos en los
+ * dos temas y falla por debajo del umbral.
+ */
 export const INTENT: Record<Intent, IntentStyle> = {
   neutral: {
-    chip: "bg-[color:var(--fill-2)] text-ink-soft ring-1 ring-[color:var(--hairline)]",
-    dot: "bg-slate-400",
-    text: "text-ink-soft",
+    chip: "bg-[color:var(--tone-neutral-bg)] text-[color:var(--tone-neutral-fg)] ring-1 ring-[color:var(--tone-neutral-ring)]",
+    dot: "bg-[color:var(--tone-neutral-dot)]",
+    text: "text-[color:var(--tone-neutral-fg)]",
   },
   info: {
-    chip: "bg-cyan-500/15 text-cyan-200 ring-1 ring-cyan-400/30",
-    dot: "bg-cyan-400",
-    text: "text-cyan-300",
+    chip: "bg-[color:var(--tone-info-bg)] text-[color:var(--tone-info-fg)] ring-1 ring-[color:var(--tone-info-ring)]",
+    dot: "bg-[color:var(--tone-info-dot)]",
+    text: "text-[color:var(--tone-info-fg)]",
   },
   success: {
-    chip: "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30",
-    dot: "bg-emerald-400",
-    text: "text-emerald-300",
+    chip: "bg-[color:var(--tone-exito-bg)] text-[color:var(--tone-exito-fg)] ring-1 ring-[color:var(--tone-exito-ring)]",
+    dot: "bg-[color:var(--tone-exito-dot)]",
+    text: "text-[color:var(--tone-exito-fg)]",
   },
   warning: {
-    chip: "bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/30",
-    dot: "bg-amber-400",
-    text: "text-amber-300",
+    chip: "bg-[color:var(--tone-aviso-bg)] text-[color:var(--tone-aviso-fg)] ring-1 ring-[color:var(--tone-aviso-ring)]",
+    dot: "bg-[color:var(--tone-aviso-dot)]",
+    text: "text-[color:var(--tone-aviso-fg)]",
   },
   danger: {
-    chip: "bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/30",
-    dot: "bg-rose-400",
-    text: "text-rose-300",
+    chip: "bg-[color:var(--tone-peligro-bg)] text-[color:var(--tone-peligro-fg)] ring-1 ring-[color:var(--tone-peligro-ring)]",
+    dot: "bg-[color:var(--tone-peligro-dot)]",
+    text: "text-[color:var(--tone-peligro-fg)]",
   },
   accent: {
-    chip: "bg-indigo-500/15 text-indigo-200 ring-1 ring-indigo-400/30",
-    dot: "bg-indigo-400",
-    text: "text-indigo-300",
+    chip: "bg-[color:var(--tone-acento-bg)] text-[color:var(--tone-acento-fg)] ring-1 ring-[color:var(--tone-acento-ring)]",
+    dot: "bg-[color:var(--tone-acento-dot)]",
+    text: "text-[color:var(--tone-acento-fg)]",
   },
 };
 

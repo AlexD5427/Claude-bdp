@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { useConfig, type ThreeQuality } from "../lib/configStore";
 
@@ -19,10 +19,40 @@ import { useConfig, type ThreeQuality } from "../lib/configStore";
  *      Configuración, or the user prefers reduced motion, it renders nothing and
  *      the CSS {@link ./MeshBackground} remains as the fallback.
  */
+/**
+ * ¿Ha pedido alguien apagar los efectos «desde fuera»?
+ *
+ * El modo ligero de Documentación marca `<html>` con `doc-ligero-global`
+ * mientras ese módulo está abierto (ver `DocumentacionConsola`). La marca es una
+ * clase y no un ajuste del sistema a propósito: es una preferencia de UN módulo
+ * y se retira al salir, sin tocar lo que el usuario haya elegido en
+ * Configuración.
+ *
+ * Este lienzo es el efecto más caro del armazón en un equipo sin aceleración por
+ * hardware, donde el sombreador se dibuja en el procesador. Ocultarlo con CSS no
+ * bastaría: el bucle de dibujado seguiría corriendo contra un lienzo invisible.
+ * Al leer la marca aquí, el efecto se desmonta y el bucle se detiene de verdad.
+ */
+function useEfectosApagadosDesdeFuera(): boolean {
+  const [apagados, setApagados] = useState(
+    () => typeof document !== "undefined" && document.documentElement.classList.contains("doc-ligero-global"),
+  );
+  useEffect(() => {
+    const raiz = document.documentElement;
+    const observador = new MutationObserver(() => {
+      setApagados(raiz.classList.contains("doc-ligero-global"));
+    });
+    observador.observe(raiz, { attributes: true, attributeFilter: ["class"] });
+    return () => observador.disconnect();
+  }, []);
+  return apagados;
+}
+
 export function ThreeBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { theme } = useTheme();
   const config = useConfig();
+  const efectosApagados = useEfectosApagadosDesdeFuera();
   // Keep the latest theme reachable from the (long-lived) render loop.
   const themeRef = useRef(theme);
   themeRef.current = theme;
@@ -32,7 +62,7 @@ export function ThreeBackground() {
     typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  const active = config.enableThree && !config.reduceMotion && !prefersReduced;
+  const active = config.enableThree && !config.reduceMotion && !prefersReduced && !efectosApagados;
   const quality = config.threeQuality;
 
   useEffect(() => {

@@ -33,10 +33,23 @@
     --glass-shadow-heavy: 0 16px 48px rgba(0, 0, 0, 0.35);
     --glass-inset-top: rgba(255, 255, 255, 0.45);
 
-    /* Ink (text) */
+    /* ---- Ink (text) ----------------------------------------------
+       ── Por qué son OPACOS y no `rgba(..., 0.5)` ─────────────────
+       El contraste de un color translúcido depende de la superficie
+       que tenga debajo, y en esta aplicación el mismo texto tenue
+       aparece sobre el fondo pelado, sobre una tabla y sobre un
+       panel elevado: tres fondos, tres contrastes. Con
+       `rgba(226,232,240,0.5)` el tenue caía a 4.26:1 sobre el panel
+       elevado —por debajo del 4.5:1 que exige la WCAG AA— y era
+       justamente el token de las ayudas, los placeholders y las
+       etiquetas de los gráficos: el texto que más cuesta leer.
+       Ahora cada peldaño declara su color y
+       `features/documentacion/__tests__/contraste.test.ts` mide los
+       tres sobre las cuatro superficies en los dos temas.
+       -------------------------------------------------------------- */
     --ink: #f8fafc;
-    --ink-soft: rgba(226, 232, 240, 0.72);
-    --ink-faint: rgba(226, 232, 240, 0.5);
+    --ink-soft: #d5dee9;
+    --ink-faint: #b3c1d1;
     --ink-shadow: rgba(2, 8, 23, 0.45);
 
     /* Subtle fills used for inner pills / placeholders */
@@ -119,9 +132,11 @@
     --glass-shadow-heavy: 0 18px 48px rgba(8, 47, 95, 0.18);
     --glass-inset-top: rgba(255, 255, 255, 0.95);
 
+    /* Misma escala, con los valores del tema claro. El tenue pasa de
+       2.89:1 a más de 4.5:1 sobre el fondo institucional. */
     --ink: #0a2747;
-    --ink-soft: rgba(13, 47, 84, 0.72);
-    --ink-faint: rgba(13, 47, 84, 0.5);
+    --ink-soft: #33506f;
+    --ink-faint: #47617c;
     --ink-shadow: rgba(255, 255, 255, 0.55);
 
     --fill-1: rgba(8, 47, 95, 0.05);
