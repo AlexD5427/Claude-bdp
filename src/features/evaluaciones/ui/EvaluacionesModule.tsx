@@ -62,7 +62,8 @@ import {
   transicionar,
   type Transicion,
 } from "../api/client";
-import { conexionStore, enlacePublico } from "../api/connection";
+import { conexionStore, diagnosticoEnlace } from "../api/connection";
+import { EnlacePublicoCompacto } from "./EnlacePublico";
 import { CATEGORIA_LABEL, ESTADOS, ESTADO_LABEL, type DocumentoEvaluacion, type EstadoBackend, type ResumenEvaluacion } from "../domain/model";
 import {
   aplicarFiltros,
@@ -80,7 +81,6 @@ import { ImportPanel } from "../imports/ImportPanel";
 import { ConnectionPanel } from "./ConnectionPanel";
 import {
   BarraCarga,
-  BotonCopiar,
   BotonPrimario,
   BotonSecundario,
   EsqueletoTabla,
@@ -267,10 +267,16 @@ export function EvaluacionesModule() {
       case "resultados":
         setResultadosDe(item);
         return;
-      case "copiarEnlace":
-        await navigator.clipboard?.writeText(enlacePublico(item.codigo));
-        toast.success("Enlace público copiado.");
+      case "copiarEnlace": {
+        // Copiar un enlace que no puede funcionar fuera de este navegador y decir
+        // «copiado» es exactamente cómo se enviaron enlaces muertos a los
+        // postulantes. Se copia igual —sirve para probar aquí— pero se dice.
+        const diagnostico = diagnosticoEnlace(item.codigo);
+        await navigator.clipboard?.writeText(diagnostico.enlace);
+        if (diagnostico.portatil) toast.success("Enlace público copiado.");
+        else toast.warning(`Enlace copiado, pero solo abre en este navegador. ${diagnostico.motivo}`);
         return;
+      }
       case "publicar":
         await publicarDesdeListado(item);
         return;
@@ -828,7 +834,9 @@ function BarraSuperior({
           {demostracion && (
             <>
               <strong>Modo demostración.</strong> Los datos viven solo en este navegador: no hay libro de cálculo ni
-              resultados compartidos con el equipo. Configura el backend cuando lo tengas listo.
+              resultados compartidos con el equipo.{" "}
+              <strong>Los enlaces que publiques aquí no abrirán en el equipo de nadie más</strong>, porque la evaluación
+              no existe fuera de este navegador. Configura el backend antes de convocar a nadie.
             </>
           )}
           {!demostracion && sinInstalar && (
@@ -934,7 +942,7 @@ function Tarjetas({
                   {item.intentos} intento{item.intentos === 1 ? "" : "s"}
                 </button>
               )}
-              {item.estado === "publicada" && <BotonCopiar texto={enlacePublico(item.codigo)} etiqueta="Enlace" />}
+              {item.estado === "publicada" && <EnlacePublicoCompacto codigo={item.codigo} />}
             </div>
           </div>
         </motion.article>

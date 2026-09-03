@@ -41,6 +41,39 @@ const URL_BACKEND = "https://script.google.com/macros/s/AKfycb…/exec";
 Las acciones del candidato **no llevan llave de administración**. Si tu página
 envía `llaveAdmin`, quítala: no la necesita y es un secreto de despliegue.
 
+### 1.1 · El enlace dice a qué despliegue pertenece
+
+El enlace que reparte el módulo tiene esta forma:
+
+```
+https://…/#/evaluacion/EV-ANAL-E7AV?b=AKfycbz…
+                        └ código ┘   └ despliegue ┘
+```
+
+El parámetro `b` es el **identificador del despliegue** de Apps Script (y `bd`,
+si existe, el dominio de Workspace del despliegue `/a/macros/<dominio>/…`). Está
+ahí porque el navegador de un postulante no tiene configuración alguna: sin esa
+referencia, la página no puede saber a qué libro pertenece la evaluación. Fue
+exactamente el fallo que se arregló en
+[`ENLACE_PUBLICO.md`](./ENLACE_PUBLICO.md).
+
+Si construyes otro frontend, respeta estas dos reglas:
+
+1. **Reconstruye la URL, no la aceptes.** De `b` sale
+   `https://script.google.com/macros/s/<b>/exec` y de `b`+`bd` sale
+   `https://script.google.com/a/macros/<bd>/s/<b>/exec`. Valida `b` contra
+   `^[A-Za-z0-9_-]{20,200}$` y `bd` contra `^[A-Za-z0-9.-]{3,120}$`. Nunca
+   aceptes una URL completa desde la barra de direcciones: si lo haces, tu página
+   puede ser usada para enviar los datos de un postulante a un servidor
+   cualquiera.
+2. **No guardes esa referencia** en `localStorage` ni la mezcles con la
+   configuración de administración, y no envíes la llave hacia ella.
+
+Cuando el enlace no traiga referencia y tu página no tenga un valor propio de
+configuración, **dilo**: «este enlace no indica a qué servidor pertenece». Caer en
+un almacén local vacío y contestar «no existe ninguna evaluación con ese código»
+manda a buscar el problema donde no está.
+
 ## 2 · Cómo se llama al backend
 
 Tres reglas que Apps Script impone. Si falla una, la llamada falla de una forma
@@ -113,6 +146,13 @@ Si `disponible` es `false`, muestra `mensaje` y **para**. Los motivos posibles:
 | `ventana_cerrada` | El plazo terminó el <fecha>. |
 | `sin_version` | Problema de configuración: avisar al equipo. |
 | `no_disponible` | Genérico. |
+
+Y trata aparte el error `RATE_LIMITED` de `startAttempt`: significa que muchas
+personas están entrando a la vez por el mismo enlace (el cupo es de 40 por
+minuto). No es algo que el postulante pueda resolver, así que **espera y reintenta
+solo**, reutilizando el MISMO `solicitudId` para no duplicar el intento si el
+primero sí llegó a crearse. La implementación de referencia lo hace con veinte
+segundos y una cuenta atrás visible.
 
 Los campos de `participante.campos` son los que hay que pedir: cada uno trae
 `clave`, `etiqueta` y `obligatorio`. `nombre` y `documento` **siempre** están y

@@ -113,8 +113,17 @@ var EV_LIMITS = {
    * el barrido automático cierre un intento mientras su envío está viajando.
    */
   SWEEP_GRACE_SECONDS: 120,
-  /** Intentos de inicio permitidos por código y minuto. */
-  START_RATE_PER_MINUTE: 12,
+  /**
+   * Intentos de inicio permitidos por código y minuto.
+   *
+   * El número anterior (12) estaba pensado contra el abuso y no contra el uso
+   * real: una convocatoria en la que veinte personas abren el enlace a la vez
+   * —una sala, un aviso por WhatsApp— agotaba el cupo y ocho candidatos recibían
+   * «se alcanzó el límite», que no es un mensaje que un postulante pueda
+   * resolver. Con 40 caben las convocatorias que hace el área y el freno sigue
+   * existiendo; además, el cliente reintenta solo cuando se topa con él.
+   */
+  START_RATE_PER_MINUTE: 40,
   /** Vida del caché del payload público de una versión, en segundos. */
   PUBLIC_CACHE_SECONDS: 1800
 };

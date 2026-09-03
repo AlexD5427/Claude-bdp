@@ -31,7 +31,7 @@ import {
   type Envelope,
   type AppErrorEvaluaciones,
 } from "./envelope";
-import { clienteId, conexion, problemaDeConexion } from "./connection";
+import { clienteId, conexion, conexionEsDeEnlace, problemaDeConexion, type Conexion } from "./connection";
 import { ejecutarEnDemostracion } from "./demoBackend";
 
 const TIMEOUT_LECTURA_MS = 20000;
@@ -43,6 +43,15 @@ export interface OpcionesPeticion {
   timeoutMs?: number;
   /** Envía la llave de administración. Las acciones del candidato no la mandan. */
   conLlave?: boolean;
+  /**
+   * Destino explícito para esta llamada, en lugar de la conexión activa.
+   *
+   * Existe para una sola cosa: comprobar un enlace público **como lo haría el
+   * postulante**, contra el despliegue que el enlace lleva dentro y sin llave. Se
+   * pasa por petición y no cambiando la conexión global a propósito: mutar la
+   * conexión mientras otra llamada viaja le quitaría la llave a esa otra.
+   */
+  destino?: { url: string };
 }
 
 interface CuerpoPeticion {
@@ -119,7 +128,9 @@ async function enviar<T>(
   opciones: OpcionesPeticion,
   timeoutMs: number,
 ): Promise<Result<Envelope<T>, AppErrorEvaluaciones>> {
-  const activa = conexion();
+  const activa: Conexion = opciones.destino
+    ? { ...conexion(), modo: "apps-script", url: opciones.destino.url, llave: "" }
+    : conexion();
 
   // Modo demostración: no hay red. Se resuelve contra el simulador local, que
   // habla exactamente el mismo contrato.
@@ -182,7 +193,13 @@ function cuerpoBase(
     payload,
     cliente: clienteId(),
   };
-  if (opciones.conLlave !== false && activa.llave) cuerpo.llaveAdmin = activa.llave;
+  // La llave NUNCA viaja cuando el destino lo eligió un enlace público. El
+  // parámetro solo puede señalar otro despliegue de Apps Script, pero incluso así
+  // la llave de administración no tiene por qué salir hacia un despliegue que no
+  // es el configurado: si un reclutador abre en su propio navegador el enlace de
+  // otra instalación, se comporta como lo que es —una visita anónima—.
+  const permitida = opciones.conLlave !== false && !conexionEsDeEnlace() && !opciones.destino;
+  if (permitida && activa.llave) cuerpo.llaveAdmin = activa.llave;
   return cuerpo;
 }
 

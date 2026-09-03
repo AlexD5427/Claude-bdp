@@ -199,7 +199,30 @@ submitAttempt   { intentoId, token, respuestas[], eventos[], automatico }
 
 Si el candidato vuelve a abrir el enlace con un intento en curso, `startAttempt`
 devuelve `retomado: true` con el MISMO `intentoId`, su tiempo restante real y sus
-`respuestasPrevias`. **Recargar no reinicia nada.**
+`respuestasPrevias`. **Recargar no reinicia nada.** La reanudación se reconoce por
+el DOCUMENTO del participante, no por el navegador: recargar, cambiar de pestaña o
+incluso de equipo lleva al mismo intento.
+
+`startAttempt` puede responder `RATE_LIMITED` cuando muchas personas abren el
+mismo enlace en el mismo minuto (el cupo es de 40). No es un error del postulante:
+espera y reintenta **con el mismo `solicitudId`**, que es lo que garantiza que no
+se cree un segundo intento si el primero sí llegó a crearse.
+
+### El enlace del candidato
+
+```
+https://<aplicación>/#/evaluacion/<codigo>?b=<despliegue>[&bd=<dominio>]
+```
+
+`b` es el identificador del despliegue de Apps Script; `bd`, el dominio de
+Workspace cuando el despliegue es `/a/macros/<dominio>/…`. El navegador del
+postulante no tiene configuración, así que la referencia del enlace es lo único
+que le dice a qué libro pertenece la evaluación.
+
+**Reconstruye la dirección a partir del identificador; no aceptes una URL desde la
+barra de direcciones.** El detalle, con el motivo de seguridad, está en
+[`ENLACE_PUBLICO.md`](./ENLACE_PUBLICO.md) y en
+[`FRONTEND_POSTULANTES.md`](./FRONTEND_POSTULANTES.md) §1.1.
 
 ---
 
