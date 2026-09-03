@@ -15,8 +15,28 @@ following provisions.
 - Dialogs and drawers trap Escape and lock body scroll; the confirm button
   receives initial focus.
 
+## Contrast, measured
+
+Documentación does not rely on eyeballing: `qa/sonda-contraste.mjs` composites
+translucent backgrounds layer by layer (the way the browser does) and checks
+**every visible text node** against the AA ratio for its size — 1897 nodes across
+8 screens × 2 themes on the last run. Seven failures were found and fixed,
+including an `--ink-faint` at 2.89:1 in the light theme and a category accent used
+as text colour at 1.5:1. Details and the before/after table live in
+DESIGN_SYSTEM.md.
+
 ## Semantics
 
+- Custom dropdowns built on a `<button>` carry an explicit `aria-label` with the
+  field name **and the current value** (`Cargo: OFICIAL DE NEGOCIOS`). Without it
+  the accessible name is taken from the wrapping `<label>` — a `<button>` is a
+  labelable control — and screen readers announced the whole help paragraph
+  without ever saying what was selected.
+- The expediente's sections are a real `tablist`/`tab` pair (← / → move between
+  them); the wizard's category cards are a `radiogroup` with arrow keys, Home and
+  End; the sheet-count control is a text input with `inputMode="numeric"` and an
+  `sr-only` label, never `type="number"` (the mouse wheel would silently change
+  counts while scrolling a list of 25 requisitos).
 - Tables use `<caption>` (sr-only), `<th scope="col">`, and sortable headers with
   descriptive `aria-label`s.
 - Choice questions render as `fieldset` + `radiogroup`/`group` with proper

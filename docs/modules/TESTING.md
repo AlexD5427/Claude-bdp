@@ -44,6 +44,36 @@ Library, jsdom):
 - `content/locale/__tests__/locale.test.ts` — es-MX active, Spanish copy, no
   leftover English in key labels, formatters.
 
+### Documentación
+
+The module's suites run the **real** `.gs` backend inside Node
+(`scripts/documentacion-backend.mjs` loads all 22 files in a VM with doubles for
+`SpreadsheetApp`, `LockService`, `CacheService`), so a change in a `.gs` file
+shows up here:
+
+- `backend.instalacion|migracion|expedientes|workflow|reportes|gobernanza|concurrencia|volumen|regresion`
+  — install, migrations (simulated and applied twice for idempotence), states,
+  workflow, reports, governance, versioning, 1 000 expedientes, legacy actions.
+- `backend.auxiliares` — the three `Auxiliar` columns with the data they really
+  have: gaps, duplicates, dirty headers. Covers the data-destroying bug where a
+  new value was written over an existing row.
+- `cacheYCola` — local copy, outbound queue, coalescing, retry policy.
+- `cargaYRendimiento` — loading screen floor/ceiling, light-mode preference.
+- `ventanaExpediente` — focus trap, scroll-lock reference counting, sheet counter.
+- `contraste` — the colour engine: alpha compositing, luminance, AA thresholds.
+- `wizard`, `altaRedundancia`, `consola`, `cliente`, `dominio`,
+  `informeMensual.backend` — the alta path, draft/catalogue redundancy, the
+  console against the real backend, transport, domain and the monthly report.
+
+Beyond unit tests, `npm run doc:check` runs 26 coherence checks that a compiler
+cannot see in Apps Script (duplicate globals, actions the client calls and the
+backend does not serve *and the reverse*, catalogue counts per branch, retired
+documents, subsections, sheet counting), and `qa/` holds five **probes** that
+measure in a real browser: contrast of every visible text, frames per second with
+the CPU throttled, the full alta counting backend calls, the expediente window's
+modal obligations and offline work with the network actually cut. See
+[`qa/README.md`](../../qa/README.md).
+
 ## Results
 
 At delivery: **typecheck passes**, **all Vitest suites pass**, and the

@@ -124,9 +124,18 @@ respaldo propio antes de empezar.
 error**: Apps Script corta a los seis minutos. Vuelva a ejecutar el mismo menú;
 continúa donde quedó. Repita hasta que informe que terminó.
 
-**24.** Abra la hoja `MigracionesDocumentacion`. Debe ver cuatro filas
-—`4.0.0-estructura`, `4.0.1-catalogos`, `4.0.2-expedientes`,
-`4.0.3-resumenes`— todas en estado completado.
+**24.** Abra la hoja `MigracionesDocumentacion`. Debe ver **cinco** filas
+—`4.0.0-estructura`, `4.0.1-catalogos`, `4.0.2-expedientes`, `4.0.3-resumenes` y
+`5.0.0-hojas-fisicas`— todas en estado completado.
+
+> **Qué hace la quinta**
+> `5.0.0-hojas-fisicas` crea la columna `hojas_fisicas` en `ExpedienteDocumentos`
+> y las columnas de subsección y presentación en `CatalogoDocumentos`, siembra el
+> catálogo versión 3 (39 filas: 37 vigentes y 2 retiradas), crea la columna
+> `cargo_bdp` en `Auxiliar` sembrándola con los cargos que ya aparecen en los
+> expedientes, y **recupera** los conteos de hojas que estuvieran anotados en el
+> `DETALLE JSON` del libro anual sin pisar nada escrito a mano. Es idempotente y
+> se puede simular antes con `Documentación > Simular migración`.
 
 **25.** Abra `Expedientes` y revise cinco filas al azar contra la pestaña anual:
 nombre, fecha de ingreso, oficina y avance deben coincidir.
@@ -174,6 +183,31 @@ trabajo (`Solicitudes`, `Revisión`, `Aprobaciones`, `Prórrogas`, `Tareas`), la
 de información (`Reportes`, `Exportaciones`, `Notificaciones`, `Auditoría`) y
 `Configuración`. El panel debe mostrar cifras reales, no ceros; el listado debe
 mostrar sus expedientes.
+
+---
+
+## Parte 5 bis · Los cargos del banco (pasos 32a–32c)
+
+Este bloque es nuevo y es **manual a propósito**: el sistema puede crear la
+columna, pero la lista de cargos del banco sólo la tiene el área.
+
+**32a.** Abra la hoja **`Auxiliar`** del libro. Busque la columna con cabecera
+**`cargo_bdp`**. Si no está, ejecútese `Documentación > Instalar o actualizar
+modelo`: la crea vacía al final de la hoja.
+
+**32b.** **Pegue la lista de cargos** en esa columna, empezando en la fila 2, uno
+por fila y **sin filas vacías en medio**. Da igual el orden y da igual si hay
+repetidos: el sistema los ordena y quita duplicados al leerlos, y ya no pisa nada
+—el fallo que sí lo hacía se corrigió en esta versión—.
+
+**32c.** En la aplicación, abra el asistente de **Nuevo expediente**. El
+desplegable de **Cargo** debe traer la lista. Si sale vacío, pulse el botón
+**Actualizar** de la cabecera del módulo: el catálogo se guarda diez minutos en
+memoria y ese botón salta la caché.
+
+> **Compruebe también `agencia_bdp` y `gerencia_bdp`.** Sus cabeceras ya no
+> necesitan estar escritas exactamente igual —se reconocen normalizadas— pero
+> conviene dejarlas limpias, sin espacios de más.
 
 ---
 
@@ -284,6 +318,25 @@ del área sin ayuda técnica.
 - [ ] Un `auxiliar` puede cargar documentos pero no aprobar.
 - [ ] Nadie puede darse a sí mismo un rol mayor desde la web.
 - [ ] La auditoría registra quién consultó datos personales.
+
+### Legibilidad y velocidad
+
+- [ ] En los dos temas —claro y oscuro— todos los textos se leen sin esfuerzo,
+      incluidos los grises pequeños y los chips de estado.
+- [ ] En un equipo de oficina modesto, la lista de expedientes se desplaza sin
+      saltos. Si no: `Configuración > ¿Algo va mal? > Medir fluidez` y, si hace
+      falta, encender **modo ligero**.
+- [ ] Abrir un expediente por segunda vez es inmediato.
+- [ ] Recorrer un expediente con el tabulador **sin cambiar nada** y cerrarlo no
+      pregunta si descartar cambios.
+- [ ] Escribir un carnet que ya existe avisa antes de terminar el alta y ofrece
+      abrir el expediente que ya está.
+- [ ] Los requisitos que se archivan en papel piden el número de hojas, y el
+      número aparece en la columna `PAGINAS` del libro anual.
+- [ ] Los requisitos de garantía salen agrupados por subsección, como en la hoja
+      del área.
+- [ ] Cortar la conexión, cambiar un estado y guardar deja el cambio «pendiente»;
+      al volver la conexión se sincroniza solo y lo dice.
 
 ### Experiencia
 

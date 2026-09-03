@@ -68,9 +68,9 @@ Y se añade una cuarta:
 | Hoja | Una fila por | Notas |
 |---|---|---|
 | `Expedientes` | expediente | resúmenes materializados: avance, presentados, pendientes, observados |
-| `ExpedienteDocumentos` | requisito de un expediente | estado, páginas, observación, fechas |
+| `ExpedienteDocumentos` | requisito de un expediente | estado, hojas del legajo físico, observación, fechas |
 | `ExpedienteProrrogas` | prórroga concedida | la nueva sustituye a la vigente |
-| `CatalogoDocumentos` | documento exigible | 38 filas semilla; editable sin tocar código |
+| `CatalogoDocumentos` | documento exigible | 39 filas semilla (37 vigentes + 2 retiradas); subsección, presentación física/digital y conteo de hojas; editable sin tocar código |
 | `SolicitudesDocumentales` | petición enviada | canal, destinatario, plazo, estado |
 | `SolicitudDocumentos` | documento dentro de una petición | permite cierre parcial |
 | `RevisionesDocumentales` | revisión de un documento | append-only, con motivo tipificado |
@@ -87,9 +87,11 @@ Y se añade una cuarta:
 | `ConfiguracionDocumentacion` | clave de configuración | lista blanca de claves |
 | `MigracionesDocumentacion` | migración ejecutada | versión, lote, resultado |
 
-Más `Auxiliar`, la hoja de catálogos sueltos (agencias y gerencias) que crece
-sola: cuando aparece un valor nuevo se añade, y **nunca se quita uno existente**
-aunque ningún expediente lo use.
+Más `Auxiliar`, la hoja de catálogos sueltos —**`agencia_bdp`, `gerencia_bdp` y
+`cargo_bdp`**— que crece sola: cuando aparece un valor nuevo se añade, y **nunca
+se quita uno existente** aunque ningún expediente lo use. La cabecera se reconoce
+normalizada, así que `Cargo_BDP` o un espacio de más no dejan el desplegable
+vacío ni crean una columna duplicada.
 
 ### 2.2 El libro anual, ahora espejo
 
@@ -251,28 +253,43 @@ src/features/documentacion/
               progreso.ts      agrupación, totales, plazos en lenguaje llano
   api/        client.ts        transporte: requestId, unión de peticiones, reintentos
               acciones.ts      docApi: una función tipada por acción
+  domain/     contraste.ts     aritmética de color: composición alfa, luminancia, umbrales AA
   state/      consola.ts       estado de la consola, persistencia de preferencias
+              cacheExpedientes.ts  copia local de fichas (memoria + IndexedDB, 30 min)
+              colaSalida.ts        cambios pendientes de sincronizar, con reintentos
+              precarga.ts          precarga en lotes y apertura instantánea
+              rendimiento.ts       modo ligero: preferencia, señales del equipo, medición
   export/     xlsx.ts          generador .xlsx real, sin dependencias de servidor
   ui/         DocumentacionConsola.tsx   composición del módulo y capacidades
               DocShell.tsx               armazón: cabecera, navegación agrupada
               DocSyncIndicator.tsx       conexión, frescura del dato y guardado
               DocAttentionPanel.tsx      bandeja de atención, salud, actividad
-              DocExpedienteHeader.tsx    identidad, situación y trazabilidad
               DocStates.tsx              vacíos, errores, offline, modo degradado
               DocSkeletons.tsx           esqueletos con la forma del contenido
+              PantallaCarga.tsx          entrada del módulo, con tope duro de 3,2 s
+              DocAutodiagnostico.tsx     «¿Algo va mal?»: seis remedios y el modo ligero
               DocMotion.ts               duraciones, curvas y preferencia de movimiento
               DocViewTransitions.ts      View Transitions con detección y fallback
               documentacion.css          tokens del módulo (`--doc-*`)
               documentacion-motion.css   animaciones con propósito
+              pantalla-carga.css         el logo de documentos animado
               SeccionPanel.tsx           qué mirar hoy
               SeccionExpedientes.tsx     listado, filtros, alta, solicitud masiva
-              ExpedienteLateral.tsx      expediente completo en nueve pestañas
+              ExpedienteVentana.tsx      expediente completo, en hoja centrada
+              RequisitosExpediente.tsx   requisitos por subsección, hojas y filtros
+              AltaExpedienteWizard.tsx   alta en cinco pasos, en una sola escritura
+              SelectorAuxiliar.tsx       cargo, agencia y gerencia desde la hoja Auxiliar
               SeccionTrabajo.tsx         solicitudes, revisión, aprobaciones, tareas
               SeccionReportes.tsx        reportes, exportaciones, avisos, auditoría
               SeccionConfiguracion.tsx   catálogo, plazos, permisos, mantenimiento
-              piezas.tsx                 tabla responsive, lateral, confirmaciones
+              piezas.tsx                 tabla responsive, ventana, lateral, contador de hojas
               VistaLocal.tsx             el módulo anterior, como red de seguridad
 ```
+
+> La ficha del expediente se llamaba `ExpedienteLateral.tsx` y era un cajón
+> lateral; ahora es una hoja centrada (`ExpedienteVentana.tsx`). `DocExpedienteHeader.tsx`
+> se retiró: su contenido vive en la cabecera de la ventana. El detalle está en
+> [`DOCUMENTACION_2026-09_MODULO_INTEGRAL.md`](./DOCUMENTACION_2026-09_MODULO_INTEGRAL.md).
 
 `src/modules/Documentacion.tsx` queda como un reexport de una línea, así que las
 rutas y los menús de la aplicación no cambian.
@@ -439,17 +456,18 @@ abrirlo.
 ## 5. Verificación
 
 ```bash
-npm run doc:check    # 20 comprobaciones de coherencia
+npm run doc:check    # 26 comprobaciones de coherencia
 npm run typecheck    # tipos
-npx vitest run       # 519 pruebas
+npx vitest run       # 724 pruebas
 npm run build        # compilación
 ```
 
 `doc:check` comprueba lo que un compilador no puede ver en Apps Script:
 funciones duplicadas en el espacio global, acciones que el frontend llama y el
 backend no atiende **y al revés**, escrituras declaradas distinto en las dos
-partes, acciones heredadas que hayan desaparecido, el catálogo con sus 38
-documentos y sus códigos originales, y el vocabulario compartido.
+partes, acciones heredadas que hayan desaparecido, el catálogo con sus 39
+filas —recuentos por rama, retirados, subsecciones y conteo de hojas incluidos—, y
+el vocabulario compartido.
 
 Las pruebas del backend no son simulaciones: `scripts/documentacion-backend.mjs`
 carga los 22 archivos `.gs` reales en una máquina virtual de Node con dobles de
@@ -468,7 +486,12 @@ veces sobre un libro sembrado con datos heredados.
 | `backend.concurrencia` | versión de registro, idempotencia, bloqueo |
 | `backend.volumen` | 1 000 expedientes: hojas leídas y tamaño de respuesta |
 | `backend.regresion` | 23 acciones heredadas, 39 columnas, colores, menú |
+| `backend.auxiliares` | las tres columnas de `Auxiliar`: huecos, duplicados, cabeceras sucias |
 | `consola` | la interfaz contra el backend real, no contra datos falsos |
+| `cacheYCola` | copia local, cola de salida, coalescencia y reintentos |
+| `cargaYRendimiento` | pantalla de carga con topes y preferencia de modo ligero |
+| `ventanaExpediente` | foco, candado de scroll y contador de hojas |
+| `contraste` | el motor de color: composición alfa, luminancia y umbrales AA |
 
 ### 5.1 Verificación visual
 
@@ -479,9 +502,12 @@ verdad y **desvía todas sus llamadas al backend cargado en memoria**, de modo q
 las pantallas muestran datos que salieron del `doPost` real.
 
 Al terminar informa de las llamadas fallidas y de los errores de la consola del
-navegador, y deja las capturas en `docs/modules/img/documentacion/`. La última
-ejecución, ya con la consola rediseñada: 22 llamadas al backend, ninguna fallida,
-cero errores de consola.
+navegador, y deja las capturas en `docs/modules/img/documentacion/`.
+
+A esa comprobación se le sumaron cinco **sondas** que miden en lugar de mirar
+—contraste real de 1897 textos, fotogramas por segundo con la CPU estrangulada,
+el alta completa contando llamadas, la ventana del expediente y el trabajo sin
+conexión—. Están descritas una a una en [`qa/README.md`](../../qa/README.md).
 
 > **Lo que encontró esta comprobación**
 > En la vista de tarjetas del móvil, la fila era un `<button>` y dentro se

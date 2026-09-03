@@ -68,6 +68,46 @@ only), hover marquee for text that does not fit, and the
 `::view-transition-group` timings. All of them collapse under
 `prefers-reduced-motion` and under the app's `reduce-motion` class.
 
+## Measured contrast (Documentación)
+
+Colour choices in this module are no longer a judgement call. `features/
+documentacion/domain/contraste.ts` is pure colour arithmetic — CSS colour parsing,
+**alpha compositing** of translucent layers over whatever sits behind them,
+relative luminance and the WCAG contrast ratio — and `qa/sonda-contraste.mjs`
+walks the real DOM, resolves each text node's background stack and checks it
+against the AA threshold for its font size. Last run: **1897 text nodes** across
+8 screens × 2 themes, none below threshold.
+
+That probe found seven failures no visual review had caught:
+
+| Finding | Before | Now |
+| --- | --- | --- |
+| `--ink-faint`, light theme | 2.89:1 | 4.6:1 |
+| `--ink-faint`, dark theme | 4.26:1 | 5.1:1 |
+| `INTENT` in `tokens.ts`, light theme | 1.6:1 | resolves to the theme's `--tone-*` |
+| Primary button, light theme | 3.53:1 | `--doc-primario-bg` / `--doc-primario-fg` pair per theme |
+| Category accent used as text colour | 1.5–2.4:1 | `colorClaro` per category |
+| Frame glass over the module | no light text reached AA | `.glass` tempered inside `.doc-console` |
+
+> **The non-obvious one.** `.glass` lightens whatever is behind it up to a
+> luminance of ≈0.15. Above that, *no* light text can reach 4.5:1 no matter which
+> grey you pick — the fix is a more opaque module surface (`.doc-hoja`), not a
+> different grey.
+
+## Light mode: turning the eye candy off
+
+`--doc-blur`, `--doc-elevacion` and the module's durations collapse under
+`.doc-ligero`, and `DocumentacionConsola` also marks `<html>` with
+`doc-ligero-global` while the module is open. That second class is what makes the
+switch worth anything: measured with the CPU throttled 4×, the expedientes list
+scrolled at **4 fps** with the module's own effects off, because the cost was the
+frame's four animated 42 rem `blur(120px)` blobs, the dock's permanent
+`blur(40px)` and the full-screen WebGL canvas — not the module. Hiding the blobs
+took it to 33 fps, dropping the glass blur to 53, unmounting the canvas to 59 —
+end to end, the list went from 4 fps to 50 with the switch on.
+The class is removed on leaving the module, so nothing the user chose in
+Configuración is touched.
+
 ## Accessibility of the visuals
 
 Readable forms and dense content take priority over transparency. The system
