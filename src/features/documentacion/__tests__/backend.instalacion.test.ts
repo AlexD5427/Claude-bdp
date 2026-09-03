@@ -28,7 +28,7 @@ describe("documentación · instalación y estructura", () => {
     const res = h.pedir("documentacion.estado");
     expect(res.ok).toBe(true);
     expect(res.data.instalado).toBe(false);
-    expect(res.data.esquema).toBe(4);
+    expect(res.data.esquema).toBe(5);
     // El contrato nuevo y el histórico viajan juntos.
     expect(res.meta.requestId).toBeTruthy();
     expect(res.meta.timestamp).toBeTruthy();
@@ -101,26 +101,87 @@ describe("documentación · instalación y estructura", () => {
 });
 
 describe("documentación · catálogo único y aplicabilidad", () => {
-  it("el catálogo trae los 18 documentos generales en su orden funcional", () => {
+  it("el catálogo trae los 16 documentos generales vigentes en su orden", () => {
     const h = loadInstalledBackend();
     const catalogo = h.ok("documentacion.catalogo");
     const generales = catalogo.documentos.filter((d: any) => d.seccion === "generales");
+    const vigentes = generales.filter((d: any) => d.activo);
+    // 16 vigentes + los 2 retirados, que siguen en el catálogo para que los
+    // expedientes antiguos puedan mostrar su nombre.
+    expect(vigentes.length).toBe(16);
     expect(generales.length).toBe(18);
-    // El orden es el de la implementación anterior: la fotografía primero y el
-    // carnet de heredero al final.
-    expect(generales[0].codigo).toBe("foto-4x4");
-    expect(generales[generales.length - 1].codigo).toBe("carnet-heredero");
-    expect(catalogo.documentos.length).toBe(38);
+    // El orden es el de la lista del área: la fotografía primero y el carnet de
+    // heredero al final de los vigentes.
+    expect(vigentes[0].codigo).toBe("foto-4x4");
+    expect(vigentes[vigentes.length - 1].codigo).toBe("carnet-heredero");
+    expect(catalogo.documentos.length).toBe(39);
+
+    const retirados = generales.filter((d: any) => d.retirado);
+    expect(retirados.map((d: any) => d.codigo).sort()).toEqual(["cert-trabajo", "rc-iva"]);
+    expect(retirados.every((d: any) => d.activo === false)).toBe(true);
   });
 
-  it("solo certificados de trabajo, título y examen UIF admiten prórroga", () => {
+  it("solo el título académico y el examen UIF admiten prórroga", () => {
     const h = loadInstalledBackend();
     const catalogo = h.ok("documentacion.catalogo");
     const conProrroga = catalogo.documentos
-      .filter((d: any) => d.permiteProrroga)
+      .filter((d: any) => d.permiteProrroga && d.activo)
       .map((d: any) => d.codigo)
       .sort();
-    expect(conProrroga).toEqual(["cert-trabajo", "examen-uif", "titulo-legalizado"]);
+    expect(conProrroga).toEqual(["examen-uif", "titulo-legalizado"]);
+  });
+
+  it("el catálogo declara cómo se presenta cada requisito y cuáles cuentan hojas", () => {
+    const h = loadInstalledBackend();
+    const catalogo = h.ok("documentacion.catalogo");
+    const porCodigo = new Map<string, any>(catalogo.documentos.map((d: any) => [d.codigo, d]));
+
+    // La fotografía es solo digital y no cuenta hojas.
+    expect(porCodigo.get("foto-4x4").presentacionFisica).toBe("NO");
+    expect(porCodigo.get("foto-4x4").presentacionDigital).toBe("SI");
+    expect(porCodigo.get("foto-4x4").requiereConteoHojas).toBe(false);
+
+    // El asterisco de la lista del área es un dato, no un texto suelto.
+    expect(porCodigo.get("antecedentes-felcc").presentacionFisica).toBe("CONDICIONAL");
+    expect(porCodigo.get("rejap").presentacionFisica).toBe("CONDICIONAL");
+
+    // Físicos con contador.
+    for (const codigo of ["titulo-legalizado", "seguro-accidentes", "seguro-vida", "examen-uif"]) {
+      expect(porCodigo.get(codigo).presentacionFisica).not.toBe("NO");
+      expect(porCodigo.get(codigo).requiereConteoHojas).toBe(true);
+    }
+
+    // Ningún documento de garantía cuenta hojas: son fotocopias.
+    const garantiaConConteo = catalogo.documentos.filter(
+      (d: any) => d.seccion === "garantia" && d.requiereConteoHojas,
+    );
+    expect(garantiaConConteo).toEqual([]);
+  });
+
+  it("las subsecciones de garantía llegan resueltas por rama", () => {
+    const h = loadInstalledBackend();
+    const catalogo = h.ok("documentacion.catalogo");
+    const inmueble = catalogo.documentos.find((d: any) => d.codigo === "garante-inmueble");
+    // El mapa viaja completo: el mismo documento tiene un título distinto en
+    // Tipo 1 (pertenece al garante) y en Tipo 3 (pertenece al postulante).
+    expect(inmueble.subsecciones.COMERCIAL_1).toBe("1 Garante con Bien Inmueble");
+    expect(inmueble.subsecciones.COMERCIAL_3).toBe("Postulante con inmueble propio");
+
+    const tipo1 = catalogo.aplicabilidad.find(
+      (m: any) => m.tipoFuncionario === "COMERCIAL" && m.tipoGarantia === "COMERCIAL_1",
+    );
+    expect(tipo1.subsecciones).toEqual([
+      "1 Garante con Bien Inmueble",
+      "1 Garante Familiar (hasta 4to grado de consanguinidad)",
+    ]);
+
+    const tipo3 = catalogo.aplicabilidad.find(
+      (m: any) => m.tipoFuncionario === "COMERCIAL" && m.tipoGarantia === "COMERCIAL_3",
+    );
+    expect(tipo3.subsecciones).toEqual([
+      "Postulante con inmueble propio",
+      "1 Garante Familiar (hasta 4to grado de consanguinidad)",
+    ]);
   });
 
   it("cada rama comercial exige sus propios documentos de garantía", () => {
@@ -130,7 +191,14 @@ describe("documentación · catálogo único y aplicabilidad", () => {
       mapa.find((m: any) => m.tipoFuncionario === funcionario && m.tipoGarantia === garantia);
 
     const general = porClave("GENERAL", "NINGUNA");
-    expect(general.total).toBe(18);
+    expect(general.total).toBe(16);
+
+    // Los recuentos acordados con el área, rama por rama.
+    expect(porClave("COMERCIAL", "COMERCIAL_1").total).toBe(21);
+    expect(porClave("COMERCIAL", "COMERCIAL_2").total).toBe(25);
+    expect(porClave("COMERCIAL", "COMERCIAL_3").total).toBe(21);
+    expect(porClave("AUDITORIA", "NINGUNA").total).toBe(17);
+    expect(porClave("CUMPLIMIENTO", "NINGUNA").total).toBe(19);
 
     const tipo1 = porClave("COMERCIAL", "COMERCIAL_1");
     expect(tipo1.codigos).toContain("garante-inmueble");
@@ -155,6 +223,7 @@ describe("documentación · catálogo único y aplicabilidad", () => {
     const cumplimiento = porClave("CUMPLIMIENTO", "NINGUNA");
     expect(cumplimiento.codigos).toContain("examen-uif");
     expect(cumplimiento.codigos).toContain("lgi-ft");
+    expect(cumplimiento.codigos).toContain("djj-prohibiciones-cumplimiento");
     expect(cumplimiento.codigos).not.toContain("impedimento-auditor");
   });
 
@@ -173,25 +242,28 @@ describe("documentación · catálogo único y aplicabilidad", () => {
 
   it("editar el catálogo cambia lo que pide el formulario y refleja el espejo heredado", () => {
     const h = loadInstalledBackend();
+    /* Antes esta prueba desactivaba `rc-iva`. Ese requisito ya nace retirado en
+       el catálogo v3, así que desactivarlo no probaría nada: se desactiva el
+       carnet de heredero, que sí está vigente y es opcional. */
     const guardado = h.pedir("documentacion.catalogo.guardar", {
-      catalogo: [{ codigo: "rc-iva", nombre_visible: "RC-IVA (110/610) actualizado", activo: false }],
+      catalogo: [{ codigo: "carnet-heredero", nombre_visible: "Carnet de heredero (en revisión)", activo: false }],
     });
     expect(guardado.ok).toBe(true);
 
     const catalogo = h.ok("documentacion.catalogo");
-    const rcIva = catalogo.documentos.find((d: any) => d.codigo === "rc-iva");
-    expect(rcIva.nombre).toBe("RC-IVA (110/610) actualizado");
-    expect(rcIva.activo).toBe(false);
+    const heredero = catalogo.documentos.find((d: any) => d.codigo === "carnet-heredero");
+    expect(heredero.nombre).toBe("Carnet de heredero (en revisión)");
+    expect(heredero.activo).toBe(false);
 
-    // Desactivado deja de ser aplicable: 17 generales en lugar de 18.
+    // Desactivado deja de ser aplicable: 15 generales en lugar de 16.
     const general = catalogo.aplicabilidad.find(
       (m: any) => m.tipoFuncionario === "GENERAL" && m.tipoGarantia === "NINGUNA",
     );
-    expect(general.total).toBe(17);
+    expect(general.total).toBe(15);
 
     // Y el espejo heredado `_CATALOGO` sigue existiendo para las acciones viejas.
     const espejo = h.rowsOf("_CATALOGO");
-    expect(espejo.find((f) => f.id === "rc-iva")!.etiqueta).toBe("RC-IVA (110/610) actualizado");
+    expect(espejo.find((f) => f.id === "carnet-heredero")!.etiqueta).toBe("Carnet de heredero (en revisión)");
   });
 });
 

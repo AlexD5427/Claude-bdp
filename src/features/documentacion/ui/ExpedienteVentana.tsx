@@ -1,25 +1,41 @@
 /**
- * Expediente operativo.
+ * Expediente operativo: la ventana central del módulo.
  *
  * ── Qué es esta pantalla ────────────────────────────────────────────────────
- * El centro de operación del módulo. Todo lo que se puede hacer con un expediente
- * se hace aquí: marcar requisitos, revisar, aprobar, conceder prórrogas, pedir
- * documentación, abrir tareas, comentar, consultar el historial y exportar.
+ * El centro de operación. Todo lo que se puede hacer con un expediente se hace
+ * aquí: marcar requisitos, contar hojas de los físicos, revisar, aprobar,
+ * conceder prórrogas, pedir documentación, abrir tareas, comentar, consultar el
+ * historial y exportar.
  *
- * ── Tres decisiones que se notan al usarla ──────────────────────────────────
- * 1. **Edición rápida con guardado por bloque.** Marcar seis requisitos son seis
- *    cambios en la pantalla y UNA escritura. Mientras hay cambios sin guardar, la
- *    barra inferior lo dice y ofrece descartarlos.
- * 2. **Control de versión.** Cada requisito viaja con su versión. Si otra persona
+ * ── De cajón lateral a ventana central, y por qué ───────────────────────────
+ * Antes entraba como un panel desde la derecha con `max-w-5xl`. Un expediente
+ * Comercial Tipo 2 tiene VEINTICINCO requisitos, cada uno con sus chips de
+ * estado, su contador de hojas y su observación: en una columna estrecha se lee
+ * arrastrando, y arrastrando no se compara nada. Además, la mitad izquierda de un
+ * monitor quedaba vacía.
+ *
+ * Ahora es una hoja central grande (`HojaCentral`), con la cabecera
+ * redistribuida en tres bloques —identidad, situación y plazos— y el cuerpo en
+ * varias columnas en pantallas anchas. En móvil sigue siendo una sola columna.
+ *
+ * ── Cuatro decisiones que se notan al usarla ────────────────────────────────
+ * 1. **Apertura instantánea.** Si el expediente estaba precargado se pinta desde
+ *    la caché y se revalida en silencio; nunca se presenta una copia vieja como
+ *    fresca (ver `state/cacheExpedientes.ts`).
+ * 2. **Edición rápida con cola de salida.** Marcar seis requisitos son seis
+ *    cambios en la pantalla y UNA escritura, que además sobrevive a un recargado
+ *    (ver `state/salida.ts`). Y el guardado no miente: solo se dice «guardado»
+ *    cuando el backend lo confirma.
+ * 3. **Control de versión.** Cada requisito viaja con su versión. Si otra persona
  *    lo cambió mientras esta pantalla estaba abierta, el backend rechaza el
- *    guardado con `CONFLICTO_VERSION` y aquí se recarga el expediente en lugar de
- *    pisar su trabajo.
- * 3. **«Siguiente pendiente».** Lo calcula el backend priorizando lo observado.
+ *    guardado con `CONFLICTO_VERSION` y aquí se recarga en lugar de pisar su
+ *    trabajo.
+ * 4. **«Siguiente pendiente».** Lo calcula el backend priorizando lo observado.
  *    Es lo que convierte revisar veinte requisitos en pulsar veinte veces el mismo
  *    botón en lugar de buscar en la lista.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Download,
@@ -52,24 +68,30 @@ import {
   fechaCorta,
   fechaEnDias,
   fechaHora,
+  fisicosSinContar,
   textoPlazo,
+  totalHojasFisicas,
   type RequisitoVista,
 } from "../domain/progreso";
 import { useConsola } from "../state/consola";
+import { leerDeCache, reconciliar } from "../state/cacheExpedientes";
+import { pausarPrecarga, reanudarPrecarga } from "../state/precarga";
+import { encolarRequisitos, enviarEntrada, pendientesDeSincronizar, useSalida } from "../state/salida";
 import { descargarXlsx, nombreConFecha, unirLotes } from "../export/xlsx";
 import {
+  Aviso,
   Boton,
   Campo,
   ChipEstado,
   Confirmacion,
   Entrada,
   AreaTexto,
-  Lateral,
   Panel,
   Selector,
   TONO,
   type Notita,
 } from "./piezas";
+import { HojaCentral } from "./HojaCentral";
 import { DocExpedienteHeader } from "./DocExpedienteHeader";
 import { RequisitosExpediente } from "./RequisitosExpediente";
 import { DocError, DocVacio } from "./DocStates";
@@ -95,32 +117,126 @@ interface Props {
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }
 
-export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: Props) {
+/** Cambios de un requisito que la pantalla mantiene sin enviar. */
+export interface BorradorRequisito {
+  estado?: EstadoDocumento;
+  observaciones?: string;
+  hojasFisicas?: number;
+}
+
+export function ExpedienteVentana({ expedienteId, onCerrar, onCambio, avisar }: Props) {
   const { capacidades } = useConsola();
+  const salida = useSalida();
   const [pestana, setPestana] = useState<Pestana>("requisitos");
-  /** Cambios de requisito aún sin enviar: `id -> {estado?, observaciones?}`. */
-  const [borrador, setBorrador] = useState<Record<string, { estado?: EstadoDocumento; observaciones?: string }>>({});
+  /** Cambios de requisito aún sin enviar: `id -> {estado?, observaciones?, hojas?}`. */
+  const [borrador, setBorrador] = useState<Record<string, BorradorRequisito>>({});
   const [guardando, setGuardando] = useState(false);
-  const [dialogo, setDialogo] = useState<null | { tipo: "archivar" | "restaurar" | "aprobar" }>(null);
+  const [dialogo, setDialogo] = useState<null | { tipo: "archivar" | "restaurar" | "aprobar" | "cerrar" }>(null);
   const [exportando, setExportando] = useState(false);
   /** Último resultado de escritura, para el indicador de guardado. */
   const [ultimaEscritura, setUltimaEscritura] = useState<"ninguna" | "guardado" | "error" | "conflicto">("ninguna");
+  /** Aviso discreto cuando la revalidación encuentra que alguien se adelantó. */
+  const [avisoCache, setAvisoCache] = useState("");
   /**
    * Requisito en foco. Vive aquí y no dentro de la pestaña porque la cabecera
    * también lo mueve: «ir al requisito» del resumen y el botón «Detalle» de la
    * fila tienen que apuntar al mismo sitio.
    */
   const [foco, setFoco] = useState<string | null>(null);
+  /**
+   * Pintado en dos tiempos.
+   *
+   * ── Por qué ─────────────────────────────────────────────────────────────
+   * La ventana de un expediente Comercial Tipo 2 pinta veinticinco requisitos,
+   * cada uno con sus chips, su contador de hojas y su sello de presentación.
+   * Medido con la sonda de rendimiento y CPU estrangulada 4x, ese trabajo era de
+   * 1.2 s: el clic quedaba muerto ese tiempo aunque el dato estuviera en la
+   * caché, porque lo que costaba era PINTAR, no traer.
+   *
+   * Así que se pinta primero el armazón —cabecera, identidad, pestañas, avance—
+   * y el cuerpo entra en el fotograma siguiente. La ventana aparece de
+   * inmediato y la lista se completa sin que nadie espere mirando un vacío: en
+   * ese hueco va el esqueleto, que ya existía.
+   */
+  const [cuerpoListo, setCuerpoListo] = useState(false);
+  useEffect(() => {
+    if (!expedienteId) {
+      setCuerpoListo(false);
+      return;
+    }
+    setCuerpoListo(false);
+    // Dos fotogramas: el primero pinta el armazón, el segundo monta el cuerpo.
+    let segundo = 0;
+    const primero = requestAnimationFrame(() => {
+      segundo = requestAnimationFrame(() => setCuerpoListo(true));
+    });
+    return () => {
+      cancelAnimationFrame(primero);
+      cancelAnimationFrame(segundo);
+    };
+  }, [expedienteId]);
 
-  const expediente = useDatos<ExpedienteOperativo>(
-    () => docApi.obtenerExpediente(expedienteId as string, { historial: 80 }),
-    [expedienteId],
-    { activo: !!expedienteId },
-  );
+  /* Red de seguridad de la precarga: la lista la pausa al hacer clic y la
+     revalidación la reanuda al terminar. Si esa lectura no llega a ocurrir —sin
+     conexión, por ejemplo— la cola se quedaría pausada para siempre, así que al
+     cerrar la ventana se reanuda igual. */
+  useEffect(() => () => reanudarPrecarga(), []);
 
-  const datos = expediente.datos;
+  /**
+   * Copia local, si la hay: es lo que se pinta en el primer fotograma.
+   *
+   * Se lee de forma sincrónica —la caché vive en memoria— así que abrir un
+   * expediente precargado no muestra ni un esqueleto. La antigüedad se calcula
+   * aquí y se dice: una copia de hace dos minutos NO se presenta como fresca.
+   */
+  const deCache = useMemo(() => (expedienteId ? leerDeCache(expedienteId) : null), [expedienteId]);
+
+  /**
+   * Carga y revalidación.
+   *
+   * `useDatos` ya descarta las respuestas que llegan tarde y no llama a
+   * `setState` si el componente se desmontó. Aquí solo se añade la
+   * reconciliación con la caché: al llegar la respuesta se compara la versión y,
+   * si subió, se avisa con discreción.
+   */
+  const cargar = useCallback(async () => {
+    /* Regla 1 de la precarga: nunca compite con lo que la persona pide ahora.
+       Apps Script serializa por libro, así que dos lotes especulativos en vuelo
+       convierten esta lectura —la única que alguien está esperando— en la
+       tercera de la fila. */
+    pausarPrecarga();
+    try {
+      const detalle = await docApi.obtenerExpediente(expedienteId as string, { historial: 80 });
+      const res = reconciliar(detalle);
+      if (res.resultado === "adelantada") {
+        /* El número solo se menciona si de verdad cambió. Cuando lo que se movió
+           fue un requisito —el caso habitual— la versión de la cabecera sigue
+           igual, y escribir «versión 2 → 2» convierte un aviso útil en una
+           incoherencia que le hace dudar de todo lo demás. */
+        const cambioDeVersion = res.versionNueva !== res.versionAnterior;
+        setAvisoCache(
+          cambioDeVersion
+            ? `Otra persona modificó este expediente (versión ${res.versionAnterior} → ${res.versionNueva}). Se muestra la versión actual.`
+            : "Otra persona modificó algún documento de este expediente. Se muestra la versión actual.",
+        );
+      } else {
+        setAvisoCache("");
+      }
+      return detalle;
+    } finally {
+      reanudarPrecarga();
+    }
+  }, [expedienteId]);
+
+  const expediente = useDatos<ExpedienteOperativo>(cargar, [expedienteId], { activo: !!expedienteId });
+
+  /* Lo que se pinta: la respuesta del servidor si ya llegó, la copia local si
+     no. Nunca al revés: en cuanto hay dato fresco, manda el fresco. */
+  const datos = expediente.datos ?? deCache?.entrada.detalle ?? null;
+  const mostrandoCopia = !expediente.datos && Boolean(deCache);
   const cabecera = datos?.expediente;
   const cambiosPendientes = Object.keys(borrador).length;
+  const enCola = pendientesDeSincronizar(salida);
 
   /* Al abrir un expediente, el foco arranca en lo que el backend señaló como
      siguiente pendiente: es lo que convierte «revisar» en «pulsar». */
@@ -146,7 +262,7 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
             ? "guardado"
             : "sin_cambios";
 
-  function ponerBorrador(id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) {
+  function ponerBorrador(id: string, patch: BorradorRequisito) {
     setBorrador((prev) => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   }
 
@@ -154,7 +270,15 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
     setBorrador({});
   }
 
-  /** Guarda el bloque de cambios en una sola escritura. */
+  /**
+   * Guarda el bloque de cambios en una sola escritura.
+   *
+   * ── Por qué pasa por la cola de salida ────────────────────────────────────
+   * Antes se enviaba directo y, si la red fallaba a mitad, los seis cambios se
+   * perdían con la pestaña. Ahora se encolan primero —quedan escritos en este
+   * equipo— y la cola los envía, los reintenta con espera creciente y los
+   * confirma. La pantalla solo dice «guardado» cuando el backend lo confirma.
+   */
   async function guardarBloque() {
     if (!datos || !cambiosPendientes) return;
     setGuardando(true);
@@ -163,27 +287,41 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
         const requisito = datos.requisitos.find((r) => r.expedienteDocumentoId === id);
         return { expedienteDocumentoId: id, version: requisito?.version, ...patch };
       });
-      const res = await docApi.guardarRequisitos(datos.expediente.expedienteId, cambios);
+      /* Primero a la cola —queda escrito en este equipo—, y solo entonces se
+         envía. El orden importa: si la pestaña se cierra entre las dos cosas, el
+         cambio está a salvo. */
+      const id = encolarRequisitos(
+        datos.expediente.expedienteId,
+        cambios,
+        `${cambios.length} cambio(s) en ${datos.expediente.nombre}`,
+      );
+      const resultado = await enviarEntrada(id);
       setBorrador({});
-      setUltimaEscritura(res.fallidos.length ? "error" : "guardado");
       expediente.recargar();
       onCambio();
-      if (res.fallidos.length) {
-        avisar("aviso", `${res.aplicados} cambio(s) guardado(s), ${res.fallidos.length} rechazado(s).`, res.fallidos[0]?.motivo);
-      } else {
-        avisar("exito", `${res.aplicados} cambio(s) guardado(s).`);
+
+      if (resultado.confirmado) {
+        setUltimaEscritura("guardado");
+        avisar("exito", `${cambios.length} cambio(s) guardado(s).`);
+        return;
       }
-    } catch (error) {
-      const fallo = error as { message?: string; pista?: string; codigo?: string };
-      if (fallo.codigo === "CONFLICTO_VERSION") {
-        // Alguien más tocó el expediente: se recarga en lugar de pisar su trabajo.
+      /* No se confirmó. Se dice qué pasó y que el cambio NO se ha perdido: está
+         en la cola y se reintenta solo. El guardado no miente. */
+      if (/versi[oó]n/i.test(resultado.motivo)) {
         setUltimaEscritura("conflicto");
-        expediente.recargar();
-        setBorrador({});
-      } else {
-        setUltimaEscritura("error");
+        avisar(
+          "aviso",
+          "Otra persona modificó este expediente mientras lo editabas.",
+          "Se recargó con la versión actual; revisa y vuelve a aplicar tus cambios.",
+        );
+        return;
       }
-      avisar("peligro", fallo.message ?? "No se pudo guardar.", fallo.pista);
+      setUltimaEscritura("error");
+      avisar("aviso", "El cambio quedó pendiente de sincronizar.", resultado.motivo);
+    } catch (error) {
+      const fallo = error as { message?: string; pista?: string };
+      setUltimaEscritura("error");
+      avisar("peligro", fallo.message ?? "No se pudo guardar. El cambio quedó en la cola.", fallo.pista);
     } finally {
       setGuardando(false);
     }
@@ -292,37 +430,86 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
     { id: "auditoria", etiqueta: "Auditoría", contador: datos?.auditoria.length, visible: capacidades.auditoria === true },
   ];
 
+  const hojasTotales = datos ? totalHojasFisicas(datos.requisitos) : 0;
+  const hojasPendientes = datos ? fisicosSinContar(datos.requisitos) : 0;
+
   return (
-    <Lateral
-      abierto={!!expedienteId}
+    <>
+    <HojaCentral
+      abierta={!!expedienteId}
       onCerrar={onCerrar}
-      titulo={cabecera ? `${cabecera.nombre}` : "Expediente"}
-      subtitulo={cabecera ? `${cabecera.identificador} · ${cabecera.cargo || "Sin cargo"}` : undefined}
-      ancho="max-w-5xl"
-      bloqueado={guardando}
-      confirmarCierre={
-        cambiosPendientes
-          ? `Hay ${cambiosPendientes} cambio(s) sin guardar en este expediente. ¿Cerrar y descartarlos?`
-          : undefined
+      etiqueta={cabecera ? `Expediente de ${cabecera.nombre}` : "Expediente"}
+      ancho="ancha"
+      bloqueada={guardando}
+      pideConfirmacion={cambiosPendientes > 0}
+      onPedirConfirmacion={() => setDialogo({ tipo: "cerrar" })}
+      encabezado={
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h2 className="doc-balance min-w-0 text-[17px] font-bold leading-tight tracking-tight text-[color:var(--doc-text)]">
+              {cabecera ? cabecera.nombre : "Expediente"}
+            </h2>
+            {cabecera && (
+              <span className="doc-metric rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: "var(--doc-surface-sunken)", color: "var(--doc-text-muted)" }}>
+                {cabecera.identificador}
+              </span>
+            )}
+          </div>
+          {cabecera && (
+            <p className="doc-prose mt-0.5 text-xs text-[color:var(--doc-text-muted)]">
+              <em className="not-italic font-semibold">{cabecera.cargo || "Sin cargo"}</em>
+              {cabecera.agencia ? ` · ${cabecera.agencia}` : ""}
+              {cabecera.gerencia ? ` · ${cabecera.gerencia}` : ""}
+              {hojasTotales > 0 ? ` · ${hojasTotales} hoja${hojasTotales === 1 ? "" : "s"} físicas` : ""}
+            </p>
+          )}
+          {/* Honestidad sobre el origen del dato: mientras se pinta la copia
+              local se dice, con su antigüedad. Nunca se presenta como fresca. */}
+          {mostrandoCopia && deCache && (
+            <p className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+               style={{ background: "var(--doc-offline-bg)", color: "var(--doc-offline-fg)" }}>
+              Copia local de hace {Math.max(1, Math.round(deCache.edadMs / 1000))} s · actualizando
+            </p>
+          )}
+        </div>
       }
       pie={
-        cambiosPendientes ? (
+        cambiosPendientes || enCola ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="doc-prose text-xs" style={{ color: TONO.aviso.texto }}>
-              {cambiosPendientes} cambio(s) sin guardar. Nada se ha escrito todavía en el libro.
+            <p className="doc-prose text-xs font-medium" style={{ color: TONO.aviso.texto }}>
+              {cambiosPendientes > 0
+                ? `${cambiosPendientes} cambio(s) sin guardar. Nada se ha escrito todavía en el libro.`
+                : `${enCola} cambio(s) pendiente(s) de sincronizar. Se enviarán solos al volver la conexión.`}
             </p>
-            <div className="flex gap-2">
-              <Boton variante="suave" onClick={descartar}>
-                <Undo2 className="h-3.5 w-3.5" aria-hidden /> Descartar
-              </Boton>
-              <Boton variante="primario" onClick={guardarBloque} cargando={guardando}>
-                Guardar {cambiosPendientes} cambio(s)
-              </Boton>
-            </div>
+            {cambiosPendientes > 0 && (
+              <div className="flex gap-2">
+                <Boton variante="suave" onClick={descartar}>
+                  <Undo2 className="h-3.5 w-3.5" aria-hidden /> Descartar
+                </Boton>
+                <Boton variante="primario" onClick={guardarBloque} cargando={guardando}>
+                  Guardar {cambiosPendientes} cambio(s)
+                </Boton>
+              </div>
+            )}
           </div>
         ) : undefined
       }
     >
+      {avisoCache && (
+        <div className="mb-3">
+          <Aviso intencion="info" titulo="Actualizado" onCerrar={() => setAvisoCache("")}>
+            {avisoCache}
+          </Aviso>
+        </div>
+      )}
+      {hojasPendientes > 0 && (
+        <div className="mb-3">
+          <Aviso intencion="aviso" titulo={`${hojasPendientes} documento(s) físico(s) sin contar`}>
+            El legajo en papel necesita el número de hojas de cada documento físico. Se anota con el contador que aparece
+            junto a su chip de estado.
+          </Aviso>
+        </div>
+      )}
       {expediente.error && (
         <DocError titulo="No se pudo abrir el expediente" error={expediente.error} onReintentar={expediente.recargar} reintentando={expediente.cargando} />
       )}
@@ -461,7 +648,11 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
           </div>
 
           <div role="tabpanel" id="doc-tabpanel" aria-labelledby={`doc-tab-${pestana}`}>
-            {pestana === "requisitos" && (
+            {/* El cuerpo entra un fotograma después que el armazón: ver
+                `cuerpoListo`. Mientras, el esqueleto ocupa su sitio para que la
+                ventana no salte de alto al completarse. */}
+            {!cuerpoListo && <EsqueletoExpediente />}
+            {cuerpoListo && pestana === "requisitos" && (
               <Requisitos
                 datos={datos}
                 borrador={borrador}
@@ -475,17 +666,19 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
                 avisar={avisar}
               />
             )}
-            {pestana === "solicitudes" && <Solicitudes datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
-            {pestana === "revisiones" && <Revisiones datos={datos} />}
-            {pestana === "aprobaciones" && <Aprobaciones datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
-            {pestana === "prorrogas" && <Prorrogas datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
-            {pestana === "tareas" && <Tareas datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
-            {pestana === "comentarios" && <Comentarios datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
-            {pestana === "historial" && <Historial datos={datos} />}
-            {pestana === "auditoria" && <Auditoria datos={datos} />}
+            {cuerpoListo && pestana === "solicitudes" && <Solicitudes datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
+            {cuerpoListo && pestana === "revisiones" && <Revisiones datos={datos} />}
+            {cuerpoListo && pestana === "aprobaciones" && <Aprobaciones datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
+            {cuerpoListo && pestana === "prorrogas" && <Prorrogas datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
+            {cuerpoListo && pestana === "tareas" && <Tareas datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
+            {cuerpoListo && pestana === "comentarios" && <Comentarios datos={datos} onRecargar={expediente.recargar} avisar={avisar} />}
+            {cuerpoListo && pestana === "historial" && <Historial datos={datos} />}
+            {cuerpoListo && pestana === "auditoria" && <Auditoria datos={datos} />}
           </div>
         </div>
       )}
+
+    </HojaCentral>
 
       <Confirmacion
         abierta={!!dialogo}
@@ -494,19 +687,37 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
             ? "Archivar expediente"
             : dialogo?.tipo === "restaurar"
               ? "Restaurar expediente"
-              : "Aprobar expediente"
+              : dialogo?.tipo === "cerrar"
+                ? "Hay cambios sin guardar"
+                : "Aprobar expediente"
         }
         detalle={
           dialogo?.tipo === "archivar"
             ? "El expediente deja de aparecer en las listas y sus tareas abiertas se cancelan. Nada se borra: se puede restaurar."
             : dialogo?.tipo === "restaurar"
               ? "Vuelve a la operación con el estado que le corresponda por su contenido actual."
-              : "Solo se puede aprobar si no queda nada pendiente ni observado. Queda registrado quién aprueba y cuándo."
+              : dialogo?.tipo === "cerrar"
+                ? `Hay ${cambiosPendientes} cambio(s) sin guardar en este expediente. Si cierras ahora se descartan.`
+                : "Solo se puede aprobar si no queda nada pendiente ni observado. Queda registrado quién aprueba y cuándo."
         }
-        peligrosa={dialogo?.tipo === "archivar"}
-        textoConfirmar={dialogo?.tipo === "archivar" ? "Archivar" : dialogo?.tipo === "restaurar" ? "Restaurar" : "Aprobar"}
+        peligrosa={dialogo?.tipo === "archivar" || dialogo?.tipo === "cerrar"}
+        textoConfirmar={
+          dialogo?.tipo === "archivar"
+            ? "Archivar"
+            : dialogo?.tipo === "restaurar"
+              ? "Restaurar"
+              : dialogo?.tipo === "cerrar"
+                ? "Cerrar y descartar"
+                : "Aprobar"
+        }
         onConfirmar={() => {
           if (!dialogo) return;
+          if (dialogo.tipo === "cerrar") {
+            setDialogo(null);
+            setBorrador({});
+            onCerrar();
+            return;
+          }
           if (dialogo.tipo === "archivar") void cambiarEstado("ARCHIVADO");
           else if (dialogo.tipo === "restaurar") {
             void docApi
@@ -525,7 +736,7 @@ export function ExpedienteLateral({ expedienteId, onCerrar, onCambio, avisar }: 
         }}
         onCancelar={() => setDialogo(null)}
       />
-    </Lateral>
+    </>
   );
 }
 
@@ -568,10 +779,10 @@ function Requisitos({
   avisar,
 }: {
   datos: ExpedienteOperativo;
-  borrador: Record<string, { estado?: EstadoDocumento; observaciones?: string }>;
+  borrador: Record<string, BorradorRequisito>;
   foco: string | null;
   onFoco: (id: string | null) => void;
-  onBorrador: (id: string, patch: { estado?: EstadoDocumento; observaciones?: string }) => void;
+  onBorrador: (id: string, patch: BorradorRequisito) => void;
   onRecargar: () => void;
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }) {

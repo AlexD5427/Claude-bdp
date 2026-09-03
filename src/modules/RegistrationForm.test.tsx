@@ -280,7 +280,13 @@ describe("GaugeInput · borrar una nota", () => {
     const cap = screen.getByLabelText(/Nota CAP \(porcentaje\)/i);
     await user.click(cap);
     await user.type(cap, "77");
-    expect(cap).toHaveValue("77");
+    /* Esta espera destapó un fallo de verdad, no un problema de la prueba.
+       `GaugeInput` seleccionaba todo el texto al recibir el foco dentro de un
+       `requestAnimationFrame`, y con la máquina cargada ese fotograma caía
+       DESPUÉS de la primera tecla: la selección se hacía sobre el «7» ya escrito
+       y el segundo «7» lo reemplazaba. Una nota de 77 quedaba en 7 y nadie sabía
+       por qué. La selección ahora es síncrona. */
+    await waitFor(() => expect(cap).toHaveValue("77"));
 
     await user.clear(cap);
     await user.click(screen.getByLabelText(/^Nombres$/i));

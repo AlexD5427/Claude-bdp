@@ -196,14 +196,17 @@ describe("regresión · acciones heredadas del enrutador", () => {
 });
 
 describe("regresión · formato y colores del libro anual", () => {
-  it("la pestaña anual conserva sus 39 columnas con los encabezados exactos", () => {
+  it("la pestaña anual conserva sus columnas A-W y el bloque de gestión crece a la derecha", () => {
     const h = loadBackend();
     h.pedir("instalar", {});
     const anio = new Date().getFullYear();
     const hoja = h.spreadsheet.getSheetByName(`CONTROL INGRESOS ${anio}`)!;
     const cabecera = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0].map(String);
 
-    expect(cabecera.length).toBe(39);
+    /* 23 columnas del Excel del área (A-W) + 17 de gestión. La columna nueva
+       «HOJAS POR DOCUMENTO» entra al final del bloque de gestión: las A-W no se
+       tocan ni se renumeran, que es el acuerdo con el área. */
+    expect(cabecera.length).toBe(40);
     // Las rarezas del libro original se conservan a propósito.
     expect(cabecera).toContain("Tipo de Empleado ");
     expect(cabecera).toContain("CORREO CARTA DE PRORROGA ");
@@ -213,6 +216,33 @@ describe("regresión · formato y colores del libro anual", () => {
     // Y el bloque del módulo empieza en la X.
     expect(cabecera[23]).toBe("ID EXPEDIENTE");
     expect(cabecera).toContain("DETALLE JSON");
+    expect(cabecera).toContain("HOJAS POR DOCUMENTO");
+    // Y las 23 primeras siguen siendo, una a una, las del Excel del área.
+    expect(cabecera.slice(0, 23)).toEqual([
+      "Nombre",
+      "Tipo de Empleado ",
+      "Responsable de Proceso",
+      "Fecha Ingreso",
+      "Cargo",
+      "Oficina",
+      "Gerencia",
+      "Observacion",
+      "Proceso",
+      "PERFIL",
+      "MF Y MEMO",
+      "CONSENTIMIENTO DE USO DE IMAGEN\n(ESCANEAR)",
+      "CONTRATO DE FIANZA",
+      "COMUNICACIÓN INTERNA",
+      "CONOZCA A SU FUNCIONARIO (LISTAS LEC)",
+      "REJAP",
+      "TITULO LEGALIZADO",
+      "CONTRATO DE FIANZA",
+      "VISTA O INFORMACION RAPIDA",
+      "SEGUROS ALIANZA",
+      "CREDISEGURO",
+      "DJJ NO CODIFICACION",
+      "CORREO CARTA DE PRORROGA ",
+    ]);
   });
 
   it("las filas se pintan con la semántica de colores del libro", () => {
@@ -369,7 +399,7 @@ describe("regresión · las dos arquitecturas conviven", () => {
   });
 });
 
-describe("regresión · los 18 documentos generales y las ramas", () => {
+describe("regresión · los 16 documentos generales y las ramas", () => {
   it("el catálogo heredado y el nuevo describen los mismos documentos", () => {
     const h = loadBackend();
     h.pedir("instalar", {});
@@ -378,18 +408,21 @@ describe("regresión · los 18 documentos generales y las ramas", () => {
     const heredado = h.read<any[]>("DOC_CATALOGO_SEMILLA").map((d) => d.id).sort();
     const nuevo = h.ok("documentacion.catalogo").documentos.map((d: any) => d.codigo).sort();
     expect(nuevo).toEqual(heredado);
-    expect(nuevo.length).toBe(38);
+    expect(nuevo.length).toBe(39);
   });
 
   it("cada rama produce el número de requisitos esperado", () => {
     const h = loadInstalledBackend();
+    /* Recuentos del catálogo v3, acordados con el área. Son los mismos números
+       que comprueban `npm run doc:check`, `10_Tests.gs` y el mapa de
+       aplicabilidad: si se mueven en un sitio, fallan en todos. */
     const casos: [string, string, number][] = [
-      ["GENERAL", "NINGUNA", 18],
-      ["COMERCIAL", "COMERCIAL_1", 23],
-      ["COMERCIAL", "COMERCIAL_2", 27],
-      ["COMERCIAL", "COMERCIAL_3", 23],
-      ["AUDITORIA", "NINGUNA", 19],
-      ["CUMPLIMIENTO", "NINGUNA", 20],
+      ["GENERAL", "NINGUNA", 16],
+      ["COMERCIAL", "COMERCIAL_1", 21],
+      ["COMERCIAL", "COMERCIAL_2", 25],
+      ["COMERCIAL", "COMERCIAL_3", 21],
+      ["AUDITORIA", "NINGUNA", 17],
+      ["CUMPLIMIENTO", "NINGUNA", 19],
     ];
     let n = 0;
     for (const [funcionario, garantia, esperado] of casos) {
@@ -402,11 +435,33 @@ describe("regresión · los 18 documentos generales y las ramas", () => {
     }
   });
 
-  it("las prórrogas de certificados y título siguen siendo las únicas del proceso general", () => {
+  it("el título académico es la única prórroga del proceso general", () => {
     const h = loadInstalledBackend();
     const { requisitos } = crearExpediente(h);
     const conProrroga = requisitos.filter((r: any) => r.permiteProrroga).map((r: any) => r.codigo).sort();
-    expect(conProrroga).toEqual(["cert-trabajo", "titulo-legalizado"]);
+    /* «Certificados de trabajo» admitía prórroga y era el otro caso, pero el
+       área retiró el requisito en el catálogo v3. La segunda prórroga real del
+       proceso vive ahora en la rama de Cumplimiento (examen de la UIF), y se
+       comprueba en backend.workflow.test.ts. */
+    expect(conProrroga).toEqual(["titulo-legalizado"]);
+  });
+
+  it("las subsecciones de garantía llegan al expediente resueltas por su rama", () => {
+    const h = loadInstalledBackend();
+    const t1 = crearExpediente(h, {
+      identificador: "CI-SUB1-2026",
+      tipoFuncionario: "COMERCIAL",
+      tipoGarantia: "COMERCIAL_1",
+    });
+    const t3 = crearExpediente(h, {
+      identificador: "CI-SUB3-2026",
+      tipoFuncionario: "COMERCIAL",
+      tipoGarantia: "COMERCIAL_3",
+    });
+    const enT1 = t1.requisitos.find((r: any) => r.codigo === "garante-inmueble")!;
+    const enT3 = t3.requisitos.find((r: any) => r.codigo === "garante-inmueble")!;
+    expect(enT1.subseccion).toBe("1 Garante con Bien Inmueble");
+    expect(enT3.subseccion).toBe("Postulante con inmueble propio");
   });
 });
 

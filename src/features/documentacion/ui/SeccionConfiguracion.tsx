@@ -36,6 +36,7 @@ import {
   type ColumnaTabla,
   type Notita,
 } from "./piezas";
+import { PestanaEstaPantalla } from "./PestanaEstaPantalla";
 import { useDatos } from "./useDatos";
 import { DocSettingsModal } from "../../../components/doc/DocSettingsModal";
 import { setSettings, useDocStore } from "../../../lib/docStore";
@@ -45,7 +46,7 @@ interface Props {
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }
 
-type Pestana = "estado" | "catalogo" | "plazos" | "permisos" | "automatizaciones" | "mantenimiento" | "local";
+type Pestana = "estado" | "catalogo" | "plazos" | "permisos" | "automatizaciones" | "mantenimiento" | "pantalla" | "local";
 
 export function SeccionConfiguracion({ avisar }: Props) {
   const { conexion, estado, capacidades, catalogo, rol } = useConsola();
@@ -59,6 +60,10 @@ export function SeccionConfiguracion({ avisar }: Props) {
     { id: "permisos", etiqueta: "Permisos", visible: capacidades.configurar === true },
     { id: "automatizaciones", etiqueta: "Automatizaciones", visible: capacidades.configurar === true },
     { id: "mantenimiento", etiqueta: "Mantenimiento", visible: capacidades.diagnosticar === true },
+    /* Sin condición de permiso a propósito: cambia solo este navegador. Pedir un
+       rol para agrandar la letra es la clase de detalle que hace que la gente
+       trabaje incómoda durante años sin decir nada. */
+    { id: "pantalla", etiqueta: "Esta pantalla", visible: true },
     { id: "local", etiqueta: "Ajustes locales", visible: true },
   ];
 
@@ -168,6 +173,7 @@ export function SeccionConfiguracion({ avisar }: Props) {
       {pestana === "permisos" && <PestanaPermisos avisar={avisar} />}
       {pestana === "automatizaciones" && <PestanaAutomatizaciones avisar={avisar} />}
       {pestana === "mantenimiento" && <PestanaMantenimiento avisar={avisar} />}
+      {pestana === "pantalla" && <PestanaEstaPantalla avisar={avisar} />}
 
       {pestana === "local" && (
         <Panel

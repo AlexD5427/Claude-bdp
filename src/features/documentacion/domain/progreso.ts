@@ -72,10 +72,20 @@ export interface RequisitoVista {
   nombre: string;
   descripcion: string;
   seccion: string;
+  /** Título de la subsección, ya resuelto para la rama de este expediente. */
+  subseccion: string;
   grupo: string;
   orden: number;
   estado: EstadoDocumento;
   observaciones: string;
+  /** Hojas del documento físico. Cero significa «todavía no se contaron». */
+  hojasFisicas: number;
+  presentacionFisica: "SI" | "NO" | "CONDICIONAL";
+  presentacionDigital: "SI" | "NO";
+  /** Solo los físicos llevan contador; los digitales no lo muestran ni oculto. */
+  requiereConteoHojas: boolean;
+  /** Requisito retirado del proceso que este expediente sí tenía registrado. */
+  heredado: boolean;
   obligatorio: boolean;
   permiteNoAplica: boolean;
   permiteProrroga: boolean;
@@ -157,6 +167,56 @@ export function agruparRequisitos(requisitos: RequisitoVista[]): GrupoRequisitos
       };
     })
     .sort((a, b) => (orden.get(a.seccion)?.orden ?? 99) - (orden.get(b.seccion)?.orden ?? 99));
+}
+
+/**
+ * Subgrupos de una sección, por subsección.
+ *
+ * Las ramas de garantía se leen por bloques con título («1 Garante con Bien
+ * Inmueble», «2 Garantes Familiares»): son personas distintas y mezclar sus
+ * documentos en una lista plana es la causa de que alguien adjunte el croquis
+ * del garante 1 en el hueco del garante 2. El orden de los bloques es el del
+ * primer requisito que contienen, que es el orden del catálogo.
+ *
+ * Los requisitos sin subsección van en un bloque sin título, primero: son los
+ * generales, que no necesitan encabezado propio dentro de su sección.
+ */
+export interface SubgrupoRequisitos {
+  titulo: string;
+  requisitos: RequisitoVista[];
+}
+
+export function agruparPorSubseccion(requisitos: RequisitoVista[]): SubgrupoRequisitos[] {
+  const bloques = new Map<string, RequisitoVista[]>();
+  for (const requisito of requisitos) {
+    const titulo = (requisito.subseccion ?? "").trim();
+    const lista = bloques.get(titulo) ?? [];
+    lista.push(requisito);
+    bloques.set(titulo, lista);
+  }
+  return [...bloques.entries()]
+    .map(([titulo, lista]) => ({ titulo, requisitos: lista }))
+    .sort((a, b) => {
+      if (!a.titulo) return -1;
+      if (!b.titulo) return 1;
+      return Math.min(...a.requisitos.map((r) => r.orden)) - Math.min(...b.requisitos.map((r) => r.orden));
+    });
+}
+
+/**
+ * Hojas físicas de un conjunto de requisitos.
+ *
+ * Solo suma los que llevan contador: un escaneado no tiene hojas y contarlas
+ * como cero está bien, pero contarlas como «documento sin hojas registradas»
+ * confundiría el informe.
+ */
+export function totalHojasFisicas(requisitos: RequisitoVista[]): number {
+  return requisitos.reduce((suma, r) => (r.requiereConteoHojas ? suma + (r.hojasFisicas || 0) : suma), 0);
+}
+
+/** ¿Cuántos documentos físicos están todavía sin contar? */
+export function fisicosSinContar(requisitos: RequisitoVista[]): number {
+  return requisitos.filter((r) => r.requiereConteoHojas && !r.archivado && (r.hojasFisicas || 0) <= 0).length;
 }
 
 /** Requisitos que hay que perseguir, en el orden en que conviene hacerlo. */

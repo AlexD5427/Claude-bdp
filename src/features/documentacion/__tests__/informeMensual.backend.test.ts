@@ -110,10 +110,17 @@ describe("informe mensual · camino completo contra el backend", () => {
 
     // Marcas reales: una entrega y una observación, para que el informe tenga materia.
     const foto = comercial.requisitos.find((r: { codigo: string }) => r.codigo === "foto-4x4")!;
+    /* Y un documento físico con sus hojas contadas, más otro entregado SIN
+       contarlas: el informe tiene que poder distinguir «no lleva conteo» de
+       «lleva conteo y falta hacerlo», que es lo que decide si alguien tiene que
+       ir al archivador. */
+    const conConteo = comercial.requisitos.filter((r: { requiereConteoHojas?: boolean }) => r.requiereConteoHojas);
     harness.ok("documentacion.requisitos.guardar", {
       expedienteId: comercial.expedienteId,
       cambios: [
         { expedienteDocumentoId: foto.expedienteDocumentoId, estado: "ENTREGADO", observaciones: "Recibida en físico y digital." },
+        { expedienteDocumentoId: conConteo[0].expedienteDocumentoId, estado: "ENTREGADO", hojasFisicas: 9 },
+        { expedienteDocumentoId: conConteo[1].expedienteDocumentoId, estado: "ENTREGADO" },
       ],
     });
   });
@@ -141,10 +148,11 @@ describe("informe mensual · camino completo contra el backend", () => {
     const ana = comercial.personas.find((p) => p.nombre === "Ana Comercial")!;
     const auditor = informe.categorias[1].personas[0];
 
-    // Tipo 1: 23 requisitos. Tipo 2: 27. Auditoría: 19.
-    expect(zoe.documentos.length).toBe(23);
-    expect(ana.documentos.length).toBe(27);
-    expect(auditor.documentos.length).toBe(19);
+    /* Recuentos del catálogo v3: 16 generales + los de cada rama.
+       Tipo 1: 21 · Tipo 2: 25 · Auditoría: 17. */
+    expect(zoe.documentos.length).toBe(21);
+    expect(ana.documentos.length).toBe(25);
+    expect(auditor.documentos.length).toBe(17);
 
     const codigosZoe = zoe.documentos.map((d) => d.codigo);
     expect(codigosZoe).toContain("garante-t1-fam-ci");
@@ -163,10 +171,41 @@ describe("informe mensual · camino completo contra el backend", () => {
 
     const libro = informeALibro(informe);
     expect(Object.keys(libro)).toEqual(["Resumen", "Detalle", "Observaciones"]);
-    // Detalle: encabezado + 23 + 27 + 19 documentos.
-    expect(libro.Detalle.length).toBe(1 + 23 + 27 + 19);
+    // Detalle: encabezado + 21 + 25 + 17 documentos.
+    expect(libro.Detalle.length).toBe(1 + 21 + 25 + 17);
     const zip = unzipSync(construirXlsx(libro));
     expect(strFromU8(zip["xl/worksheets/sheet3.xml"])).toContain("Recibida en f");
+  });
+
+  it("las hojas físicas y la subsección llegan al Excel y al HTML", async () => {
+    const { informe } = await informeDelMes(MES);
+    const zoe = informe.categorias[0].personas.find((p) => p.nombre === "Zoe Comercial")!;
+    expect(zoe.hojasFisicas).toBe(9);
+    // El segundo documento con conteo se entregó sin contarlo: eso se avisa.
+    expect(zoe.hojasSinContar).toBe(1);
+
+    // Un documento solo digital llega con `null`, no con cero.
+    const foto = zoe.documentos.find((d) => d.codigo === "foto-4x4")!;
+    expect(foto.hojasFisicas).toBeNull();
+
+    // La rama de garantía trae subsecciones y llegan hasta el detalle.
+    expect(zoe.documentos.some((d) => d.subseccion.length > 0)).toBe(true);
+
+    const libro = informeALibro(informe);
+    const cabecera = libro.Detalle[0].map(String);
+    expect(cabecera).toContain("Subsección");
+    expect(cabecera).toContain("Hojas físicas");
+    const iHojas = cabecera.indexOf("Hojas físicas");
+    const iCodigo = cabecera.indexOf("Documento");
+    expect(iCodigo).toBeGreaterThanOrEqual(0);
+    // La celda del documento contado trae el número; la del digital, vacío.
+    const celdas = libro.Detalle.slice(1).map((f) => f[iHojas]);
+    expect(celdas).toContain(9);
+    expect(celdas).toContain("");
+
+    const html = informeAHtml(informe);
+    expect(html).toContain("sin contar");
+    expect(html).toContain("hoja(s) física(s)");
   });
 
   it("el HTML del informe nombra el mes, las categorías y las personas", async () => {

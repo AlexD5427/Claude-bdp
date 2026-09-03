@@ -30,7 +30,7 @@
  *   panel del expediente; donde no hay soporte, se abre como siempre.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Columns3,
   Filter,
@@ -73,6 +73,8 @@ import {
   type ModoLista,
   type VistaLista,
 } from "../state/consola";
+import { cancelarPrecarga, pausarPrecarga, precargar } from "../state/precarga";
+import { precargaActiva, usePreferencias, type ColumnaLista } from "../state/preferencias";
 import {
   Aviso,
   BarraAvance,
@@ -219,8 +221,51 @@ export function SeccionExpedientes({ onAbrir, avisar, altaAbierta = false, onCer
   const chips = chipsDeFiltros(filtros);
   const cargandoPrimera = listado.cargando && !listado.datos;
 
+  /**
+   * Precarga de los expedientes que se ven.
+   *
+   * La lista ya sabe cuáles se van a abrir. Traerlos en tiempo ocioso convierte
+   * el clic en instantáneo; ver `state/precarga.ts` para las cuatro reglas que
+   * evitan que esto compita con lo que la persona pide ahora.
+   *
+   * El freno está en `precargaActiva`: la preferencia del módulo y el ahorro de
+   * datos del sistema. NO el modo ligero, que es otro coste —ver el comentario
+   * de `precargaActiva`—.
+   */
+  const preferencias = usePreferencias();
+  const puedePrecargar = precargaActiva(preferencias);
+  /* La clave por ids —y no el array— evita reencolar en cada repintado de la
+     lista, que ocurre con cada tecla del buscador. */
+  const clavePrecarga = expedientes.map((e) => e.expedienteId).join(",");
+
+  useEffect(() => {
+    if (!puedePrecargar || conexion !== "conectado") return;
+    const ids = clavePrecarga ? clavePrecarga.split(",") : [];
+    if (!ids.length) return;
+    precargar(ids);
+  }, [clavePrecarga, puedePrecargar, conexion]);
+
+  /* Al salir de la sección lo pendiente ya no le interesa a nadie: precargar
+     expedientes que nadie va a mirar gasta cuota de Apps Script por nada. */
+  useEffect(() => () => cancelarPrecarga(), []);
+
   /** Abre el expediente con continuidad visual desde la fila, si el navegador puede. */
   function abrir(expedienteId: string) {
+    /**
+     * La precarga se detiene EN EL CLIC, no cuando empieza la lectura.
+     *
+     * Esta línea sale de una medición, no de una intuición. Con la precarga
+     * conectada, la segunda apertura del mismo expediente —la que sale de la
+     * caché y debería ser instantánea— pasó de 691 ms a 1015 ms con CPU
+     * estrangulada 4x. El motivo: pausar dentro de `cargar` llega tarde. Entre el
+     * clic y el primer pintado de la ventana hay cientos de milisegundos en los
+     * que React monta la lista de requisitos, y justo ahí la cola de precarga
+     * seguía parseando respuestas y escribiendo en IndexedDB.
+     *
+     * `reanudarPrecarga` vive en la ventana del expediente: al terminar la
+     * revalidación y, como red de seguridad, al cerrarse.
+     */
+    pausarPrecarga();
     conTransicionDeVista(() => onAbrir(expedienteId));
   }
 
@@ -434,7 +479,23 @@ export function SeccionExpedientes({ onAbrir, avisar, altaAbierta = false, onCer
     { clave: "anio", encabezado: "Año del libro", numerica: true, secundaria: true, render: (fila) => <span>{fila.anio || "—"}</span> },
   ];
 
-  const columnas = modoLista === "auditoria" ? columnasAuditoria : columnasOperativo;
+  /**
+   * Columnas visibles.
+   *
+   * En operativo se respetan las que la persona dejó encendidas en «Esta
+   * pantalla»; en auditoría, no: esa vista se imprime para demostrar algo y sus
+   * columnas son fijas a propósito. Ver `COLUMNAS_LISTA`.
+   *
+   * La selección y la persona no pasan por el filtro: sin la primera no hay
+   * operaciones masivas y sin la segunda la fila no identifica a nadie, así que
+   * ni siquiera se ofrecen como ocultables.
+   */
+  const columnas =
+    modoLista === "auditoria"
+      ? columnasAuditoria
+      : columnasOperativo.filter(
+          (c) => c === columnaSeleccion || c === columnaPersona || preferencias.columnas.includes(c.clave as ColumnaLista),
+        );
 
   const panelFiltros = (
     <PanelFiltros

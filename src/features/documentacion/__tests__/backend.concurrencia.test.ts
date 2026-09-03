@@ -145,7 +145,7 @@ describe("documentación · idempotencia del enrutador", () => {
   it("el proceso diario ejecutado dos veces no duplica efectos", () => {
     const h = loadInstalledBackend();
     const { expedienteId, requisitos } = crearExpediente(h);
-    const cert = requisitos.find((r: any) => r.codigo === "cert-trabajo")!;
+    const cert = requisitos.find((r: any) => r.codigo === "titulo-legalizado")!;
     h.ok("documentacion.prorroga.crear", {
       prorroga: { expedienteDocumentoId: cert.expedienteDocumentoId, fechaProrroga: h.read("doc2FechaMasDias_(1)"), motivo: "Plazo." },
     });

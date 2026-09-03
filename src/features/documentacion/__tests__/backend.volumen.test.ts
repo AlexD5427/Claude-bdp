@@ -92,8 +92,8 @@ describe("documentación · volumen: 100 expedientes por el camino real", () => 
   it("los 100 expedientes quedan registrados con sus requisitos", () => {
     expect(ids.length).toBe(100);
     expect(h.rowsOf("Expedientes").length).toBe(100);
-    // 18 generales, más los nueve de garantía (Tipo 2) en uno de cada cinco.
-    expect(h.rowsOf("ExpedienteDocumentos").length).toBeGreaterThan(1800);
+    // 16 generales, más los nueve de garantía (Tipo 2) en uno de cada cinco.
+    expect(h.rowsOf("ExpedienteDocumentos").length).toBeGreaterThan(1600);
   });
 
   it("el espejo del libro anual sigue al día con 100 expedientes", () => {
@@ -166,8 +166,8 @@ describe("documentación · volumen: 1 000 expedientes", () => {
   it("mil expedientes y casi veinte mil requisitos entran en el libro", () => {
     expect(ids.length).toBe(1000);
     expect(h.rowsOf("Expedientes").length).toBe(1000);
-    // 18 generales por expediente, más los nueve de garantía (Tipo 2) en uno de cada cinco.
-    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(19800);
+    // 16 generales por expediente, más los nueve de garantía (Tipo 2) en uno de cada cinco.
+    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(17800);
   });
 
   it("la lista sigue devolviendo una página, no la base entera", () => {
@@ -225,6 +225,12 @@ describe("documentación · volumen: 1 000 expedientes", () => {
     expect(detalle.historial.length).toBeLessThanOrEqual(5);
   });
 
+  /**
+   * Esta prueba recorre mil expedientes de verdad y rondaba los cinco segundos
+   * del tope por omisión de Vitest: fallaba de forma intermitente según la
+   * máquina, y una prueba que a veces pasa no protege nada. Se le da su tiempo
+   * en lugar de reducir el volumen, que es justo lo que hace que sirva.
+   */
   it("la migración de resúmenes procesa mil expedientes por lotes", () => {
     const res = h.ok("documentacion.migrar", { version: "4.0.3-resumenes", lote: 300 });
     const paso = res.ejecutadas[0];
@@ -235,7 +241,7 @@ describe("documentación · volumen: 1 000 expedientes", () => {
     const registro = h.rowsOf("MigracionesDocumentacion").find((m) => m.version === "4.0.3-resumenes")!;
     expect(registro.estado).toBe("EN_PROCESO");
     expect(String(registro.checkpoint)).toContain("300");
-  });
+  }, 30000);
 
   it("el diagnóstico completo sobre mil expedientes termina y no encuentra nada crítico", () => {
     const res = h.pedir("documentacion.diagnostico");

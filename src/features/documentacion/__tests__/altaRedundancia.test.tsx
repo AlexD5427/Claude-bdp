@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SelectorAuxiliar } from "../ui/SelectorAuxiliar";
 import { AltaExpedienteWizard } from "../ui/AltaExpedienteWizard";
@@ -59,19 +59,19 @@ describe("catálogos auxiliares · elegir y añadir", () => {
   it("filtra la lista al escribir y elige con un clic", async () => {
     const usuario = userEvent.setup();
     render(<Envoltorio opciones={["LA PAZ", "SANTA CRUZ", "COCHABAMBA"]} />);
-    await usuario.click(screen.getByRole("button", { name: "Elige una agencia" }));
-    await usuario.type(await screen.findByPlaceholderText("Buscar o escribir una nueva…"), "cocha");
+    await usuario.click(screen.getByRole("combobox", { name: "Elige una agencia" }));
+    await usuario.type(await screen.findByPlaceholderText("Buscar o escribir uno nuevo…"), "cocha");
     // La búsqueda ignora acentos y mayúsculas.
     const opcion = await screen.findByRole("option", { name: "COCHABAMBA" });
-    await usuario.click(opcion);
+    await usuario.click(within(opcion).getByRole("button"));
     expect(screen.getByTestId("valor").textContent).toBe("COCHABAMBA");
   });
 
   it("añade un valor nuevo al libro y lo usa en el formulario", async () => {
     const usuario = userEvent.setup();
     render(<Envoltorio opciones={["LA PAZ"]} />);
-    await usuario.click(screen.getByRole("button", { name: "Elige una agencia" }));
-    await usuario.type(await screen.findByPlaceholderText("Buscar o escribir una nueva…"), "Yacuiba");
+    await usuario.click(screen.getByRole("combobox", { name: "Elige una agencia" }));
+    await usuario.type(await screen.findByPlaceholderText("Buscar o escribir uno nuevo…"), "Yacuiba");
     await usuario.click(await screen.findByRole("button", { name: /Añadir «YACUIBA»/ }));
 
     expect(screen.getByTestId("valor").textContent).toBe("YACUIBA");
@@ -116,8 +116,8 @@ describe("catálogos auxiliares · elegir y añadir", () => {
       );
     }
     render(<Env />);
-    await usuario.click(screen.getByRole("button", { name: "Elige una agencia" }));
-    await usuario.type(await screen.findByPlaceholderText("Buscar o escribir una nueva…"), "Bermejo");
+    await usuario.click(screen.getByRole("combobox", { name: "Elige una agencia" }));
+    await usuario.type(await screen.findByPlaceholderText("Buscar o escribir uno nuevo…"), "Bermejo");
     await usuario.click(await screen.findByRole("button", { name: /Añadir «BERMEJO»/ }));
 
     expect(screen.getByTestId("valor").textContent).toBe("BERMEJO");
@@ -149,7 +149,7 @@ describe("asistente de alta · borrador local", () => {
     const primera = render(
       <AltaExpedienteWizard abierta onCerrar={nada} onCreado={nada} onError={nada} />,
     );
-    await usuario.type(screen.getByPlaceholderText("1234567 - 45 - 2026"), "5554443 - 12 - 2026");
+    await usuario.type(screen.getByPlaceholderText("Ej. 1234567 1K"), "5554443 12A");
     await usuario.type(screen.getByPlaceholderText("Nombres y apellidos"), "Interrumpida Pérez");
     // El borrador se guarda con retardo; se espera a que aparezca en el disco local.
     await waitFor(() => expect(window.localStorage.getItem("bdp-documentacion-alta-borrador")).toBeTruthy(), {
@@ -209,7 +209,7 @@ describe("catálogo · copia local como red de seguridad", () => {
     await comprobarConexion({ url: URL_PRUEBAS });
     await waitFor(() => expect(window.localStorage.getItem("bdp-documentacion-catalogo")).toBeTruthy());
     const guardado = JSON.parse(window.localStorage.getItem("bdp-documentacion-catalogo")!);
-    expect(guardado.catalogo.documentos.length).toBe(38);
+    expect(guardado.catalogo.documentos.length).toBe(39);
     expect(guardado.guardadoEn).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });

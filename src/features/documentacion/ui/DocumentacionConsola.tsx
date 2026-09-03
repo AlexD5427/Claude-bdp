@@ -26,12 +26,17 @@
  * de color.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { CircleSlash, Database, FolderPlus, RefreshCw, Wrench } from "lucide-react";
 import { docApi } from "../api/acciones";
 import { seccionesPermitidas, type SeccionId } from "../domain/vocabulario";
 import { comprobarConexion, irASeccion, refrescarNotificaciones, useConsola } from "../state/consola";
+import { hidratarCache, vaciarCache } from "../state/cacheExpedientes";
+import { cancelarPrecarga } from "../state/precarga";
+import { bombearSalida, vigilarConexion } from "../state/salida";
+import { medirFluidez, modoLigeroActivo, usePreferencias } from "../state/preferencias";
+import { DocCargando, useCortinaDeCarga } from "./DocCargando";
 import { useProfiles } from "../../../lib/profilesStore";
 import { useDocStore } from "../../../lib/docStore";
 import { Aviso, Boton, Notitas, useNotitas } from "./piezas";
@@ -41,7 +46,7 @@ import { DocShell, type ContadorSeccion } from "./DocShell";
 import { DocModoDegradado } from "./DocStates";
 import { SeccionPanel } from "./SeccionPanel";
 import { SeccionExpedientes } from "./SeccionExpedientes";
-import { ExpedienteLateral } from "./ExpedienteLateral";
+import { ExpedienteVentana } from "./ExpedienteVentana";
 import { SeccionAprobaciones, SeccionProrrogas, SeccionRevision, SeccionSolicitudes, SeccionTareas } from "./SeccionTrabajo";
 import { SeccionAuditoria, SeccionExportaciones, SeccionNotificaciones, SeccionReportes } from "./SeccionReportes";
 import { SeccionConfiguracion } from "./SeccionConfiguracion";
@@ -49,6 +54,7 @@ import { VistaLocal } from "./VistaLocal";
 
 export function DocumentacionConsola() {
   const consola = useConsola();
+  const preferencias = usePreferencias();
   const { current } = useProfiles();
   const { settings } = useDocStore();
   const backendUrl = settings.scriptUrl;
@@ -57,6 +63,30 @@ export function DocumentacionConsola() {
   const [expedienteAbierto, setExpedienteAbierto] = useState<string | null>(null);
   const [altaAbierta, setAltaAbierta] = useState(false);
   const [refresco, setRefresco] = useState(0);
+  /** ¿Terminó el primer arranque (conexión + catálogo + caché)? */
+  const [arrancado, setArrancado] = useState(false);
+
+  /**
+   * Modo ligero.
+   *
+   * Se resuelve en cada renderizado porque depende de dos cosas que pueden
+   * cambiar: la preferencia de la persona y la medición de fluidez, que ocurre
+   * una vez tras el arranque. Se aplica con un atributo en la raíz del módulo, no
+   * con clases en cada componente: así apagar las transparencias y las sombras es
+   * una regla de CSS y no cien condicionales repartidos.
+   */
+  const ligero = modoLigeroActivo(preferencias);
+
+  /**
+   * Cortina de carga con el logo de documentos.
+   *
+   * `useCortinaDeCarga` aplica el mínimo perceptible —para que no destelle en una
+   * carga instantánea desde caché— y el tope duro, para que un backend lento no
+   * deje a nadie mirando una animación. Al agotarse el tope se entra igual: la
+   * consola muestra sus esqueletos y su diagnóstico.
+   */
+  const cargando = !arrancado && (consola.conexion === "comprobando" || consola.conexion === "sin_configurar");
+  const cortina = useCortinaDeCarga(cargando);
 
   /**
    * Al entrar —y cuando cambia el perfil o la URL del backend— se resuelve la
@@ -65,8 +95,44 @@ export function DocumentacionConsola() {
    * este dato la consola hablaba con el backend equivocado y «no se conectaba».
    */
   useEffect(() => {
-    void comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl || undefined });
+    let vivo = true;
+    void (async () => {
+      /* La caché se hidrata en paralelo con la conexión: son independientes y
+         encadenarlas retrasaría la apertura instantánea sin ganar nada. */
+      void hidratarCache();
+      await comprobarConexion({ actor: current?.nombre ?? "", rol: current?.role ?? "", url: backendUrl || undefined });
+      if (!vivo) return;
+      setArrancado(true);
+      // Y la cola de salida se vacía en cuanto hay conexión: puede haber cambios
+      // de la sesión anterior esperando desde antes de cerrar la pestaña.
+      void bombearSalida();
+      // La medición de fluidez va después del arranque, cuando ya hay algo
+      // pintado: medir mientras se monta el módulo daría siempre «equipo lento».
+      medirFluidez();
+    })();
+    return () => {
+      vivo = false;
+    };
   }, [current?.nombre, current?.role, backendUrl]);
+
+  /**
+   * Al cambiar de perfil se vacía la caché de expedientes.
+   *
+   * Son datos personales: dejarlos guardados después de que otra persona inicie
+   * sesión en el mismo equipo sería una fuga, aunque el módulo no los muestre.
+   */
+  const perfilAnterior = useRef(current?.id ?? "");
+  useEffect(() => {
+    const actual = current?.id ?? "";
+    if (perfilAnterior.current && perfilAnterior.current !== actual) {
+      cancelarPrecarga();
+      void vaciarCache();
+    }
+    perfilAnterior.current = actual;
+  }, [current?.id]);
+
+  /** Vigilancia de la conexión: al volver la red, la cola se sincroniza sola. */
+  useEffect(() => vigilarConexion(), []);
 
   useEffect(() => {
     if (consola.conexion !== "conectado") return;
@@ -103,9 +169,20 @@ export function DocumentacionConsola() {
     conTransicionDeVista(() => irASeccion(seccion));
   }
 
-  function abrirExpediente(expedienteId: string) {
+  /**
+   * Abrir un expediente.
+   *
+   * `useCallback` no es adorno: es lo que permite memoizar el árbol de secciones
+   * más abajo. Con una función nueva en cada renderizado, la sección se
+   * recalcularía siempre y el `useMemo` no serviría de nada.
+   */
+  const abrirExpediente = useCallback((expedienteId: string) => {
     setExpedienteAbierto(expedienteId);
-  }
+  }, []);
+
+  const cerrarExpediente = useCallback(() => setExpedienteAbierto(null), []);
+  const marcarCambio = useCallback(() => setRefresco((n) => n + 1), []);
+  const cerrarAlta = useCallback(() => setAltaAbierta(false), []);
 
   /* Aviso global: el módulo funciona, pero hay algo que conviene saber. */
   const migracionesPendientes = consola.estado?.migraciones?.pendientes ?? [];
@@ -127,8 +204,77 @@ export function DocumentacionConsola() {
       />
     ) : undefined;
 
+  /**
+   * El árbol de la sección activa, memoizado.
+   *
+   * ── El fallo que esto corrige, medido ─────────────────────────────────────
+   * `expedienteAbierto` vive en este componente, así que abrir un expediente
+   * provocaba un renderizado de TODO: el armazón, la navegación y la sección
+   * entera —que en «Expedientes» es una tabla de veinticinco filas con sus chips
+   * y sus barras de avance—. Con la CPU estrangulada 4x, la sonda de rendimiento
+   * midió 1.2 s desde el clic hasta que la ventana aparecía, y una tarea de
+   * 400 ms bloqueando el hilo. La caché de expedientes no arreglaba nada de eso:
+   * el dato ya estaba, lo que costaba era volver a pintar la lista.
+   *
+   * Con el árbol memoizado, abrir o cerrar la ventana no toca la sección: solo
+   * monta el diálogo. Las dependencias son exactamente lo que la sección
+   * necesita, y los manejadores son estables (`useCallback`) para que la
+   * memoización no se invalide en cada renderizado.
+   */
+  const contenido = useMemo(() => {
+    if (!conectado && seccionActiva !== "local" && seccionActiva !== "configuracion") {
+      return (
+        <SinConexion onIrALocal={() => irASeccion("local")} onIrAConfiguracion={() => irASeccion("configuracion")} avisar={avisar} />
+      );
+    }
+    return (
+      /* Sección con clave, NO envuelta en `<AnimatePresence mode="wait">`.
+         El apretón de manos «primero sale la anterior, luego entra la nueva» se
+         bloquea si la saliente no reporta que terminó —algo que ocurre en cuanto
+         dentro hay una animación viva, un `layout` o un `layoutId`—, y entonces
+         la sección nueva no se monta nunca: la pantalla se queda en blanco y hay
+         que recargar. `App.tsx` ya aprendió esta lección a nivel de módulo (ver
+         su comentario) y aquí aplica igual. Cambiar la clave de un `motion.div`
+         intercambia la sección en el mismo fotograma y aun así la anima al
+         entrar. */
+      <motion.div key={seccionActiva} {...propsSeccion(reducido)}>
+        {seccionActiva === "panel" && <SeccionPanel onAbrirExpediente={abrirExpediente} />}
+        {seccionActiva === "expedientes" && (
+          <SeccionExpedientes onAbrir={abrirExpediente} avisar={avisar} altaAbierta={altaAbierta} onCerrarAlta={cerrarAlta} />
+        )}
+        {seccionActiva === "solicitudes" && <SeccionSolicitudes onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+        {seccionActiva === "revision" && <SeccionRevision onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+        {seccionActiva === "aprobaciones" && <SeccionAprobaciones onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+        {seccionActiva === "prorrogas" && <SeccionProrrogas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+        {seccionActiva === "tareas" && <SeccionTareas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
+        {seccionActiva === "reportes" && <SeccionReportes avisar={avisar} />}
+        {seccionActiva === "exportaciones" && <SeccionExportaciones avisar={avisar} />}
+        {seccionActiva === "notificaciones" && <SeccionNotificaciones avisar={avisar} onAbrirExpediente={abrirExpediente} />}
+        {seccionActiva === "auditoria" && <SeccionAuditoria avisar={avisar} onAbrirExpediente={abrirExpediente} />}
+        {seccionActiva === "configuracion" && <SeccionConfiguracion avisar={avisar} />}
+        {seccionActiva === "local" && <VistaLocal />}
+      </motion.div>
+    );
+  }, [conectado, seccionActiva, reducido, altaAbierta, abrirExpediente, avisar, cerrarAlta]);
+
+  if (cortina) {
+    return (
+      <div data-doc-ligero={ligero ? "si" : "no"}>
+        <DocCargando
+          visible
+          detalle={
+            consola.conexion === "sin_configurar"
+              ? "Comprobando la conexión con el libro…"
+              : "Leyendo el catálogo de requisitos…"
+          }
+          onTiempoAgotado={() => setArrancado(true)}
+        />
+      </div>
+    );
+  }
+
   return (
-    <>
+    <div data-doc-ligero={ligero ? "si" : "no"} data-letra={preferencias.letra}>
       <DocShell
         secciones={secciones}
         seccionActiva={seccionActiva}
@@ -157,47 +303,13 @@ export function DocumentacionConsola() {
           ) : undefined
         }
       >
-        {!conectado && seccionActiva !== "local" && seccionActiva !== "configuracion" ? (
-          <SinConexion onIrALocal={() => irASeccion("local")} onIrAConfiguracion={() => irASeccion("configuracion")} avisar={avisar} />
-        ) : (
-          /* Sección con clave, NO envuelta en `<AnimatePresence mode="wait">`.
-             El apretón de manos «primero sale la anterior, luego entra la nueva»
-             se bloquea si la saliente no reporta que terminó —algo que ocurre en
-             cuanto dentro hay una animación viva, un `layout` o un `layoutId`—, y
-             entonces la sección nueva no se monta nunca: la pantalla se queda en
-             blanco y hay que recargar. `App.tsx` ya aprendió esta lección a nivel
-             de módulo (ver su comentario) y aquí aplica igual. Cambiar la clave de
-             un `motion.div` intercambia la sección en el mismo fotograma y aun así
-             la anima al entrar. */
-          <motion.div key={seccionActiva} {...propsSeccion(reducido)}>
-            {seccionActiva === "panel" && <SeccionPanel onAbrirExpediente={abrirExpediente} />}
-            {seccionActiva === "expedientes" && (
-              <SeccionExpedientes
-                onAbrir={abrirExpediente}
-                avisar={avisar}
-                altaAbierta={altaAbierta}
-                onCerrarAlta={() => setAltaAbierta(false)}
-              />
-            )}
-            {seccionActiva === "solicitudes" && <SeccionSolicitudes onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-            {seccionActiva === "revision" && <SeccionRevision onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-            {seccionActiva === "aprobaciones" && <SeccionAprobaciones onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-            {seccionActiva === "prorrogas" && <SeccionProrrogas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-            {seccionActiva === "tareas" && <SeccionTareas onAbrirExpediente={abrirExpediente} avisar={avisar} />}
-            {seccionActiva === "reportes" && <SeccionReportes avisar={avisar} />}
-            {seccionActiva === "exportaciones" && <SeccionExportaciones avisar={avisar} />}
-            {seccionActiva === "notificaciones" && <SeccionNotificaciones avisar={avisar} onAbrirExpediente={abrirExpediente} />}
-            {seccionActiva === "auditoria" && <SeccionAuditoria avisar={avisar} onAbrirExpediente={abrirExpediente} />}
-            {seccionActiva === "configuracion" && <SeccionConfiguracion avisar={avisar} />}
-            {seccionActiva === "local" && <VistaLocal />}
-          </motion.div>
-        )}
+        {contenido}
       </DocShell>
 
-      <ExpedienteLateral
+      <ExpedienteVentana
         expedienteId={expedienteAbierto}
-        onCerrar={() => setExpedienteAbierto(null)}
-        onCambio={() => setRefresco((n) => n + 1)}
+        onCerrar={cerrarExpediente}
+        onCambio={marcarCambio}
         avisar={avisar}
       />
 
@@ -207,7 +319,7 @@ export function DocumentacionConsola() {
           expediente puedan recargarse; se expone como dato oculto para no forzar
           una recarga completa del módulo. */}
       <span className="hidden" data-refresco={refresco} aria-hidden />
-    </>
+    </div>
   );
 }
 
