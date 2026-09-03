@@ -125,6 +125,22 @@ export function reiniciarDemostracion(): void {
   guardarBase(baseVacia());
 }
 
+/**
+ * ¿Existe una evaluación con ese código en la demostración de ESTE navegador?
+ *
+ * Lo pregunta el runner como último recurso. Sin esto, quien probaba el módulo en
+ * modo demostración —sin haber tocado nunca el panel de conexión— dejaba de poder
+ * abrir su propio enlace: el resolutor no encontraba configuración guardada y
+ * respondía, con razón, que el enlace no dice a qué servidor pertenece. La prueba
+ * SÍ estaba, aquí al lado, y abrirla es lo correcto; lo que hay que hacer además
+ * es decir en pantalla que es una vista local que nadie más puede abrir.
+ */
+export function existeEnDemostracion(codigo: string): boolean {
+  const buscado = String(codigo ?? "").toUpperCase().replace(/[^A-Z0-9-]/g, "");
+  if (!buscado) return false;
+  return Object.values(leerBase().documentos).some((d) => d.evaluacion.codigo === buscado);
+}
+
 /* --------------------------------- Envoltorio ----------------------------- */
 
 const VERSION_DEMO = "2.0.0-demostracion";
