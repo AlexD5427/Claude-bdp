@@ -229,6 +229,15 @@ datos, gestionando estados de carga y error con reintentos de *backoff*.
 > [`docs/modules/DOCUMENTACION.md`](docs/modules/DOCUMENTACION.md) y, para
 > ponerlo en marcha,
 > [`docs/modules/DOCUMENTACION_DESPLIEGUE.md`](docs/modules/DOCUMENTACION_DESPLIEGUE.md).
+>
+> **El frontend y el backend se despliegan por separado y a mano distinta**, así
+> que el módulo comprueba al arrancar que las dos mitades encajen: compara la
+> versión de esquema, la del catálogo y la lista de acciones que el backend
+> declara contra lo que la pantalla necesita, y si no cuadran dice el nombre del
+> problema y el paso exacto que lo arregla. El caso frecuente es haber pegado los
+> `.gs` sin publicar una **versión nueva** de la implementación: el enlace
+> `/exec` sigue sirviendo el código anterior, todo responde, y falla justo lo que
+> se añadió. Ver `src/features/documentacion/domain/compatibilidad.ts`.
 > [!IMPORTANT]
 > **Toda escritura pasa por `src/lib/backendWrite.ts` y valida la respuesta.**
 > Apps Script **no** devuelve 401 cuando a un despliegue se le caducan los

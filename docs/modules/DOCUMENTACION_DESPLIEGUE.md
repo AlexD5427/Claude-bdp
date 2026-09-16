@@ -124,9 +124,10 @@ respaldo propio antes de empezar.
 error**: Apps Script corta a los seis minutos. Vuelva a ejecutar el mismo menú;
 continúa donde quedó. Repita hasta que informe que terminó.
 
-**24.** Abra la hoja `MigracionesDocumentacion`. Debe ver cinco filas
+**24.** Abra la hoja `MigracionesDocumentacion`. Debe ver **seis** filas
 —`4.0.0-estructura`, `4.0.1-catalogos`, `4.0.2-expedientes`,
-`4.0.3-resumenes` y `4.1.0-hojas-fisicas`— todas en estado completado.
+`4.0.3-resumenes`, `4.1.0-hojas-fisicas` y `4.2.0-legajo-administrativo`— todas
+en estado completado.
 
 > **Qué hace y qué no hace `4.1.0-hojas-fisicas`**
 > Añade las columnas `subseccion` y `hojas_fisicas` a `ExpedienteDocumentos`, y
@@ -137,6 +138,29 @@ continúa donde quedó. Repita hasta que informe que terminó.
 > todos los documentos físicos ya entregados aparecerán como «sin contar» hasta que
 > alguien los cuente. El filtro «Hojas sin contar» de la pestaña de requisitos
 > sirve exactamente para eso.
+
+> **Qué hace y qué no hace `4.2.0-legajo-administrativo`**
+>
+> **Hace tres cosas.** Crea las columnas del esquema 6 —`nombre_personalizado`,
+> `presentacion_fisica` y `presentacion_digital` en `ExpedienteDocumentos`;
+> `permite_nombre_libre`, `presentacion_editable` y `estado_inicial` en
+> `CatalogoDocumentos`—, sube el catálogo a la versión 4 (los cuatro generales
+> nuevos y los dos cambios de presentación) y **siembra los requisitos nuevos en
+> los expedientes que ya existían**, por lotes. Ese tercer paso es nuevo: sin él,
+> los cuatro documentos solo aparecerían en las altas posteriores al despliegue y
+> el área acabaría con dos clases de expediente sin forma de distinguirlas.
+>
+> **No hace cuatro.** No inventa conteos de hojas (los cuatro nuevos entran en
+> cero). No borra el conteo del seguro de accidentes: ese documento pasó a solo
+> digital y su contador desaparece de la pantalla, pero si alguien había anotado
+> cinco hojas mirando un papel, el número se conserva en la celda. No toca el
+> estado de ningún requisito existente. Y **no toca los expedientes aprobados ni
+> archivados**: sembrar un requisito nuevo en un expediente aprobado lo dejaría
+> incompleto y cambiaría un estado que una persona decidió. Se omiten y el
+> resultado dice cuántos.
+>
+> Si algún expediente cerrado tiene que completarse, hay que reabrirlo
+> (Expediente › Restaurar) y usar **Sincronizar requisitos**.
 
 **25.** Abra `Expedientes` y revise cinco filas al azar contra la pestaña anual:
 nombre, fecha de ingreso, oficina y avance deben coincidir.
@@ -214,6 +238,21 @@ no cambia y no hay nada que tocar.
 esquema instalado y las migraciones aplicadas. Si en su lugar aparece la pantalla
 de «sin conexión», use `Reintentar`: casi siempre es que falta publicar una
 versión nueva en el paso 28.
+
+**31 bis.** Vaya a `Configuración > Esta pantalla` y compruebe las tres líneas
+nuevas del bloque técnico:
+
+- **Esquema del libro** debe decir `6 (esta pantalla espera 6)`.
+- **Versión del catálogo** debe decir `4 (espera 4)`.
+- **Acciones del backend** debe dar un número, no «no las declara».
+
+> **Si alguno de los dos primeros números no coincide, el paso 28 no surtió
+> efecto.** Es el caso más frecuente y el más difícil de ver: se pegan los `.gs`,
+> se guarda, el editor muestra el código nuevo… y el enlace `/exec` sigue
+> sirviendo el anterior porque la implementación apunta a una versión antigua.
+> A partir de esta versión, el módulo lo dice solo en una cinta en la parte
+> superior, con la instrucción exacta. Si aparece, vuelva al paso 28 y elija
+> **Versión: Versión nueva** (no «Versión 1», no la que ya estaba).
 
 **32.** Recorra el menú lateral: `Panel`, `Expedientes`, las cuatro pantallas de
 trabajo (`Solicitudes`, `Revisión`, `Aprobaciones`, `Prórrogas`, `Tareas`), las
@@ -314,9 +353,22 @@ del área sin ayuda técnica.
 - [ ] La hoja `Auxiliar` tiene la columna `cargo_bdp` con los cargos del banco, y
       el desplegable de cargo del alta los ofrece.
 - [ ] Añadir una agencia nueva desde el módulo **no borra** ninguna existente.
-- [ ] El catálogo tiene 39 entradas: 37 vigentes (16 generales, 17 de garantía por
+- [ ] El catálogo tiene 43 entradas: 41 vigentes (20 generales, 17 de garantía por
       rama y 4 de cumplimiento) más certificado de trabajo y RC-IVA marcados como
       **retirados**, y los códigos heredados se conservan uno a uno.
+- [ ] Un expediente nuevo **General** trae 20 requisitos; uno **Administrativo**,
+      20; uno **Comercial Tipo 2**, 29.
+- [ ] El **seguro de accidentes** ya **no** muestra contador de hojas.
+- [ ] El **folio real del bien inmueble** sí lo muestra, y tanto en Comercial
+      Tipo 1 como en Tipo 3.
+- [ ] En el asistente, elegir **Funcionario área administrativa** pasa el
+      indicador a «Paso 3 de 4» y «Continuar» lleva a la revisión.
+- [ ] En **Otros**: escribir un nombre lo pone en «Pendiente»; el chip
+      FÍSICO/DIGITAL/AMBOS enciende y apaga el contador de hojas; el nombre
+      escrito es el que aparece en el expediente y en el reporte de pendientes.
+- [ ] Un expediente anterior a la migración tiene ahora 20 requisitos, con los
+      cuatro nuevos en cero.
+- [ ] Un expediente **aprobado** sigue aprobado y **sin** los cuatro nuevos.
 - [ ] Un expediente creado antes de la migración que tuviera certificado de trabajo
       o RC-IVA **sigue mostrándolos**, con su estado y su historia.
 

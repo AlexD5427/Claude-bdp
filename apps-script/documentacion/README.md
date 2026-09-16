@@ -139,6 +139,7 @@ guardar el archivo no basta.
 | `4.0.2-expedientes` | Convierte cada fila anual en expediente + requisitos |
 | `4.0.3-resumenes` | Recalcula avances, estados y colores |
 | `4.1.0-hojas-fisicas` | Anade `subseccion` y `hojas_fisicas` a `ExpedienteDocumentos` y materializa la subseccion por rama |
+| `4.2.0-legajo-administrativo` | Catalogo v4: cuatro generales nuevos, dos cambios de presentacion, columnas de personalizacion, y **siembra los requisitos nuevos en los expedientes que ya existian** |
 
 Tres garantias:
 
@@ -157,6 +158,13 @@ Se guarda un respaldo antes de empezar.
 > fabricar el dato que el area necesita que sea real. Consecuencia practica: tras
 > migrar, todos los documentos fisicos ya entregados apareceran como «sin contar»
 > hasta que alguien los cuente.
+
+> **`4.2.0-legajo-administrativo` no toca los expedientes cerrados.** Sembrar un
+> requisito nuevo en un expediente APROBADO o ARCHIVADO lo dejaria incompleto y
+> cambiaria un estado que una persona decidio. Se omiten y el resultado dice
+> cuantos. Tampoco borra el conteo del seguro de accidentes, que paso a solo
+> digital: su contador desaparece de la pantalla, pero el numero que alguien
+> anoto mirando un papel se conserva en la celda.
 
 > **Los requisitos retirados se conservan.** `cert-trabajo` y `rc-iva` llevan
 > `retirado: true` en el catalogo: no se siembran en expedientes nuevos, pero
@@ -291,7 +299,7 @@ la instalacion, la migracion y los flujos se ejecutan de verdad en cada
 
 ## Catalogo, presentacion y hojas fisicas
 
-`DOC2_CATALOGO_VERSION = 3`. El catalogo canonico tiene **39 entradas**: 37
+`DOC2_CATALOGO_VERSION = 4`. El catalogo canonico tiene **43 entradas**: 41
 vigentes y 2 retiradas. Cada documento declara, ademas de su aplicabilidad por
 rama:
 
@@ -302,11 +310,14 @@ rama:
 | `requiereConteoHojas` | `true` / `false` | Lleva contador de hojas |
 | `subseccion` | texto, o mapa por tipo de garantia | De quien es el documento |
 | `retirado` | `true` | El area dejo de pedirlo |
+| `nombreLibre` | `true` | El nombre lo escribe quien registra el expediente |
+| `presentacionEditable` | `true` | Fisico / digital / ambos se elige por expediente |
+| `estadoInicial` | estado documental | Con que estado nace el requisito |
 
 `CONDICIONAL` existe porque hay documentos que dependen del caso, y forzarlos a
 `SI`/`NO` obligaba a elegir una mentira.
 
-**Nueve** documentos llevan contador de hojas. La validacion esta en
+**Trece** documentos llevan contador de hojas. La validacion esta en
 `doc2ValidarHojasFisicas_`: entero, sin signos ni decimales, maximo
 `DOC2_LIMITS.MAX_HOJAS_FISICAS` = 999. El tope no es decorativo: un dedo pegado en
 el teclado que escriba 99.999 hojas contamina los totales del libro anual con
@@ -322,9 +333,57 @@ manera, el mismo documento acabaria bajo dos titulos distintos.
 configuracion. Consultar la semilla daria la respuesta correcta el dia de la
 instalacion y una respuesta obsoleta a partir del primer cambio.
 
-Recuentos por rama: General **16** · Comercial T1 **21** · T2 **25** · T3 **21** ·
-Auditoria **17** · Cumplimiento **19**. `npm run doc:check` los verifica contra las
-tres capas.
+Recuentos por rama: General **20** · Administrativo **20** · Comercial T1 **25** ·
+T2 **29** · T3 **25** · Auditoria **21** · Cumplimiento **23**.
+`npm run doc:check` los verifica contra las tres capas.
+
+## Requisitos personalizables
+
+`otros-documento` es el primer requisito cuyo contenido lo define el EXPEDIENTE
+y no el catalogo. Tres columnas nuevas en `ExpedienteDocumentos` lo sostienen:
+`nombre_personalizado`, `presentacion_fisica` y `presentacion_digital`. Vacias
+significan «lo que diga el catalogo», y no se rellenan con el valor heredado a
+proposito: si se rellenaran, un cambio del catalogo dejaria de alcanzar a los
+expedientes que nunca personalizaron nada.
+
+**La presentacion efectiva se resuelve en un solo sitio.**
+`doc2PresentacionEfectiva_` acepta la fila y la definicion del catalogo, y
+devuelve la presentacion que manda y si lleva conteo de hojas. Lo usan la
+validacion, la vista del expediente, los reportes y el informe mensual. La regla,
+en tres lineas:
+
+1. si la fila trae una presentacion propia, esa manda;
+2. si no, manda la del catalogo;
+3. el conteo de hojas se **deriva** — un requisito editable lleva contador si su
+   presentacion efectiva no es «solo digital».
+
+El punto 3 es el que hace que el estado imposible —solo digital con doce hojas de
+papel— no sea representable.
+
+**El orden dentro del servicio importa.** La personalizacion se aplica ANTES de
+validar el conteo: la persona marca «Ambos» y escribe tres hojas en el mismo
+guardado, y mirando solo la fila guardada la validacion consultaria la
+presentacion anterior y rechazaria un cambio valido.
+
+## El backend declara su propia version
+
+`documentacion.estado` devuelve, ademas del estado del libro:
+
+| Campo | Para que |
+|---|---|
+| `esquema` | Version del modelo normalizado (`DOC2_SCHEMA_VERSION`) |
+| `catalogoVersion` | Version del catalogo (`DOC2_CATALOGO_VERSION`) |
+| `acciones` | Los identificadores de todas las acciones que este backend atiende |
+
+`acciones` es lo que permite detectar el caso de «pegue los .gs y no publique una
+version nueva de la implementacion»: el enlace `/exec` sigue sirviendo el codigo
+anterior, todo responde, y falla justo lo que se anadio. Con la lista delante, el
+frontend dice que accion falta y que hacer. Son unos 80 identificadores cortos:
+alrededor de 3 kB en una respuesta que ya trae el catalogo.
+
+`documentacion.arranque` devuelve estado y catalogo en la MISMA ejecucion. El
+frontend arrancaba con dos llamadas encadenadas y cada una paga el arranque del
+interprete y la apertura del libro.
 
 ## Alta en una sola llamada
 
