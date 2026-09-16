@@ -504,7 +504,19 @@ function FilaRequisito({
                 <CampoNombreLibre
                   valor={nombreLibre}
                   onChange={(v) => {
-                    onBorrador(requisito.expedienteDocumentoId, { nombrePersonalizado: v });
+                    /**
+                     * Escribir el nombre pone el requisito en uso, igual que en
+                     * el asistente de alta.
+                     *
+                     * Sin esto, el campo quedaba disponible y los chips de
+                     * estado y el contador seguían apagados por el «no aplica»
+                     * con el que nace: la persona escribía el nombre y tenía que
+                     * adivinar que primero hay que pulsar «Pendiente». Las dos
+                     * pantallas se comportan igual a propósito.
+                     */
+                    const patch: BorradorRequisito = { nombrePersonalizado: v };
+                    if (v.trim() && estado === "NO_APLICA") patch.estado = "PENDIENTE";
+                    onBorrador(requisito.expedienteDocumentoId, patch);
                     onFoco(requisito.expedienteDocumentoId);
                   }}
                 />

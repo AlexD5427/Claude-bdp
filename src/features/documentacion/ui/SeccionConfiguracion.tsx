@@ -412,7 +412,18 @@ function PestanaCatalogo({ avisar }: Props) {
               nombreDocumento={fila.nombre}
               onChange={(nuevoModo) =>
                 poner(fila.codigo, {
-                  presentacionFisica: nuevoModo === "DIGITAL" ? "NO" : "SI",
+                  /**
+                   * `CONDICIONAL` se CONSERVA al volver a marcar presencia
+                   * física.
+                   *
+                   * Es el «SÍ*» de la lista del área: el original en papel se
+                   * pide solo en ciertos casos, y tiene su leyenda al pie de la
+                   * sección. Escribir `SI` a secas aquí borraría ese matiz sin
+                   * avisar, y el asterisco no se podría recuperar desde la
+                   * pantalla: habría que editar la celda del libro a mano.
+                   */
+                  presentacionFisica:
+                    nuevoModo === "DIGITAL" ? "NO" : actual === "CONDICIONAL" ? "CONDICIONAL" : "SI",
                   presentacionDigital: nuevoModo === "FISICO" ? "NO" : "SI",
                 })
               }

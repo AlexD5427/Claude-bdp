@@ -184,3 +184,32 @@ describe("campo de nombre libre", () => {
     expect(campo.value).toHaveLength(MAX_NOMBRE_LIBRE);
   });
 });
+
+describe("la presentación condicional no se pierde al editarla", () => {
+  /**
+   * `CONDICIONAL` es el «SÍ*» de la lista del área: el original en papel se pide
+   * solo en ciertos casos, y tiene su leyenda al pie de la sección. El
+   * segmentado solo tiene tres opciones, así que al volver a marcar presencia
+   * física hay que conservar el matiz en lugar de aplanarlo a `SI` — que no se
+   * podría recuperar desde la pantalla.
+   */
+  it("un documento CONDICIONAL se presenta como AMBOS o FÍSICO según su parte digital", () => {
+    expect(modoDesdePresentacion("CONDICIONAL", "SI")).toBe("AMBOS");
+    expect(modoDesdePresentacion("CONDICIONAL", "NO")).toBe("FISICO");
+  });
+
+  it("y conserva su asterisco al volver del modo digital", () => {
+    /* La regla que aplica la pantalla de configuración, escrita como función
+       para poder probarla sin montar la tabla del catálogo. */
+    const aplicar = (modo: ModoPresentacion, fisicaActual: string) => ({
+      presentacionFisica: modo === "DIGITAL" ? "NO" : fisicaActual === "CONDICIONAL" ? "CONDICIONAL" : "SI",
+      presentacionDigital: modo === "FISICO" ? "NO" : "SI",
+    });
+
+    expect(aplicar("AMBOS", "CONDICIONAL")).toEqual({ presentacionFisica: "CONDICIONAL", presentacionDigital: "SI" });
+    expect(aplicar("FISICO", "CONDICIONAL")).toEqual({ presentacionFisica: "CONDICIONAL", presentacionDigital: "NO" });
+    expect(aplicar("DIGITAL", "CONDICIONAL")).toEqual({ presentacionFisica: "NO", presentacionDigital: "SI" });
+    // Un documento que nunca fue condicional no se convierte en uno.
+    expect(aplicar("AMBOS", "NO")).toEqual({ presentacionFisica: "SI", presentacionDigital: "SI" });
+  });
+});
