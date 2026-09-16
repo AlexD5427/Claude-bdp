@@ -37,6 +37,7 @@ import {
   type Notita,
 } from "./piezas";
 import { PestanaEstaPantalla } from "./PestanaEstaPantalla";
+import { SelectorPresentacion, modoDesdePresentacion, modoLlevaHojas } from "./ContadorHojas";
 import { useDatos } from "./useDatos";
 import { DocSettingsModal } from "../../../components/doc/DocSettingsModal";
 import { setSettings, useDocStore } from "../../../lib/docStore";
@@ -379,6 +380,52 @@ function PestanaCatalogo({ avisar }: Props) {
       ),
     },
     {
+      /**
+       * Presentación: la palanca de emergencia del área.
+       *
+       * ── Por qué está aquí ──────────────────────────────────────────────────
+       * Es la clase de cambio que ocurre sin avisar y que hoy obliga a
+       * desplegar código. El seguro de accidentes pasó de papel a digital de un
+       * mes para otro; el folio real del bien inmueble hizo el camino inverso.
+       * Cuando vuelva a pasar, el área tiene que poder reflejarlo el mismo día.
+       *
+       * ── Y por qué el conteo de hojas NO es una columna aparte ─────────────
+       * Porque se DERIVA: marcar un documento como digital apaga su contador en
+       * la pantalla, en los reportes y en el informe; marcarlo como físico lo
+       * enciende. Con dos controles independientes se podría guardar la
+       * combinación imposible —solo digital con contador— que es exactamente la
+       * que produce un 0 en la columna «Hojas físicas» de un documento que no
+       * tiene hojas.
+       */
+      clave: "presentacion",
+      encabezado: "Presentación",
+      render: (fila) => {
+        const actual =
+          (borrador[fila.codigo]?.presentacionFisica as string | undefined) ?? fila.presentacionFisica;
+        const digital =
+          (borrador[fila.codigo]?.presentacionDigital as string | undefined) ?? fila.presentacionDigital;
+        const modo = modoDesdePresentacion(actual, digital);
+        return (
+          <div className="flex flex-col items-start gap-1">
+            <SelectorPresentacion
+              valor={modo}
+              nombreDocumento={fila.nombre}
+              onChange={(nuevoModo) =>
+                poner(fila.codigo, {
+                  presentacionFisica: nuevoModo === "DIGITAL" ? "NO" : "SI",
+                  presentacionDigital: nuevoModo === "FISICO" ? "NO" : "SI",
+                })
+              }
+            />
+            <span className="text-[10px] text-[color:var(--doc-text-faint)]">
+              {modoLlevaHojas(modo) ? "cuenta hojas" : "sin conteo"}
+              {actual === "CONDICIONAL" ? " · físico condicional" : ""}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
       clave: "revision",
       encabezado: "Exige revisión",
       secundaria: true,
@@ -410,9 +457,17 @@ function PestanaCatalogo({ avisar }: Props) {
         requisito deja de exigirlo en los expedientes nuevos y en el recálculo de los existentes; lo ya registrado se conserva.
       </Aviso>
 
+      <Aviso intencion="aviso" titulo="La presentación se puede corregir desde aquí">
+        Si un documento deja de entregarse en papel —o empieza a entregarse—, cámbielo en la columna{" "}
+        <strong>Presentación</strong> y el contador de hojas se apaga o se enciende <em>en todo el módulo</em>: en el
+        formulario, en la vista del expediente, en los reportes y en el informe mensual. No hace falta esperar a un
+        despliegue. Lo que <strong>no</strong> se edita aquí es la sección ni la rama: eso cambia qué requisitos existen
+        en expedientes ya creados y exige una versión nueva del catálogo.
+      </Aviso>
+
       <Panel
         titulo="Requisitos"
-        descripcion={`${documentos.length} documentos. La sección y la rama son estructura del proceso y no se editan aquí.`}
+        descripcion={`${documentos.length} documentos. El conteo de hojas se deriva de la presentación, así que no se edita por separado.`}
         acciones={
           <>
             {cambios > 0 && (
@@ -433,6 +488,8 @@ function PestanaCatalogo({ avisar }: Props) {
                     obligatorio: patch.obligatorio,
                     permite_prorroga: patch.permiteProrroga,
                     requiere_revision: patch.requiereRevision,
+                    presentacion_fisica: patch.presentacionFisica,
+                    presentacion_digital: patch.presentacionDigital,
                     activo: patch.activo,
                   }));
                   const res = await docApi.guardarCatalogo(lista);

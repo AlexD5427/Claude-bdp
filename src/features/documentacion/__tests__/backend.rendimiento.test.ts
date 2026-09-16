@@ -386,6 +386,65 @@ describe("estabilidad · el catálogo se puede corregir desde la configuración"
     expect(res.rechazados.length).toBe(1);
     expect(res.rechazados[0].motivo).toContain("físico, en digital o en ambos");
   });
+
+  it("el conteo de hojas se DERIVA: la combinación imposible no es representable", () => {
+    const h = loadInstalledBackend();
+    /* Se intenta guardar «solo digital CON contador», que es exactamente la
+       combinación que produce un 0 en la columna «Hojas físicas» de un documento
+       que no tiene hojas. El campo se ignora y la derivación manda. */
+    h.ok("documentacion.catalogo.guardar", {
+      catalogo: [
+        {
+          codigo: "cv",
+          presentacion_fisica: "NO",
+          presentacion_digital: "SI",
+          requiere_conteo_hojas: true,
+        },
+      ],
+    });
+    const cv = h.ok("documentacion.catalogo").documentos.find((d: { codigo: string }) => d.codigo === "cv");
+    expect(cv.presentacionFisica).toBe("NO");
+    expect(cv.requiereConteoHojas).toBe(false);
+  });
+
+  it("cambiar la presentación del catálogo llega al reporte, no solo a la pantalla", () => {
+    const h = loadInstalledBackend();
+    const { expedienteId, requisitos } = crearExpediente(h, { identificador: "CI-CAT-2" });
+    const cv = requisitos.find((r: { codigo: string }) => r.codigo === "cv")!;
+
+    // Con el CV en digital, el reporte deja su celda de hojas vacía.
+    h.ok("documentacion.requisito.actualizar", {
+      expedienteDocumentoId: cv.expedienteDocumentoId,
+      cambios: { observaciones: "Pendiente de recibir." },
+    });
+    const columnaHojas = (tipo: string) => {
+      const reporte = h.ok("documentacion.reporte", { tipo, filtros: {} });
+      const iHojas = reporte.columnas.indexOf("Hojas físicas");
+      const iRequisito = reporte.columnas.indexOf("Requisito");
+      const fila = reporte.filas.find((f: unknown[]) => String(f[iRequisito]).includes("Curriculum"));
+      return fila ? fila[iHojas] : undefined;
+    };
+    expect(columnaHojas("pendientes")).toBe("");
+
+    // Se marca como físico desde la configuración…
+    h.ok("documentacion.catalogo.guardar", {
+      catalogo: [{ codigo: "cv", presentacion_fisica: "SI", presentacion_digital: "SI" }],
+    });
+    h.ok("documentacion.requisito.actualizar", {
+      expedienteDocumentoId: cv.expedienteDocumentoId,
+      cambios: { hojasFisicas: 7 },
+    });
+
+    /* …y el mismo reporte trae el número. Es la comprobación que importa: el
+       cambio del catálogo no se queda en la pantalla del alta, alcanza a lo que
+       el área imprime y cruza contra el archivador. */
+    expect(columnaHojas("pendientes")).toBe(7);
+    expect(
+      h
+        .ok("documentacion.expediente.obtener", { expedienteId })
+        .requisitos.find((r: { codigo: string }) => r.codigo === "cv").requiereConteoHojas,
+    ).toBe(true);
+  });
 });
 
 describe("estabilidad · la migración del legajo administrativo", () => {
