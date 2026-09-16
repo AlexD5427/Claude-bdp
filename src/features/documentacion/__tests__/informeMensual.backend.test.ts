@@ -115,12 +115,24 @@ describe("informe mensual · camino completo contra el backend", () => {
        «lleva conteo y falta hacerlo», que es lo que decide si alguien tiene que
        ir al archivador. */
     const conConteo = comercial.requisitos.filter((r: { requiereConteoHojas?: boolean }) => r.requiereConteoHojas);
+    /* Y el requisito «Otros» con su nombre escrito: el informe mensual es lo
+       que el área imprime y entrega, así que el nombre tiene que llegar hasta
+       ahí. Si no llegara, el documento aparecería como «Otros documentos
+       (especificar)» en un papel que alguien tiene que archivar. */
+    const otros = comercial.requisitos.find((r: { codigo: string }) => r.codigo === "otros-documento")!;
     harness.ok("documentacion.requisitos.guardar", {
       expedienteId: comercial.expedienteId,
       cambios: [
         { expedienteDocumentoId: foto.expedienteDocumentoId, estado: "ENTREGADO", observaciones: "Recibida en físico y digital." },
         { expedienteDocumentoId: conConteo[0].expedienteDocumentoId, estado: "ENTREGADO", hojasFisicas: 9 },
         { expedienteDocumentoId: conConteo[1].expedienteDocumentoId, estado: "ENTREGADO" },
+        {
+          expedienteDocumentoId: otros.expedienteDocumentoId,
+          estado: "ENTREGADO",
+          nombrePersonalizado: "Certificación del Colegio de Auditores",
+          presentacion: "AMBOS",
+          hojasFisicas: 6,
+        },
       ],
     });
   });
@@ -180,7 +192,9 @@ describe("informe mensual · camino completo contra el backend", () => {
   it("las hojas físicas y la subsección llegan al Excel y al HTML", async () => {
     const { informe } = await informeDelMes(MES);
     const zoe = informe.categorias[0].personas.find((p) => p.nombre === "Zoe Comercial")!;
-    expect(zoe.hojasFisicas).toBe(9);
+    /* 15 = 9 del primer documento con conteo + 6 del «Otros», que también es un
+       documento físico cuando se marca como AMBOS. */
+    expect(zoe.hojasFisicas).toBe(15);
     // El segundo documento con conteo se entregó sin contarlo: eso se avisa.
     expect(zoe.hojasSinContar).toBe(1);
 
@@ -226,5 +240,53 @@ describe("informe mensual · camino completo contra el backend", () => {
     // Solo los encabezados: el archivo existe y se abre.
     expect(libro.Detalle.length).toBe(1);
     expect(() => construirXlsx(libro)).not.toThrow();
+  });
+
+  /* ---- El requisito «Otros» de punta a punta ---- */
+
+  it("el nombre escrito, no el del catálogo, es el que llega al detalle", async () => {
+    const { informe } = await informeDelMes(MES);
+    const persona = informe.categorias.flatMap((c) => c.personas).find((p) => p.nombre === "Zoe Comercial")!;
+    const otros = persona.documentos.find((d) => d.codigo === "otros-documento")!;
+    expect(otros.nombre).toBe("Certificación del Colegio de Auditores");
+    expect(otros.nombre).not.toContain("especificar");
+    // Y sus hojas cuentan como cualquier otro documento físico.
+    expect(otros.hojasFisicas).toBe(6);
+  });
+
+  it("y llega también al Excel, en la fila del documento", async () => {
+    const { informe } = await informeDelMes(MES);
+    const libro = informeALibro(informe);
+    const cabecera = libro.Detalle[0].map(String);
+    const iDocumento = cabecera.indexOf("Documento");
+    const iHojas = cabecera.indexOf("Hojas físicas");
+    const fila = libro.Detalle.slice(1).find((f) => String(f[iDocumento]) === "Certificación del Colegio de Auditores");
+    expect(fila, "la fila del «Otros» con su nombre escrito").toBeTruthy();
+    expect(fila![iHojas]).toBe(6);
+  });
+
+  it("un «Otros» marcado como solo digital deja su celda de hojas vacía", async () => {
+    /* La regla de honestidad: vacío significa «esta columna no le aplica», y un
+       0 significaría «cero hojas», que es una afirmación distinta. Aquí se
+       comprueba contra la presentación EFECTIVA de la fila, no la del catálogo:
+       el catálogo dice que «Otros» puede contar hojas. */
+    const { informe: antes } = await informeDelMes(MES);
+    const persona = antes.categorias.flatMap((c) => c.personas).find((p) => p.nombre === "Zoe Comercial")!;
+    const otros = persona.documentos.find((d) => d.codigo === "otros-documento")!;
+    expect(otros.hojasFisicas).not.toBeNull();
+
+    const detalle = harness.ok("documentacion.expediente.obtener", { identificador: `1111111 - 1 - ${MES.slice(0, 4)}` });
+    const fila = detalle.requisitos.find((r: { codigo: string }) => r.codigo === "otros-documento");
+    harness.ok("documentacion.requisito.actualizar", {
+      expedienteDocumentoId: fila.expedienteDocumentoId,
+      cambios: { presentacion: "DIGITAL" },
+    });
+
+    const { informe: despues } = await informeDelMes(MES);
+    const tras = despues.categorias
+      .flatMap((c) => c.personas)
+      .find((p) => p.nombre === "Zoe Comercial")!
+      .documentos.find((d) => d.codigo === "otros-documento")!;
+    expect(tras.hojasFisicas).toBeNull();
   });
 });
