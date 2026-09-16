@@ -581,6 +581,178 @@ if (faltanMotivos.length) fallo("Faltan motivos de revisión en el cliente", fal
 else ok(`${motivos.length} motivos de revisión compartidos`);
 
 /* ------------------------------------------------------------------ */
+/* 7. Rendimiento de pintado                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Auditoría estática de la capa visual.
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────
+ * Las sondas de navegador miden el coste real, pero necesitan Playwright y no
+ * corren en todas las máquinas. Estas seis comprobaciones no miden nada: revisan
+ * INVARIANTES que, si se rompen, garantizan que el coste va a subir. Son las
+ * reglas que este módulo aprendió a base de medir, escritas de forma que un
+ * cambio futuro no las pueda deshacer sin que alguien se entere.
+ *
+ * Es el mismo razonamiento que los recuentos del catálogo: no comprueban que el
+ * módulo sea correcto, comprueban que sigue siendo el que se acordó.
+ */
+
+seccion("Rendimiento de pintado");
+
+const DIR_UI = join(raiz, "src", "features", "documentacion", "ui");
+const CSS_MODULO = readdirSync(DIR_UI)
+  .filter((f) => f.endsWith(".css"))
+  .map((f) => ({ nombre: f, texto: leer(join(DIR_UI, f)) }));
+
+if (!CSS_MODULO.length) fallo("No se encontró la capa CSS del módulo", DIR_UI);
+else ok(`${CSS_MODULO.length} hojas de estilo del módulo presentes`);
+
+/* 1 · Ningún fotograma clave anima una propiedad de DISEÑO.
+   Animar `width`, `height` o `top` obliga al navegador a recalcular el diseño
+   en cada fotograma de la animación, y a repintar todo lo que haya debajo. Con
+   `transform` y `opacity` el trabajo lo hace el compositor. Es la diferencia
+   entre 60 fps y 20 en un equipo sin GPU decente. */
+const PROPIEDADES_DE_DISENO = [
+  "width",
+  "height",
+  "top",
+  "left",
+  "right",
+  "bottom",
+  "margin",
+  "padding",
+  "font-size",
+  "line-height",
+];
+const keyframesCaros = [];
+for (const hoja of CSS_MODULO) {
+  const bloques = hoja.texto.match(/@keyframes\s+([\w-]+)\s*\{[\s\S]*?\n\}/g) ?? [];
+  for (const bloque of bloques) {
+    const nombre = (bloque.match(/@keyframes\s+([\w-]+)/) ?? [])[1] ?? "?";
+    for (const propiedad of PROPIEDADES_DE_DISENO) {
+      // Se busca la propiedad como DECLARACIÓN (`width:`), no dentro de otra
+      // (`max-width`, `border-top-left-radius`).
+      if (new RegExp(`(?:^|[;{\\s])${propiedad}\\s*:`, "m").test(bloque)) {
+        keyframesCaros.push(`${hoja.nombre} · @keyframes ${nombre} anima ${propiedad}`);
+      }
+    }
+  }
+}
+if (keyframesCaros.length) {
+  fallo(
+    "Hay animaciones que recalculan el diseño en cada fotograma",
+    `${keyframesCaros.join("; ")}. Use transform/opacity: el compositor las resuelve sin tocar el hilo principal.`,
+  );
+} else {
+  ok("ninguna animación CSS del módulo anima una propiedad de diseño");
+}
+
+/* 2 · Ninguna transición usa `all`.
+   `transition: all` anima también las propiedades que cambien por accidente
+   —incluida alguna de diseño— y deja al navegador vigilándolas todas. */
+const conTransitionAll = CSS_MODULO.filter((h) => /transition:\s*all\b/.test(h.texto)).map((h) => h.nombre);
+if (conTransitionAll.length) {
+  fallo("Hay transiciones declaradas con `all`", `${conTransitionAll.join(", ")}. Enumere las propiedades que cambian.`);
+} else {
+  ok("ninguna transición del módulo usa `all`");
+}
+
+/* 3 · `content-visibility: auto` siempre con su alto estimado.
+   Sin `contain-intrinsic-size`, el navegador da altura cero a lo que no se ve y
+   la barra de desplazamiento salta cada vez que una fila entra en pantalla. El
+   ahorro es real y la experiencia, peor que sin él. */
+const cvSinTamano = [];
+for (const hoja of CSS_MODULO) {
+  const reglas = hoja.texto.match(/[^}]*\{[^}]*content-visibility\s*:\s*auto[^}]*\}/g) ?? [];
+  for (const regla of reglas) {
+    if (!/contain-intrinsic-size/.test(regla)) {
+      cvSinTamano.push(`${hoja.nombre}: ${regla.split("{")[0].trim()}`);
+    }
+  }
+}
+if (cvSinTamano.length) {
+  fallo("Hay `content-visibility: auto` sin alto estimado", `${cvSinTamano.join("; ")}. Añada contain-intrinsic-size.`);
+} else {
+  const cuantos = CSS_MODULO.reduce(
+    (n, h) => n + (h.texto.match(/content-visibility\s*:\s*auto/g) ?? []).length,
+    0,
+  );
+  ok(`${cuantos} listas con salto de diseño diferido, todas con alto estimado`);
+}
+
+/* 4 · El modo ligero apaga TODOS los desenfoques del módulo.
+   Un `backdrop-filter` que se olvida en la lista es el caso que ya pasó una
+   vez: la cabecera pegajosa de la tabla —diez celdas desenfocando contenido en
+   movimiento, el caso más caro que existe— no estaba, y el modo ligero no
+   ahorraba nada. */
+const selectoresConDesenfoque = new Set();
+for (const hoja of CSS_MODULO) {
+  const reglas = hoja.texto.match(/[^{}]*\{[^}]*backdrop-filter[^}]*\}/g) ?? [];
+  for (const regla of reglas) {
+    const selector = regla.split("{")[0].trim();
+    if (/data-doc-ligero/.test(selector)) continue;
+    for (const parte of selector.split(",")) {
+      const limpio = parte.trim();
+      if (limpio) selectoresConDesenfoque.add(limpio);
+    }
+  }
+}
+const apagadosEnLigero = CSS_MODULO.map((h) => h.texto).join("\n");
+const sinApagar = [...selectoresConDesenfoque].filter((selector) => {
+  const clase = (selector.match(/\.[\w-]+/g) ?? []).slice(-1)[0];
+  if (!clase) return false;
+  return !new RegExp(`\\[data-doc-ligero="si"\\][^{]*\\${clase}`).test(apagadosEnLigero);
+});
+if (sinApagar.length) {
+  fallo("El modo ligero no apaga todos los desenfoques", sinApagar.join(", "));
+} else {
+  ok(`${selectoresConDesenfoque.size || "los"} desenfoques del módulo se apagan en modo ligero`);
+}
+
+/* 5 · `will-change` solo donde hay algo que va a cambiar.
+   Promover un elemento a capa propia cuesta memoria de vídeo. Declararlo «por
+   si acaso» en un contenedor que aparece veinte veces es cómo un equipo modesto
+   empieza a tirar fotogramas sin que nada se mueva. */
+const willChangeHuerfano = [];
+for (const hoja of CSS_MODULO) {
+  const reglas = hoja.texto.match(/[^{}]*\{[^}]*will-change[^}]*\}/g) ?? [];
+  for (const regla of reglas) {
+    if (/will-change\s*:\s*auto/.test(regla)) continue;
+    if (!/(transition|animation)\s*:/.test(regla)) {
+      const selector = regla.split("{")[0].trim();
+      /* Se admite que la transición esté en la regla base y el `will-change` en
+         la misma clase: se busca la clase en todo el archivo. */
+      const clase = (selector.match(/\.[\w-]+/g) ?? []).slice(-1)[0];
+      if (clase && new RegExp(`\\${clase}[^{]*\\{[^}]*(transition|animation)\\s*:`).test(hoja.texto)) continue;
+      willChangeHuerfano.push(`${hoja.nombre}: ${selector}`);
+    }
+  }
+}
+if (willChangeHuerfano.length) {
+  fallo(
+    "Hay `will-change` sin una animación que lo justifique",
+    `${willChangeHuerfano.join("; ")}. Promover una capa que nunca se mueve solo gasta memoria de vídeo.`,
+  );
+} else {
+  ok("todo `will-change` del módulo acompaña a una animación real");
+}
+
+/* 6 · Los controles táctiles no esperan el doble toque.
+   `touch-action: manipulation` quita el retardo de 300 ms que el navegador móvil
+   reserva para distinguir un doble toque de zoom. Sin él, cada chip de estado
+   responde un tercio de segundo tarde y la interfaz «se siente lenta» sin que
+   nada tarde. */
+if (!/\.doc-tap\s*\{[^}]*touch-action\s*:\s*manipulation/.test(apagadosEnLigero)) {
+  fallo(
+    "Los controles táctiles no declaran `touch-action: manipulation`",
+    "Sin él, cada toque en móvil responde 300 ms tarde.",
+  );
+} else {
+  ok("los controles táctiles responden al primer toque (sin retardo de doble toque)");
+}
+
+/* ------------------------------------------------------------------ */
 /* 7. Higiene                                                          */
 /* ------------------------------------------------------------------ */
 

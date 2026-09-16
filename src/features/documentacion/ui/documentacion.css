@@ -404,6 +404,32 @@
 }
 
 /* =============================================================
+   LISTAS DE FICHAS (asistente de alta)
+
+   Las filas del asistente son más altas que las del expediente
+   —llevan nombre completo, sellos, contador y chips de estado— así
+   que su alto estimado es otro. Con el valor de `.doc-list-long`
+   (72 px) la barra de desplazamiento pegaba un salto al entrar cada
+   fila en pantalla, que es peor que no tener el ahorro.
+
+   ── Qué ahorra, medido ───────────────────────────────────────
+   Un alta comercial Tipo 2 monta 29 filas; en pantalla caben 4 o 5.
+   El navegador se ahorra el diseño y el pintado de las 24 restantes
+   hasta que alguien se desplaza hasta ellas. Es el ahorro más grande
+   que se puede conseguir aquí sin quitar nada de la interfaz, y es
+   justo el que hace usable un equipo de gama baja.
+   ============================================================= */
+.doc-list-fichas > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 132px;
+}
+
+/* Las tarjetas de la lista de expedientes son todavía más altas. */
+.doc-list-fichas.grid > * {
+  contain-intrinsic-size: auto 280px;
+}
+
+/* =============================================================
    ESTADOS DE CARGA
    Esqueletos con la forma del contenido, no un spinner en el medio.
    ============================================================= */
@@ -459,6 +485,28 @@
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* `manipulation` quita el retardo de 300 ms que el navegador móvil
+   espera para saber si el toque era un doble toque de zoom. En una
+   lista de veinte chips de estado, ese retardo es lo que hace que
+   la interfaz «se sienta lenta» sin que nada tarde: el trabajo
+   empieza casi un tercio de segundo después del dedo.
+
+   Va fuera de la consulta de medio: en un portátil con pantalla
+   táctil el puntero es fino y el dedo también existe. */
+.doc-tap {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Contenedores con desplazamiento propio: el gesto no se propaga al
+   documento de detrás. Sin esto, llegar al final de la lista de
+   requisitos seguía desplazando la página entera —«scroll chaining»—
+   y la hoja del expediente parecía saltar. */
+.doc-scroll {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 /* Alto contraste: bordes y textos sólidos, sin tintes al 14 %. */
@@ -1175,4 +1223,202 @@
 
 [data-doc-ligero="si"] .doc-fila-entra {
   animation: none;
+}
+
+/* =============================================================
+   CAPA DE PULIDO — iOS sobre cristal
+
+   ── Qué añade y qué NO ───────────────────────────────────────
+   Todo lo que hay aquí se compone con `transform`, `opacity` o
+   degradados de pintado: nada mide, nada recalcula el diseño y
+   nada se anima en bucle. Es la diferencia entre una interfaz que
+   se siente cuidada y una que se siente cara: el coste está en el
+   compositor, no en el hilo principal.
+
+   Todo se apaga con el modo ligero y con `prefers-reduced-motion`,
+   al final de este bloque. Las reglas de contraste de arriba NO se
+   tocan: ninguna de estas capas lleva texto.
+   ============================================================= */
+
+/* ---- Filo especular ----------------------------------------
+   Una línea de luz de 1 px en el borde superior. Es el detalle que
+   hace que una superficie translúcida parezca un material y no un
+   rectángulo con opacidad: en iOS lo tiene cada tarjeta, cada hoja
+   y cada barra.
+
+   Va en un `::before` con `pointer-events: none` y no en el
+   `box-shadow` del elemento para poder curvarlo con el mismo radio
+   sin sumar una cuarta sombra al mismo nodo. `inset: 0` con
+   `border-radius: inherit` lo hace seguir cualquier radio sin
+   duplicar el valor.
+   ------------------------------------------------------------ */
+.doc-raised,
+.doc-hoja {
+  position: relative;
+}
+
+/* Un pelo de 1 px de alto pegado al borde superior, con las esquinas
+   del contenedor y desvanecido a los lados.
+
+   ── Por qué NO es un `inset: 0` con `z-index: -1` ─────────────
+   Porque `.doc-categoria` sí lo hace así y puede: declara
+   `isolation: isolate`, que contiene el índice negativo dentro de
+   la tarjeta. `.doc-raised` está en sesenta sitios, algunos con
+   desplegables y cabeceras pegajosas dentro, y aislar todos esos
+   contextos de apilamiento para pintar una línea sería cambiar las
+   reglas de superposición del módulo entero a cambio de un adorno.
+   Una tira de 1 px no puede tapar nada, así que no necesita índice.
+   ------------------------------------------------------------ */
+.doc-raised::before,
+.doc-hoja::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    rgba(255, 255, 255, 0.22) 16%,
+    rgba(255, 255, 255, 0.22) 84%,
+    transparent 100%
+  );
+}
+
+.light .doc-console .doc-raised::before,
+.light .doc-console .doc-hoja::before {
+  /* Sobre papel blanco una luz blanca no se ve: el filo del tema
+     claro es blanco puro y más opaco, que es lo que en iOS separa
+     dos tarjetas contiguas. */
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    rgba(255, 255, 255, 0.95) 14%,
+    rgba(255, 255, 255, 0.95) 86%,
+    transparent 100%
+  );
+}
+
+/* ---- Elevación al pasar el puntero ------------------------
+   Dos píxeles hacia arriba y una sombra un poco más abierta. Solo
+   en punteros finos: en táctil no hay hover y el efecto solo
+   conseguiría que la tarjeta se quedara «levantada» tras el toque.
+   ------------------------------------------------------------ */
+@media (hover: hover) and (pointer: fine) {
+  .doc-elevable {
+    transition:
+      transform var(--doc-duration-normal) var(--doc-ease-hoja),
+      box-shadow var(--doc-duration-normal) var(--doc-ease-hoja);
+  }
+
+  .doc-elevable:hover {
+    transform: translate3d(0, -2px, 0);
+    box-shadow: var(--doc-shadow-md);
+  }
+}
+
+/* ---- Halo de foco -----------------------------------------
+   El anillo de 2 px sigue siendo el que manda; el halo es una
+   segunda capa muy suave que lo separa del fondo cuando cae sobre
+   cristal, que es donde un anillo fino se pierde.
+
+   No sustituye nada: si el navegador no pinta `box-shadow` en el
+   estado de foco, el `outline` de arriba sigue estando.
+   ------------------------------------------------------------ */
+.doc-console :focus-visible {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--doc-focus) 22%, transparent);
+}
+
+/* ---- Barras de desplazamiento del módulo -------------------
+   Finas, del color de la tinta tenue y sin flechas. En una consola
+   con cuatro zonas desplazables, las barras nativas del sistema
+   operativo son el elemento más ruidoso de la pantalla.
+   ------------------------------------------------------------ */
+.doc-console *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.doc-console *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.doc-console *::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: var(--doc-border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.doc-console *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--doc-text-faint);
+  background-clip: content-box;
+}
+
+/* ---- Indicador de la sección activa ------------------------
+   Una barra de 3 px a la izquierda del elemento activo de la
+   navegación, que crece desde el centro. Sustituye al cambio de
+   color a secas: con nueve secciones agrupadas, el color por sí
+   solo obliga a comparar dos tonos de azul para saber dónde está.
+   ------------------------------------------------------------ */
+.doc-nav-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 9999px;
+  background-color: var(--doc-info);
+  transform: translateY(-50%);
+  transition:
+    height var(--doc-duration-normal) var(--doc-ease-hoja),
+    opacity var(--doc-duration-fast) linear;
+  opacity: 0;
+}
+
+.doc-nav-item[aria-current="page"]::before {
+  height: 60%;
+  opacity: 1;
+}
+
+/* ---- Apagado en modo ligero y sin movimiento --------------- */
+[data-doc-ligero="si"] .doc-raised::before,
+[data-doc-ligero="si"] .doc-hoja::before {
+  background: none;
+}
+
+[data-doc-ligero="si"] .doc-elevable:hover {
+  transform: none;
+  box-shadow: inset 0 0 0 1px var(--doc-border) !important;
+}
+
+[data-doc-ligero="si"] .doc-console :focus-visible,
+[data-doc-ligero="si"] .doc-nav-item::before {
+  box-shadow: none;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-elevable,
+  .doc-nav-item::before {
+    transition: none !important;
+  }
+
+  .doc-elevable:hover {
+    transform: none !important;
+  }
+}
+
+.reduce-motion .doc-elevable,
+.reduce-motion .doc-nav-item::before {
+  transition: none !important;
+}
+
+.reduce-motion .doc-elevable:hover {
+  transform: none !important;
 }

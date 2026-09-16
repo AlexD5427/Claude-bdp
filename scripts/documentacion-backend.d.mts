@@ -99,6 +99,9 @@ export interface FakeSheetLike {
   getLastColumn(): number;
   getMaxRows(): number;
   getMaxColumns(): number;
+  /** Borra una fila; las de abajo suben, como en Sheets. */
+  deleteRow(row: number): FakeSheetLike;
+  deleteRows(row: number, howMany: number): FakeSheetLike;
   hidden: boolean;
   frozenRows: number;
   columnWidths: Map<number, number>;

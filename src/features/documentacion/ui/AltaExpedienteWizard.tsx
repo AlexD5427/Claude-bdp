@@ -1272,7 +1272,7 @@ function PasoDocumentos({
   return (
     <div className="space-y-4">
       <Encabezadillo titulo={titulo} detalle={descripcion} />
-      <ul className="space-y-2.5">
+      <ul className="doc-list-fichas space-y-2.5">
         {documentos.map((doc, i) => (
           <FilaDocumento
             key={doc.codigo}
@@ -1944,7 +1944,7 @@ function PasoEspecificos({
                 </span>
               </header>
             )}
-            <ul className="space-y-2.5">
+            <ul className="doc-list-fichas space-y-2.5">
               {bloque.docs.map((doc, i) => (
                 <FilaDocumento
                   key={doc.codigo}

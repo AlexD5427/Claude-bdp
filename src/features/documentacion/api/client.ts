@@ -105,9 +105,46 @@ export class DocError extends Error {
 /* Configuración                                                       */
 /* ------------------------------------------------------------------ */
 
-const TIMEOUT_POR_DEFECTO = 30000;
+/**
+ * Tiempos máximos y reintentos.
+ *
+ * ── De dónde salen estos números ────────────────────────────────────────────
+ * Apps Script tiene dos regímenes muy distintos y tratarlos igual era la causa
+ * de la mayoría de los «TIMEOUT» que veía el área:
+ *
+ *   · **en caliente**, con la instancia ya arrancada, una lectura contesta en
+ *     0,4–2 s;
+ *   · **en frío** —la primera llamada del día, o la primera después de un
+ *     despliegue— hay que sumar el arranque del intérprete y la apertura del
+ *     libro: entre 5 y 20 s, y en una red de agencia más.
+ *
+ * Con un tope único de 30 s y tres intentos, una llamada en frío que iba a
+ * contestar en el segundo 32 se abortaba tres veces seguidas: noventa segundos
+ * de espera para acabar diciendo «el backend tardó demasiado», cuando el backend
+ * estaba contestando. Y lo peor: cada aborto dejaba una ejecución en curso en el
+ * servidor, así que el reintento competía con su propio antecesor.
+ *
+ * Por eso el tope CRECE con el intento (`TIMEOUT_POR_INTENTO`): el primero es
+ * corto para detectar rápido un backend caído, y los siguientes dan aire al que
+ * simplemente está arrancando.
+ */
+const TIMEOUT_POR_INTENTO = [20000, 45000, 70000] as const;
 const TIMEOUT_LARGO = 180000;
 const REINTENTOS = 3;
+
+/**
+ * Espera entre intentos: exponencial con dispersión.
+ *
+ * La espera lineal (600 ms, 1 200 ms) tenía dos problemas. El primero es que no
+ * da tiempo a que se libere un libro ocupado por una escritura ajena. El
+ * segundo es más sutil y se ve con cinco pestañas abiertas en la misma agencia:
+ * si todas reintentan al mismo intervalo exacto, vuelven a colisionar a la vez,
+ * indefinidamente. La dispersión aleatoria rompe ese sincronismo.
+ */
+function esperaDeReintento(intento: number): number {
+  const base = Math.min(800 * 2 ** (intento - 1), 6000);
+  return base + Math.round(Math.random() * 400);
+}
 
 /** Acciones que escriben: llevan identificador y no se ejecutan dos veces. */
 const ESCRITURAS = new Set([
@@ -255,6 +292,62 @@ function esperar(ms: number): Promise<void> {
 }
 
 /* ------------------------------------------------------------------ */
+/* Salud del backend                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Lo que el módulo sabe sobre cómo está respondiendo el backend.
+ *
+ * ── Por qué medir esto ──────────────────────────────────────────────────────
+ * Cuando alguien del área dice «va lentísimo», nadie puede confirmarlo ni
+ * desmentirlo: no hay número. El diagnóstico se hacía a base de recargar y
+ * mirar. Con estas cuatro cifras, la pestaña «Esta pantalla» puede decir «las
+ * últimas diez llamadas tardaron 4,2 s de media y dos fallaron», que es una
+ * frase que se puede leer por teléfono y que orienta de verdad: 4 s apunta a la
+ * red o al volumen del libro, y dos fallos de diez apuntan a la implementación.
+ *
+ * Es una ventana móvil pequeña (las últimas veinte) porque lo que interesa es
+ * cómo va AHORA, no el promedio histórico: un módulo que estuvo lento esta
+ * mañana y va bien ahora no debe seguir diciendo que va lento.
+ */
+const VENTANA_SALUD = 20;
+const muestras: { ms: number; ok: boolean }[] = [];
+let fallosSeguidos = 0;
+
+function registrarLatencia(ms: number, ok: boolean): void {
+  muestras.push({ ms, ok });
+  if (muestras.length > VENTANA_SALUD) muestras.shift();
+  fallosSeguidos = ok ? 0 : fallosSeguidos + 1;
+}
+
+export interface SaludBackend {
+  /** Llamadas medidas en la ventana. */
+  muestras: number;
+  /** Milisegundos de la última llamada, o `null` si no hay ninguna. */
+  ultimaMs: number | null;
+  /** Media de las llamadas que SÍ contestaron. */
+  mediaMs: number | null;
+  /** La peor de la ventana, que es la que la gente recuerda. */
+  peorMs: number | null;
+  /** Llamadas que no llegaron a contestar. */
+  fallos: number;
+  /** Fallos consecutivos hasta ahora. Tres seguidos ya no es mala suerte. */
+  fallosSeguidos: number;
+}
+
+export function saludBackend(): SaludBackend {
+  const respondidas = muestras.filter((m) => m.ok);
+  return {
+    muestras: muestras.length,
+    ultimaMs: muestras.length ? muestras[muestras.length - 1].ms : null,
+    mediaMs: respondidas.length ? Math.round(respondidas.reduce((s, m) => s + m.ms, 0) / respondidas.length) : null,
+    peorMs: muestras.length ? Math.max(...muestras.map((m) => m.ms)) : null,
+    fallos: muestras.filter((m) => !m.ok).length,
+    fallosSeguidos,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* Llamada                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -342,8 +435,14 @@ export async function llamar<T = unknown>(
 
   const escritura = esEscritura(accion);
   const requestId = opciones.requestId ?? nuevoRequestId();
-  const timeoutMs = opciones.timeoutMs ?? (ACCIONES_LARGAS.has(accion) ? TIMEOUT_LARGO : TIMEOUT_POR_DEFECTO);
+  const larga = ACCIONES_LARGAS.has(accion);
   const maxIntentos = opciones.reintentos ?? REINTENTOS;
+  /** Tope de ESTE intento. Crece con el número de intento; ver la constante. */
+  const topeDe = (intento: number): number => {
+    if (opciones.timeoutMs) return opciones.timeoutMs;
+    if (larga) return TIMEOUT_LARGO;
+    return TIMEOUT_POR_INTENTO[Math.min(intento, TIMEOUT_POR_INTENTO.length) - 1];
+  };
 
   const cuerpo: Record<string, unknown> = {
     ...params,
@@ -365,19 +464,27 @@ export async function llamar<T = unknown>(
   const ejecutar = async (): Promise<T> => {
     opciones.onCarga?.(true);
     let ultimoFallo: unknown = null;
+    const arranque = Date.now();
     try {
       for (let intento = 1; intento <= maxIntentos; intento++) {
         try {
-          const sobre = await unaVez<T>(accion, cuerpo, timeoutMs, opciones.signal);
-          if (sobre.ok) return (sobre.data ?? sobre.datos ?? null) as T;
+          const sobre = await unaVez<T>(accion, cuerpo, topeDe(intento), opciones.signal);
+          if (sobre.ok) {
+            registrarLatencia(Date.now() - arranque, true);
+            return (sobre.data ?? sobre.datos ?? null) as T;
+          }
 
           const error = sobre.error ?? {};
           const codigo = error.code ?? error.codigo ?? "ERROR";
           const recuperable = codigo === "LIBRO_OCUPADO" || codigo === "BUSY" || codigo === "TIMEOUT";
           if (recuperable && intento < maxIntentos) {
-            await esperar(600 * intento);
+            await esperar(esperaDeReintento(intento));
             continue;
           }
+          /* Un rechazo del backend no es un fallo de conexión: el backend
+             contestó. Se cuenta como respuesta sana para que un formulario mal
+             llenado no ponga el módulo en «sin conexión». */
+          registrarLatencia(Date.now() - arranque, true);
           throw new DocError(error.message ?? error.mensaje ?? "El backend rechazó la operación.", {
             codigo,
             pista: error.hint ?? error.pista ?? "",
@@ -391,23 +498,40 @@ export async function llamar<T = unknown>(
             const recuperable = e.codigo === "LIBRO_OCUPADO" || e.codigo === "TIMEOUT";
             if (!recuperable) throw e;
           }
+          // Una cancelación EXTERNA no es un fallo del backend: alguien navegó a
+          // otra pantalla. No se reintenta y no cuenta contra la salud.
+          if (opciones.signal?.aborted) throw e;
           if (intento < maxIntentos) {
-            await esperar(600 * intento);
+            await esperar(esperaDeReintento(intento));
             continue;
           }
         }
       }
 
+      registrarLatencia(Date.now() - arranque, false);
       const abortado = ultimoFallo instanceof Error && ultimoFallo.name === "AbortError";
+      /**
+       * El error original viaja en el detalle.
+       *
+       * Antes se descartaba, y «No se pudo contactar con el backend» era todo lo
+       * que llegaba a la pantalla: un fallo de CORS, un DNS caído y una
+       * implementación sin publicar producían el mismo mensaje. El texto
+       * original de `fetch` es lo único que distingue los tres, y sin él el
+       * diagnóstico de la pestaña «Esta pantalla» no puede ayudar a nadie.
+       */
+      const causa = ultimoFallo instanceof Error ? `${ultimoFallo.name}: ${ultimoFallo.message}` : String(ultimoFallo ?? "");
       throw new DocError(
-        abortado ? "El backend tardó demasiado en responder." : "No se pudo contactar con el backend.",
+        abortado
+          ? `El backend no respondió en ${Math.round(topeDe(maxIntentos) / 1000)} s (${maxIntentos} intentos).`
+          : "No se pudo contactar con el backend.",
         {
           codigo: abortado ? "TIMEOUT" : "SIN_RED",
           pista: abortado
-            ? "La operación puede haberse completado en el libro. Vuelve a consultar antes de repetirla."
-            : "Revisa la conexión y vuelve a intentarlo.",
+            ? "La operación puede haberse completado en el libro: vuelve a consultar antes de repetirla. Si se repite, prueba Configuración › Esta pantalla › Probar conexión."
+            : "Revisa la conexión. Si la red está bien, puede ser que la implementación de Apps Script no esté publicada para «cualquier usuario».",
           red: true,
           requestId,
+          detalle: { causa, intentos: maxIntentos, ms: Date.now() - arranque, accion },
         },
       );
     } finally {
@@ -456,4 +580,6 @@ export function __reiniciarClienteParaPruebas(): void {
   urlActiva = SCRIPT_URL;
   actorActivo = "";
   rolActivo = "";
+  muestras.length = 0;
+  fallosSeguidos = 0;
 }
