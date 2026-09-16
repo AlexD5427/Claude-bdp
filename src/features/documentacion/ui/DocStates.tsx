@@ -261,17 +261,40 @@ export function DocDatoNoFresco({
 }
 
 /** Modo degradado: el módulo funciona, pero con menos de lo habitual. */
-export function DocModoDegradado({ detalle, acciones }: { detalle: string; acciones?: ReactNode }) {
+export function DocModoDegradado({
+  detalle,
+  acciones,
+  /**
+   * Gravedad del aviso.
+   *
+   * No todo lo que se cuenta aquí es igual de urgente: una migración pendiente
+   * es informativa y un backend de una versión anterior es un problema que hay
+   * que resolver hoy. Pintar los dos en ámbar hacía que el ámbar dejara de
+   * significar nada, que es la forma habitual de que un aviso permanente se
+   * vuelva invisible.
+   */
+  intencion = "aviso",
+}: {
+  detalle: string;
+  acciones?: ReactNode;
+  intencion?: "exito" | "info" | "aviso" | "peligro";
+}) {
+  const color =
+    intencion === "peligro"
+      ? { linea: "var(--doc-danger)", fondo: "var(--doc-danger-bg)", texto: "var(--doc-danger-fg)" }
+      : intencion === "info"
+        ? { linea: "var(--doc-info)", fondo: "var(--doc-info-bg)", texto: "var(--doc-info-fg)" }
+        : { linea: "var(--doc-warning)", fondo: "var(--doc-warning-bg)", texto: "var(--doc-warning-fg)" };
   return (
     <div
       role="status"
       className="doc-surface flex items-start gap-3 p-3.5"
-      style={{ borderColor: "var(--doc-warning)", background: "var(--doc-warning-bg)" }}
+      style={{ borderColor: color.linea, background: color.fondo }}
     >
-      <Wrench className="mt-0.5 h-4 w-4 shrink-0" style={{ color: "var(--doc-warning)" }} aria-hidden />
+      <Wrench className="mt-0.5 h-4 w-4 shrink-0" style={{ color: color.linea }} aria-hidden />
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold" style={{ color: "var(--doc-warning-fg)" }}>
-          El módulo trabaja en modo degradado
+        <p className="text-xs font-semibold" style={{ color: color.texto }}>
+          {intencion === "peligro" ? "Hay un problema de despliegue que conviene resolver" : "El módulo trabaja en modo degradado"}
         </p>
         <p className="doc-prose mt-0.5 text-xs text-[color:var(--doc-text-muted)]">{detalle}</p>
         {acciones && <div className="mt-2 flex flex-wrap gap-2">{acciones}</div>}

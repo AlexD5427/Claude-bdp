@@ -46,6 +46,12 @@ import {
 import { comprobarConexion, ponerDensidad, ponerFiltros, urlBackend, useConsola } from "../state/consola";
 import { saludBackend, type SaludBackend } from "../api/client";
 import {
+  diagnosticarCompatibilidad,
+  intencionDeSeveridad,
+  ESQUEMA_ESPERADO,
+  CATALOGO_ESPERADO,
+} from "../domain/compatibilidad";
+import {
   expedientesEnCache,
   suscribirCache,
   tamanoCache,
@@ -142,6 +148,7 @@ function Autodiagnostico({ avisar }: Props) {
      obligaría a renderizar esta pestaña cientos de veces por sesión para un dato
      que solo se mira cuando algo va mal. */
   const [salud, setSalud] = useState(() => saludBackend());
+  const compatibilidad = diagnosticarCompatibilidad(estado);
   const sinConfirmar = salida.entradas.filter((e) => e.estado !== "confirmado").length;
   const hayRespaldoDeCola = leerRespaldoDeCola().length > 0;
 
@@ -277,6 +284,22 @@ function Autodiagnostico({ avisar }: Props) {
         </div>
       )}
 
+      {/* Compatibilidad del backend desplegado.
+          Va ANTES de los tiempos de respuesta porque, cuando hay una
+          incompatibilidad, es la causa de todo lo demás: explicarle a alguien
+          que el backend tarda cuatro segundos mientras está sirviendo una
+          versión anterior es mandarlo a investigar el síntoma equivocado. */}
+      {compatibilidad.hallazgos.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {compatibilidad.hallazgos.map((hallazgo) => (
+            <Aviso key={hallazgo.codigo} intencion={intencionDeSeveridad(hallazgo.severidad)} titulo={hallazgo.titulo}>
+              <span className="block">{hallazgo.detalle}</span>
+              <span className="mt-1 block font-semibold">{hallazgo.queHacer}</span>
+            </Aviso>
+          ))}
+        </div>
+      )}
+
       {/* Cómo está respondiendo el backend AHORA.
           Es el dato que faltaba para poder decir «va lento» con un número
           delante: sin él, la conversación era «a mí me va bien» contra «a mí
@@ -299,7 +322,21 @@ function Autodiagnostico({ avisar }: Props) {
 
       <dl className="mt-3 grid gap-x-4 gap-y-1 text-[11px] sm:grid-cols-2">
         <DatoTecnico etiqueta="Conexión" valor={conexion} />
-        <DatoTecnico etiqueta="Esquema del libro" valor={estado ? String(estado.esquema) : "—"} />
+        {/* Los dos números que delatan un despliegue a medias, con el valor
+            que esta pantalla espera al lado: sin la comparación, «esquema 5» no
+            le dice nada a nadie. */}
+        <DatoTecnico
+          etiqueta="Esquema del libro"
+          valor={estado ? `${estado.esquema} (esta pantalla espera ${ESQUEMA_ESPERADO})` : "—"}
+        />
+        <DatoTecnico
+          etiqueta="Versión del catálogo"
+          valor={estado?.catalogoVersion ? `${estado.catalogoVersion} (espera ${CATALOGO_ESPERADO})` : "—"}
+        />
+        <DatoTecnico
+          etiqueta="Acciones del backend"
+          valor={estado?.acciones ? String(estado.acciones.length) : "no las declara"}
+        />
         <DatoTecnico etiqueta="Versión de la caché" valor={String(VERSION_CACHE)} />
         <DatoTecnico etiqueta="Expedientes en caché" valor={String(enCache)} />
         <DatoTecnico etiqueta="Cambios sin confirmar" valor={String(sinConfirmar)} />

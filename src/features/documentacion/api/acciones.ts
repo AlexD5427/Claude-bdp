@@ -20,6 +20,17 @@ export interface EstadoModulo {
   arquitectura: string;
   version: string;
   esquema: number;
+  /** Versión del catálogo de documentos. Se mueve aparte de la del esquema. */
+  catalogoVersion?: number;
+  /**
+   * Acciones que el backend desplegado sabe atender.
+   *
+   * Es lo que permite detectar el caso de «pegué los .gs y no publiqué una
+   * versión nueva de la implementación» y decirlo con nombre y apellido, en
+   * lugar de dejar que aparezca como un error suelto en una pantalla cualquiera.
+   * Opcional: un backend anterior no la manda.
+   */
+  acciones?: string[];
   backendHeredado: string;
   instalado: boolean;
   libro: string;

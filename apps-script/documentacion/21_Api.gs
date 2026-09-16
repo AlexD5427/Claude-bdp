@@ -569,6 +569,31 @@ function doc2Estado_(ctx) {
     arquitectura: DOC2_BACKEND.arquitectura,
     version: DOC2_BACKEND.version,
     esquema: DOC2_SCHEMA_VERSION,
+    /**
+     * Versión del CATÁLOGO, que no es la del esquema.
+     *
+     * El esquema dice qué columnas existen; el catálogo, qué documentos se
+     * piden. Se pueden mover por separado —un requisito nuevo no siempre añade
+     * una columna— y el frontend necesita las dos para poder decir «este backend
+     * es anterior al cambio» en lugar de «no se conecta».
+     */
+    catalogoVersion: DOC2_CATALOGO_VERSION,
+    /**
+     * Las acciones que este backend sabe atender.
+     *
+     * ── Por qué viaja esta lista ───────────────────────────────────────────
+     * Es lo que convierte «el módulo no funciona» en una frase accionable. El
+     * caso real: se pegan los `.gs` nuevos, se olvida publicar una VERSIÓN NUEVA
+     * de la implementación, y el enlace `/exec` sigue sirviendo el código
+     * anterior. Todo responde —el estado, el panel— y falla justo lo que se
+     * añadió, con un `ACCION_NO_SOPORTADA` que la persona ve como un error
+     * genérico en una pantalla cualquiera.
+     *
+     * Con la lista delante, el frontend compara lo que necesita contra lo que
+     * hay y dice exactamente qué falta y qué hacer. Son unos 80 identificadores
+     * cortos: alrededor de 3 kB en una respuesta que ya trae el catálogo.
+     */
+    acciones: doc2ApiAcciones_(),
     backendHeredado: DOC_BACKEND.version,
     instalado: false,
     libro: '',
