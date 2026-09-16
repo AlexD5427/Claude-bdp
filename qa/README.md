@@ -86,6 +86,7 @@ npm run build && node qa/sonda-rendimiento.mjs 4   # trabajo, latencias y tareas
 node qa/sonda-alta-expediente.mjs     # el alta de punta a punta, comprobada en el libro
 node qa/sonda-modal-expediente.mjs    # la ventana del expediente: foco, apilamiento, fugas
 node qa/sonda-cache-expedientes.mjs   # precarga, apertura instantánea, conflicto, backend caído
+node qa/sonda-administrativo.mjs      # la rama administrativa, «Otros» y la cabecera del alta
 ```
 
 **`sonda-contraste.mjs`** mide unos 2 800 nodos de texto por ejecución. Usa una
@@ -104,6 +105,14 @@ los fps solo se informan. Tres detalles de calibración que costaron encontrar:
   la había calentado y las dos mediciones eran la misma;
 - separa el presupuesto de una **interacción continua** (teclear, desplazarse) del
   de un **montaje** tras un clic, y atribuye cada tarea larga a su fase.
+
+**`sonda-administrativo.mjs`** cubre tres cosas que jsdom no puede ver: que el
+camino del asistente se acorte de verdad al elegir la rama administrativa (el
+indicador, el botón y el aterrizaje en la revisión), que el contador de hojas
+del requisito «Otros» se RETIRE del árbol al marcarlo como digital —y no solo
+del campo de visión, porque un campo invisible sigue siendo tabulable— y que el
+contraste COMPUTADO de la cabecera cumpla AA sobre el cristal real de la hoja,
+que es la queja que originó el cambio de tinta.
 
 **`sonda-cache-expedientes.mjs`** es la que encontró que la reconciliación de
 versión no se disparaba nunca en el caso real. **`sonda-rendimiento.mjs`** es la

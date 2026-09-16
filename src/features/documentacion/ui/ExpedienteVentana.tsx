@@ -91,6 +91,8 @@ import {
   type Notita,
 } from "./piezas";
 import { HojaCentral } from "./HojaCentral";
+import { AnilloProgreso } from "./AnilloProgreso";
+import { categoriaDe } from "../domain/categorias";
 import { DocExpedienteHeader } from "./DocExpedienteHeader";
 import { RequisitosExpediente, type BorradorRequisito } from "./RequisitosExpediente";
 import { DocError, DocVacio } from "./DocStates";
@@ -447,32 +449,68 @@ export function ExpedienteVentana({ expedienteId, onCerrar, onCambio, avisar }: 
       pideConfirmacion={cambiosPendientes > 0}
       onPedirConfirmacion={() => setDialogo({ tipo: "cerrar" })}
       encabezado={
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <h2 className="doc-balance min-w-0 text-[17px] font-bold leading-tight tracking-tight text-[color:var(--doc-text)]">
-              {cabecera ? cabecera.nombre : "Expediente"}
-            </h2>
+        /**
+         * Cabecera de la ventana: identidad, ubicación y avance.
+         *
+         * ── El cambio de tinta, y por qué ────────────────────────────────────
+         * El cargo, la agencia y la gerencia iban en `--doc-text-muted`, que en
+         * el tema claro es un gris azulado sobre cristal blanco: cumple AA por
+         * los pelos y con brillo bajo no se lee. Son los tres datos que
+         * identifican de quién es el expediente, así que pasan a la tinta
+         * principal y lo que se atenúa son los separadores, que no son
+         * información.
+         */
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <h2 className="doc-balance min-w-0 text-[17px] font-bold leading-tight tracking-tight text-[color:var(--doc-text)]">
+                {cabecera ? cabecera.nombre : "Expediente"}
+              </h2>
+              {cabecera && (
+                <span
+                  className="doc-metric rounded-full px-2 py-0.5 text-[11px] font-bold"
+                  style={{ background: "var(--doc-surface-sunken)", color: "var(--doc-text)" }}
+                  title={`Carnet de identidad ${cabecera.identificador}`}
+                >
+                  {cabecera.identificador}
+                </span>
+              )}
+            </div>
             {cabecera && (
-              <span className="doc-metric rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: "var(--doc-surface-sunken)", color: "var(--doc-text-muted)" }}>
-                {cabecera.identificador}
-              </span>
+              <p className="doc-prose mt-0.5 text-xs font-medium text-[color:var(--doc-text)]">
+                <em className="not-italic font-bold">{cabecera.cargo || "Sin cargo"}</em>
+                {cabecera.agencia && <SeparadorTenue />}
+                {cabecera.agencia}
+                {cabecera.gerencia && <SeparadorTenue />}
+                {cabecera.gerencia}
+                {hojasTotales > 0 && (
+                  <>
+                    <SeparadorTenue />
+                    <span className="doc-metric">
+                      {hojasTotales} hoja{hojasTotales === 1 ? "" : "s"} físicas
+                    </span>
+                  </>
+                )}
+              </p>
+            )}
+            {/* Honestidad sobre el origen del dato: mientras se pinta la copia
+                local se dice, con su antigüedad. Nunca se presenta como fresca. */}
+            {mostrandoCopia && deCache && (
+              <p className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                 style={{ background: "var(--doc-offline-bg)", color: "var(--doc-offline-fg)" }}>
+                Copia local de hace {Math.max(1, Math.round(deCache.edadMs / 1000))} s · actualizando
+              </p>
             )}
           </div>
+
+          {/* El mismo anillo que el asistente: el avance se reconoce sin leer un
+              número en dos sitios con dos formas distintas. */}
           {cabecera && (
-            <p className="doc-prose mt-0.5 text-xs text-[color:var(--doc-text-muted)]">
-              <em className="not-italic font-semibold">{cabecera.cargo || "Sin cargo"}</em>
-              {cabecera.agencia ? ` · ${cabecera.agencia}` : ""}
-              {cabecera.gerencia ? ` · ${cabecera.gerencia}` : ""}
-              {hojasTotales > 0 ? ` · ${hojasTotales} hoja${hojasTotales === 1 ? "" : "s"} físicas` : ""}
-            </p>
-          )}
-          {/* Honestidad sobre el origen del dato: mientras se pinta la copia
-              local se dice, con su antigüedad. Nunca se presenta como fresca. */}
-          {mostrandoCopia && deCache && (
-            <p className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-               style={{ background: "var(--doc-offline-bg)", color: "var(--doc-offline-fg)" }}>
-              Copia local de hace {Math.max(1, Math.round(deCache.edadMs / 1000))} s · actualizando
-            </p>
+            <AnilloProgreso
+              valor={cabecera.porcentaje}
+              etiqueta={`Avance del expediente de ${cabecera.nombre}`}
+              color={categoriaDe(cabecera.tipoFuncionario).color}
+            />
           )}
         </div>
       }
@@ -1564,5 +1602,21 @@ function Auditoria({ datos }: { datos: ExpedienteOperativo }) {
         ))}
       </ol>
     </Panel>
+  );
+}
+
+/**
+ * El punto medio que separa dos datos de la cabecera.
+ *
+ * Va en su propio componente porque tiene que ir atenuado mientras los datos
+ * que separa van en tinta plena: interpolarlo dentro de la cadena de texto
+ * heredaba el color del párrafo y obligaba a elegir entre un separador
+ * demasiado presente o tres datos demasiado pálidos.
+ */
+function SeparadorTenue() {
+  return (
+    <span className="mx-1.5 font-normal text-[color:var(--doc-text-faint)]" aria-hidden>
+      ·
+    </span>
   );
 }
