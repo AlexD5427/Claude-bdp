@@ -950,19 +950,22 @@ function Encabezado({
             <span className="mx-1 text-[color:var(--doc-text-faint)]" aria-hidden>
               ·
             </span>
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.em
-                key={pasos[indice]?.id ?? indice}
-                className="not-italic font-bold"
-                initial={reducido ? false : { opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reducido ? undefined : { opacity: 0, y: -4 }}
-                transition={reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaExpo }}
-                style={{ display: "inline-block" }}
-              >
-                {pasos[indice]?.titulo}
-              </motion.em>
-            </AnimatePresence>
+            {/* Sin `AnimatePresence mode="wait"`: ese apretón de manos se
+                bloquea si la saliente no reporta que terminó, y entonces el
+                título nuevo no se monta nunca. Es la lección que este módulo ya
+                aprendió con las secciones y con los pasos del asistente.
+                Cambiar la clave remonta el elemento, así que `initial` vuelve a
+                correr y la entrada se anima igual, sin nada que esperar. */}
+            <motion.em
+              key={pasos[indice]?.id ?? indice}
+              className="not-italic font-bold"
+              initial={reducido ? false : { opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaExpo }}
+              style={{ display: "inline-block" }}
+            >
+              {pasos[indice]?.titulo}
+            </motion.em>
           </p>
 
           {/* Identidad en contexto. Aparece en cuanto hay algo que mostrar y no

@@ -465,12 +465,27 @@ export async function llamar<T = unknown>(
     opciones.onCarga?.(true);
     let ultimoFallo: unknown = null;
     const arranque = Date.now();
+    /**
+     * ¿Ya se contabilizó esta llamada en la salud del backend?
+     *
+     * Hace falta porque el camino del rechazo pasa dos veces por el mismo
+     * punto: se registra como «contestó» antes de lanzar el `DocError`, y ese
+     * error vuelve a aparecer en el `catch` de abajo. Sin la marca, cada error
+     * de validación entraba dos veces en la ventana de veinte muestras y la
+     * media dejaba de describir nada.
+     */
+    let medido = false;
+    const medir = (ok: boolean) => {
+      if (medido) return;
+      medido = true;
+      registrarLatencia(Date.now() - arranque, ok);
+    };
     try {
       for (let intento = 1; intento <= maxIntentos; intento++) {
         try {
           const sobre = await unaVez<T>(accion, cuerpo, topeDe(intento), opciones.signal);
           if (sobre.ok) {
-            registrarLatencia(Date.now() - arranque, true);
+            medir(true);
             return (sobre.data ?? sobre.datos ?? null) as T;
           }
 
@@ -484,7 +499,7 @@ export async function llamar<T = unknown>(
           /* Un rechazo del backend no es un fallo de conexión: el backend
              contestó. Se cuenta como respuesta sana para que un formulario mal
              llenado no ponga el módulo en «sin conexión». */
-          registrarLatencia(Date.now() - arranque, true);
+          medir(true);
           throw new DocError(error.message ?? error.mensaje ?? "El backend rechazó la operación.", {
             codigo,
             pista: error.hint ?? error.pista ?? "",
@@ -496,7 +511,15 @@ export async function llamar<T = unknown>(
           ultimoFallo = e;
           if (e instanceof DocError && !e.red) {
             const recuperable = e.codigo === "LIBRO_OCUPADO" || e.codigo === "TIMEOUT";
-            if (!recuperable) throw e;
+            if (!recuperable) {
+              /* `RESPUESTA_INVALIDA` y `AUTENTICACION` llegan por aquí: el
+                 servidor contestó algo que no es una respuesta —la pantalla de
+                 inicio de sesión de Google, casi siempre— y eso sí cuenta como
+                 llamada fallida. Un rechazo de validación ya se midió arriba y
+                 la marca evita contarlo dos veces. */
+              medir(false);
+              throw e;
+            }
           }
           // Una cancelación EXTERNA no es un fallo del backend: alguien navegó a
           // otra pantalla. No se reintenta y no cuenta contra la salud.
@@ -508,7 +531,7 @@ export async function llamar<T = unknown>(
         }
       }
 
-      registrarLatencia(Date.now() - arranque, false);
+      medir(false);
       const abortado = ultimoFallo instanceof Error && ultimoFallo.name === "AbortError";
       /**
        * El error original viaja en el detalle.

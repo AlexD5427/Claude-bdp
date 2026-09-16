@@ -452,7 +452,16 @@ export interface LoteExportacion {
 
 export const docApi = {
   /* --- Estado y catálogos ------------------------------------------ */
-  estado: (o?: OpcionesLlamada) => llamar<EstadoModulo>("documentacion.estado", {}, { reintentos: 1, timeoutMs: 15000, ...o }),
+  /**
+   * Sonda de estado: un solo intento.
+   *
+   * Sin `timeoutMs` explícito a propósito: el tope del primer intento lo decide
+   * el cliente (20 s), que es lo que distingue un backend caído de uno que
+   * simplemente está arrancando en frío. Un tope fijo de 15 s abortaba llamadas
+   * que iban a contestar en el segundo 17 y las reportaba como «el backend no
+   * responde».
+   */
+  estado: (o?: OpcionesLlamada) => llamar<EstadoModulo>("documentacion.estado", {}, { reintentos: 1, ...o }),
   /**
    * Arranque: estado y catálogo en una sola ida y vuelta.
    *
@@ -465,7 +474,9 @@ export const docApi = {
     llamar<{ estado: EstadoModulo; catalogo: CatalogoCliente | null; catalogoError?: string }>(
       "documentacion.arranque",
       {},
-      { reintentos: 2, timeoutMs: 25000, ...o },
+      /* Dos intentos y los topes progresivos del cliente: 20 s y después 45 s.
+         Es la primera llamada del módulo, la que más a menudo cae en frío. */
+      { reintentos: 2, ...o },
     ),
   catalogo: (o?: OpcionesLlamada) => llamar<CatalogoCliente>("documentacion.catalogo", {}, o),
   vocabulario: (o?: OpcionesLlamada) =>
