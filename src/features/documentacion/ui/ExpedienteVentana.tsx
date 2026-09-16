@@ -61,7 +61,6 @@ import {
   INTENCION_TAREA,
   MOTIVOS_REVISION,
   VISIBILIDADES_COMENTARIO,
-  type EstadoDocumento,
   type EstadoExpediente,
 } from "../domain/vocabulario";
 import {
@@ -93,7 +92,7 @@ import {
 } from "./piezas";
 import { HojaCentral } from "./HojaCentral";
 import { DocExpedienteHeader } from "./DocExpedienteHeader";
-import { RequisitosExpediente } from "./RequisitosExpediente";
+import { RequisitosExpediente, type BorradorRequisito } from "./RequisitosExpediente";
 import { DocError, DocVacio } from "./DocStates";
 import { EsqueletoExpediente } from "./DocSkeletons";
 import type { EstadoEscritura } from "./DocSyncIndicator";
@@ -117,12 +116,16 @@ interface Props {
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;
 }
 
-/** Cambios de un requisito que la pantalla mantiene sin enviar. */
-export interface BorradorRequisito {
-  estado?: EstadoDocumento;
-  observaciones?: string;
-  hojasFisicas?: number;
-}
+/**
+ * Cambios de un requisito que la pantalla mantiene sin enviar.
+ *
+ * El tipo vive en `RequisitosExpediente` —que es quien los produce— y aquí solo
+ * se re-exporta. Había una segunda declaración idéntica en este archivo, y con
+ * la personalización de «Otros» se habría quedado corta en silencio: el campo
+ * nuevo viajaba en el objeto y el tipo no lo conocía, así que ningún error de
+ * compilación habría avisado de que faltaba enviarlo.
+ */
+export type { BorradorRequisito };
 
 export function ExpedienteVentana({ expedienteId, onCerrar, onCambio, avisar }: Props) {
   const { capacidades } = useConsola();

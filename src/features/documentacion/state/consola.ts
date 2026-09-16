@@ -261,9 +261,18 @@ export function limpiarError(): void {
 /**
  * Comprueba la conexión y trae permisos y catálogo.
  *
- * Es lo primero que ocurre al abrir el módulo. El orden importa: sin capacidades
- * no se sabe qué secciones mostrar, y sin catálogo el formulario no se puede
- * pintar. Las dos cosas se piden en paralelo porque son independientes.
+ * Es lo primero que ocurre al abrir el módulo, y hasta ahora costaba DOS viajes
+ * de red encadenados: primero `estado` —para saber si el libro está instalado y
+ * qué puede hacer quien entra— y después `catalogo`, que no podía empezar antes
+ * porque depende de la respuesta del primero. En Apps Script cada viaje paga el
+ * arranque del intérprete y la apertura del libro: entre uno y tres segundos.
+ * Dos viajes encadenados eran la mitad del tiempo de arranque del módulo.
+ *
+ * Ahora se pide `documentacion.arranque`, que resuelve las dos cosas en la misma
+ * ejecución del backend. Si el backend desplegado no la conoce —porque es
+ * anterior a este cambio— se cae a las dos llamadas de siempre. Es la misma
+ * disciplina de recaída que ya usaba el alta completa: el frontend se puede
+ * desplegar sin haber publicado todavía la versión nueva del Apps Script.
  */
 export async function comprobarConexion(opciones: { actor?: string; rol?: string; url?: string } = {}): Promise<EstadoConexion> {
   configurarCliente({ actor: opciones.actor, rol: opciones.rol, url: opciones.url });
@@ -276,7 +285,7 @@ export async function comprobarConexion(opciones: { actor?: string; rol?: string
   consola.set((prev) => ({ ...prev, conexion: "comprobando" }));
   marcarCarga(true);
   try {
-    const estado = await docApi.estado();
+    const { estado, catalogo, catalogoError } = await arrancar();
     const conexion: EstadoConexion = estado.instalado ? "conectado" : "sin_instalar";
 
     consola.set((prev) => ({
@@ -289,18 +298,16 @@ export async function comprobarConexion(opciones: { actor?: string; rol?: string
       notificacionesNoLeidas: estado.notificacionesNoLeidas ?? 0,
       ultimaSincronizacion: new Date().toISOString(),
       ultimoError: estado.problema ? { mensaje: estado.problema, pista: "", codigo: "LIBRO" } : null,
+      // El catálogo solo se reemplaza si llegó: pisar el de la caché con `null`
+      // dejaría el formulario de alta vacío, que es peor que uno viejo.
+      ...(catalogo ? { catalogo } : {}),
     }));
 
-    if (conexion === "conectado") {
-      try {
-        const catalogo = await docApi.catalogo();
-        guardarCatalogoCache(catalogo);
-        consola.set((prev) => ({ ...prev, catalogo }));
-      } catch (error) {
-        // Sin catálogo el módulo sigue siendo utilizable para consultar; solo el
-        // formulario de alta queda limitado. Se avisa y no se tumba la pantalla.
-        registrarError(error);
-      }
+    if (catalogo) guardarCatalogoCache(catalogo);
+    else if (catalogoError) {
+      // Sin catálogo el módulo sigue siendo utilizable para consultar; solo el
+      // formulario de alta queda limitado. Se avisa y no se tumba la pantalla.
+      consola.set((prev) => ({ ...prev, ultimoError: { mensaje: catalogoError, pista: "", codigo: "CATALOGO" } }));
     }
     return conexion;
   } catch (error) {
@@ -310,6 +317,49 @@ export async function comprobarConexion(opciones: { actor?: string; rol?: string
     return conexion;
   } finally {
     marcarCarga(false);
+  }
+}
+
+/**
+ * ¿Sabe el backend desplegado atender `documentacion.arranque`?
+ *
+ * Se recuerda entre llamadas para no volver a pagar el rechazo en cada
+ * reconexión. Empieza en `null` («no se sabe») y solo pasa a `false` cuando el
+ * backend lo dice explícitamente: un fallo de red no es una respuesta sobre las
+ * capacidades del backend, y tratarlo como tal dejaría el arranque rápido
+ * apagado hasta recargar la pestaña.
+ */
+let backendConoceArranque: boolean | null = null;
+
+async function arrancar(): Promise<{
+  estado: EstadoModulo;
+  catalogo: CatalogoCliente | null;
+  catalogoError: string;
+}> {
+  if (backendConoceArranque !== false) {
+    try {
+      const respuesta = await docApi.arranque();
+      backendConoceArranque = true;
+      return {
+        estado: respuesta.estado,
+        catalogo: respuesta.catalogo ?? null,
+        catalogoError: respuesta.catalogoError ?? "",
+      };
+    } catch (error) {
+      const codigo = (error as { codigo?: string }).codigo ?? "";
+      if (codigo !== "ACCION_NO_SOPORTADA" && codigo !== "UNSUPPORTED_ACTION") throw error;
+      backendConoceArranque = false;
+    }
+  }
+
+  // Ruta de siempre: dos viajes encadenados.
+  const estado = await docApi.estado();
+  if (!estado.instalado) return { estado, catalogo: null, catalogoError: "" };
+  try {
+    const catalogo = await docApi.catalogo();
+    return { estado, catalogo, catalogoError: "" };
+  } catch (error) {
+    return { estado, catalogo: null, catalogoError: mensajeDeError(error).mensaje };
   }
 }
 

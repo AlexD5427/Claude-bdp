@@ -47,6 +47,44 @@ var DOC2_API = {
     escribe: false, instalado: false,
     fn: function () { return doc2Vocabulario_(); }
   },
+  /**
+   * Arranque del módulo: estado + catálogo en UNA ida y vuelta.
+   *
+   * ── Por qué existe ─────────────────────────────────────────────────────────
+   * El módulo arrancaba con dos llamadas encadenadas: `documentacion.estado`
+   * para saber si el libro está instalado y quién pregunta, y después
+   * `documentacion.catalogo` para poder pintar el formulario. En Apps Script
+   * cada llamada paga el arranque del intérprete y la apertura del libro: entre
+   * uno y tres segundos CADA UNA, y la segunda no puede empezar hasta que
+   * termina la primera porque depende de su respuesta.
+   *
+   * Aquí las dos cosas se resuelven en la misma ejecución, con el libro ya
+   * abierto y las hojas ya en memoria: el catálogo cuesta casi cero. Medido en
+   * el arnés con latencia simulada, el arranque pasa de dos viajes a uno.
+   *
+   * ── Por qué el catálogo no tumba el arranque ───────────────────────────────
+   * Si el catálogo falla —libro a medio instalar, permiso de lectura raro— la
+   * respuesta llega igual con `catalogo: null` y `catalogoError` explicando por
+   * qué. El módulo puede consultar sin catálogo; lo que no puede es quedarse sin
+   * saber si hay conexión.
+   *
+   * `instalado: false` a propósito: es la acción que se llama cuando todavía no
+   * se sabe si el modelo existe.
+   */
+  'documentacion.arranque': {
+    escribe: false, instalado: false,
+    fn: function (p, ctx) {
+      var salida = { estado: doc2Estado_(ctx), catalogo: null, catalogoError: '' };
+      if (salida.estado.instalado && doc2Puede_(ctx, DOC2_CAPACIDAD.VER)) {
+        try {
+          salida.catalogo = doc2CatalogoParaCliente_();
+        } catch (error) {
+          salida.catalogoError = docClassify_(error).message;
+        }
+      }
+      return salida;
+    }
+  },
   'documentacion.catalogo': {
     escribe: false, capacidad: DOC2_CAPACIDAD.VER,
     fn: function () { return doc2CatalogoParaCliente_(); }
@@ -708,6 +746,7 @@ function doc2GuardarConfiguracion_(cambios, ctx) {
 function doc2Reset_() {
   doc2ConfigReset_();
   doc2CatalogoReset_();
+  doc2AuxiliarMemReset_();
   doc2EventosReset_();
   doc2PanelInvalidadoReset_();
   DOC2_CTX = null;

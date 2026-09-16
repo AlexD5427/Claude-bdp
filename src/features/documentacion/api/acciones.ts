@@ -442,6 +442,20 @@ export interface LoteExportacion {
 export const docApi = {
   /* --- Estado y catálogos ------------------------------------------ */
   estado: (o?: OpcionesLlamada) => llamar<EstadoModulo>("documentacion.estado", {}, { reintentos: 1, timeoutMs: 15000, ...o }),
+  /**
+   * Arranque: estado y catálogo en una sola ida y vuelta.
+   *
+   * Es lo primero que pide el módulo. Un backend anterior a este cambio no
+   * conoce la acción y responde `ACCION_NO_SOPORTADA`; el almacén lo detecta y
+   * cae a las dos llamadas de siempre, así que el frontend se puede desplegar
+   * sin haber publicado todavía la versión nueva del Apps Script.
+   */
+  arranque: (o?: OpcionesLlamada) =>
+    llamar<{ estado: EstadoModulo; catalogo: CatalogoCliente | null; catalogoError?: string }>(
+      "documentacion.arranque",
+      {},
+      { reintentos: 2, timeoutMs: 25000, ...o },
+    ),
   catalogo: (o?: OpcionesLlamada) => llamar<CatalogoCliente>("documentacion.catalogo", {}, o),
   vocabulario: (o?: OpcionesLlamada) =>
     llamar<{
