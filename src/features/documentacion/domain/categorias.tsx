@@ -33,6 +33,15 @@ export interface Categoria {
   activa: boolean;
   /** ¿Exige elegir tipo de garantía comercial antes de continuar? */
   pideGarantia?: boolean;
+  /**
+   * ¿Esta categoría NO añade requisitos a los generales?
+   *
+   * Es una pista de presentación, no la verdad: la verdad la da el catálogo del
+   * backend (`aplicabilidad[].propios`), y el asistente comprueba las dos cosas.
+   * Sirve para poder decir «no pide más documentos» en la tarjeta ANTES de que
+   * el catálogo haya llegado, que es justo cuando alguien está eligiendo.
+   */
+  sinRequisitosPropios?: boolean;
   Icono: IconoCategoria;
 }
 
@@ -100,6 +109,21 @@ const IconEjecutivo: IconoCategoria = (props) => (
   </svg>
 );
 
+/**
+ * Área administrativa: carpeta de legajo con el broche.
+ *
+ * El trazo es deliberadamente el más simple de los cinco: es la rama que NO
+ * añade requisitos, y el icono lo dice antes de leer la tarjeta.
+ */
+const IconAdministrativo: IconoCategoria = (props) => (
+  <svg {...base(props)}>
+    <path d="M3.5 7.5a2 2 0 0 1 2-2h3.2l1.8 2h8a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2Z" />
+    <path d="M9 5.5V4h6v1.5" />
+    <path d="M8 13h8" />
+    <path d="M8 16h5" />
+  </svg>
+);
+
 /* ------------------------------------------------------------------ */
 /* Catálogo de categorías                                              */
 /* ------------------------------------------------------------------ */
@@ -139,6 +163,16 @@ export const CATEGORIAS: Categoria[] = [
     color: "#38bdf8",
     activa: true,
     Icono: IconCumplimiento,
+  },
+  {
+    codigo: "ADMINISTRATIVO",
+    etiqueta: "Funcionario área administrativa",
+    etiquetaCorta: "Administrativa",
+    descripcion: "Personal administrativo. Con los documentos generales el expediente queda completo.",
+    color: "#f472b6",
+    activa: true,
+    sinRequisitosPropios: true,
+    Icono: IconAdministrativo,
   },
   {
     codigo: "EJECUTIVO",

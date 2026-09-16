@@ -18,15 +18,19 @@ describe("documentación · alta de expedientes", () => {
     const h = loadInstalledBackend();
     const { expediente, requisitos } = crearExpediente(h);
 
-    // 16 documentos generales vigentes (catálogo v3): `cert-trabajo` y `rc-iva`
-    // se retiraron de la lista del área y ya no se crean en un alta nueva.
-    expect(requisitos.length).toBe(16);
+    /* 20 documentos generales vigentes (catálogo v4): los 16 de la lista original
+       más los tres del legajo administrativo y el hueco de «Otros».
+       `cert-trabajo` y `rc-iva` se retiraron y ya no se crean en un alta nueva. */
+    expect(requisitos.length).toBe(20);
     expect(expediente.estado).toBe("EN_RECOLECCION");
     expect(expediente.porcentaje).toBe(0);
-    expect(expediente.totales.requisitos).toBe(16);
-    expect(expediente.totales.pendientes).toBe(16);
+    expect(expediente.totales.requisitos).toBe(20);
+    /* 19 pendientes y no 20: `otros-documento` nace NO_APLICA para no arrastrar
+       un pendiente eterno en todos los expedientes del banco. */
+    expect(expediente.totales.pendientes).toBe(19);
+    expect(expediente.totales.noAplica).toBe(1);
     for (const requisito of requisitos) {
-      expect(requisito.estado).toBe("PENDIENTE");
+      expect(requisito.estado).toBe(requisito.codigo === "otros-documento" ? "NO_APLICA" : "PENDIENTE");
       expect(requisito.estadoRevision).toBe("SIN_REVISION");
     }
   });
@@ -121,7 +125,8 @@ describe("documentación · edición y progreso", () => {
       cambios: { estado: "ENTREGADO", observaciones: "Recibido en original." },
     });
     expect(res.resumen.total_entregados).toBe(1);
-    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 16) * 100));
+    // 19 exigibles: los 20 requisitos menos el «Otros», que nace NO_APLICA.
+    expect(res.resumen.porcentaje_completitud).toBe(Math.round((1 / 19) * 100));
     expect(res.resumen.estado_expediente).toBe("EN_RECOLECCION");
   });
 
@@ -253,7 +258,8 @@ describe("documentación · edición y progreso", () => {
     expect(primera).toBe(segunda);
     expect(primera).toContain("Julia Vera");
     expect(primera).toContain("CI-900-2026");
-    expect(primera).toMatch(/Avance 6%/);
+    // 1 de 19 exigibles (los 20 requisitos menos el «Otros», que nace NO_APLICA).
+    expect(primera).toMatch(/Avance 5%/);
   });
 
   it("«siguiente pendiente» prioriza lo observado sobre lo que falta", () => {

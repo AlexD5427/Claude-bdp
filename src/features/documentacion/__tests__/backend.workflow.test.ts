@@ -266,12 +266,13 @@ describe("documentación · solicitudes", () => {
     });
 
     const res = h.ok("documentacion.solicitud.crear", { solicitud: { expedienteId } });
-    // 16 generales vigentes menos el que se acaba de entregar.
-    expect(res.requisitos).toBe(15);
+    /* 18 = 20 generales vigentes − el que se acaba de entregar − el «Otros», que
+       nace NO_APLICA y por tanto no está pendiente de nada. */
+    expect(res.requisitos).toBe(18);
     expect(res.fechaLimite).toBeTruthy();
 
     const items = h.rowsOf("SolicitudDocumentos");
-    expect(items.length).toBe(15);
+    expect(items.length).toBe(18);
     expect(items.every((i) => i.estado_item === "PENDIENTE")).toBe(true);
   });
 

@@ -73,11 +73,11 @@ function doc2CrearExpediente_(datos, ctx) {
   }
 
   var tipoFuncionario = doc2Enum_(d.tipoFuncionario || d.tipo_funcionario || 'GENERAL',
-    ['GENERAL', 'COMERCIAL', 'AUDITORIA', 'CUMPLIMIENTO', 'EJECUTIVO', 'DIRECTORIO'], 'GENERAL');
+    doc2CodigosTipoFuncionario_(), 'GENERAL');
   doc2ExigirRamaHabilitada_(tipoFuncionario);
 
   var tipoGarantia = doc2Enum_(d.tipoGarantia || d.tipo_garantia || 'NINGUNA',
-    ['NINGUNA', 'COMERCIAL_1', 'COMERCIAL_2', 'COMERCIAL_3'], 'NINGUNA');
+    doc2CodigosTipoGarantia_(), 'NINGUNA');
   if (tipoFuncionario === 'COMERCIAL' && tipoGarantia === 'NINGUNA') {
     throw docError_(DOC_CODE.VALIDATION_ERROR, 'Un funcionario comercial necesita un tipo de garantía.',
       {
@@ -375,9 +375,22 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
         subseccion: doc2ResolverSubseccion_(def.subseccion, expediente.tipo_garantia),
         grupo: def.grupo,
         orden: docInt_(def.orden, (i + 1) * 10),
-        estado_documental: DOC2_ESTADO_DOCUMENTO.PENDIENTE,
+        /**
+         * El estado inicial sale del catálogo cuando este lo declara.
+         *
+         * Casi todos nacen `PENDIENTE`, que es lo correcto: hay que conseguirlos.
+         * `otros-documento` nace `NO_APLICA` porque es un hueco opcional; si
+         * naciera pendiente, cada expediente del banco arrastraría un requisito
+         * que nadie va a entregar y ninguno llegaría nunca al 100 %.
+         */
+        estado_documental: doc2EstadoInicialDe_(def),
         observaciones: '',
         hojas_fisicas: 0,
+        /* Vacíos: «lo que diga el catálogo». Solo se llenan si alguien
+           personaliza este requisito en este expediente. */
+        nombre_personalizado: '',
+        presentacion_fisica: '',
+        presentacion_digital: '',
         obligatorio: def.obligatorio === true,
         permite_no_aplica: def.permite_no_aplica === true,
         permite_prorroga: def.permite_prorroga === true,
@@ -411,6 +424,34 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
     }, contexto);
   }
 
+  /**
+   * ¿Qué cuenta como «este requisito tiene información registrada»?
+   *
+   * ── Un fallo real que esto corrige ────────────────────────────────────────
+   * La primera versión mirada tres cosas: el estado documental, la observación y
+   * el estado de revisión. Le faltaban dos, y la segunda apareció migrando el
+   * libro de verdad: un requisito RETIRADO —`cert-trabajo`— que un expediente de
+   * 2023 tenía en PENDIENTE **con una prórroga concedida** se archivaba, porque
+   * sus tres campos estaban vacíos. La prórroga era el dato: alguien se sentó,
+   * decidió un plazo y lo escribió. Archivar esa fila convertía esa decisión en
+   * un hueco.
+   *
+   * Las cinco señales, y todas son «alguien tocó esto»:
+   *   · el estado documental dejó de ser PENDIENTE;
+   *   · hay una observación escrita;
+   *   · hay una decisión de revisión;
+   *   · hay hojas contadas (alguien fue al archivador);
+   *   · hay una prórroga registrada (alguien concedió un plazo).
+   */
+  var conProrroga = {};
+  try {
+    var prorrogas = doc2By_(DOC2_SHEET.PRORROGAS, 'expediente_id', expediente.expediente_id, true);
+    for (var pr = 0; pr < prorrogas.length; pr++) {
+      var clave = String(prorrogas[pr].expediente_documento_id || '');
+      if (clave) conProrroga[clave] = true;
+    }
+  } catch (e) { conProrroga = {}; }
+
   for (var x = 0; x < existentes.length; x++) {
     var fila = existentes[x];
     if (aplicablesPorCodigo[String(fila.codigo_documento)]) continue;
@@ -418,7 +459,10 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
 
     var tieneDatos = String(fila.estado_documental) !== DOC2_ESTADO_DOCUMENTO.PENDIENTE ||
       String(fila.observaciones || '').trim() !== '' ||
-      String(fila.estado_revision) !== DOC2_ESTADO_REVISION.SIN_REVISION;
+      String(fila.estado_revision) !== DOC2_ESTADO_REVISION.SIN_REVISION ||
+      docInt_(fila.hojas_fisicas, 0) > 0 ||
+      String(fila.nombre_personalizado || '').trim() !== '' ||
+      conProrroga[String(fila.expediente_documento_id)] === true;
 
     if (tieneDatos) {
       conservados.push({ codigo: fila.codigo_documento, motivo: 'Ya tenía información registrada.' });
@@ -447,8 +491,24 @@ function doc2SincronizarRequisitos_(expedienteId, ctx, opciones) {
   return { creados: creados, archivados: archivados, reactivados: reactivados, conservados: conservados, aplicables: aplicables.length };
 }
 
-/** Requisitos vigentes de un expediente, en orden de presentación. */
-function doc2RequisitosDe_(expedienteId, incluirArchivados) {
+/**
+ * Estado documental con el que nace un requisito.
+ *
+ * Se lee del catálogo (`estado_inicial`) y se valida contra el vocabulario: una
+ * celda editada a mano con «pendinte» no debe poder crear filas con un estado
+ * que ninguna transición reconoce. Sin valor, `PENDIENTE`.
+ */
+function doc2EstadoInicialDe_(def) {
+  var declarado = def ? String(def.estado_inicial || '').toUpperCase().replace(/ /g, '_') : '';
+  if (!declarado) return DOC2_ESTADO_DOCUMENTO.PENDIENTE;
+  var permitidos = doc2ValoresDe_(DOC2_ESTADO_DOCUMENTO);
+  for (var i = 0; i < permitidos.length; i++) {
+    if (permitidos[i] === declarado) return declarado;
+  }
+  return DOC2_ESTADO_DOCUMENTO.PENDIENTE;
+}
+
+/** Requisitos vigentes de un expediente, en orden de presentación. */function doc2RequisitosDe_(expedienteId, incluirArchivados) {
   var filas = doc2By_(DOC2_SHEET.EXPEDIENTE_DOCS, 'expediente_id', expedienteId, incluirArchivados === true);
   filas.sort(function (a, b) {
     var oa = docInt_(a.orden, 999);
@@ -497,13 +557,13 @@ function doc2ActualizarExpediente_(expedienteId, patch, ctx, opciones) {
   var cambioRama = false;
   if (p.tipoFuncionario !== undefined || p.tipo_funcionario !== undefined) {
     var tf = doc2Enum_(p.tipoFuncionario !== undefined ? p.tipoFuncionario : p.tipo_funcionario,
-      ['GENERAL', 'COMERCIAL', 'AUDITORIA', 'CUMPLIMIENTO', 'EJECUTIVO', 'DIRECTORIO'], expediente.tipo_funcionario);
+      doc2CodigosTipoFuncionario_(), expediente.tipo_funcionario);
     doc2ExigirRamaHabilitada_(tf);
     if (tf !== expediente.tipo_funcionario) { nuevo.tipo_funcionario = tf; cambioRama = true; }
   }
   if (p.tipoGarantia !== undefined || p.tipo_garantia !== undefined) {
     var tg = doc2Enum_(p.tipoGarantia !== undefined ? p.tipoGarantia : p.tipo_garantia,
-      ['NINGUNA', 'COMERCIAL_1', 'COMERCIAL_2', 'COMERCIAL_3'], expediente.tipo_garantia);
+      doc2CodigosTipoGarantia_(), expediente.tipo_garantia);
     if (tg !== expediente.tipo_garantia) { nuevo.tipo_garantia = tg; cambioRama = true; }
   }
 
@@ -686,10 +746,33 @@ function doc2ActualizarRequisito_(expedienteDocumentoId, cambios, ctx, opciones)
     patch.observaciones = doc2TextoLargo_(c.observaciones !== undefined ? c.observaciones : c.observacion, DOC2_LIMITS.MAX_TEXTO_MEDIO);
   }
 
+  /**
+   * La personalización va ANTES del conteo de hojas, y el orden es el arreglo.
+   *
+   * La persona marca «Ambos» y escribe tres hojas en el mismo guardado. Si el
+   * conteo se validara primero, consultaría la presentación anterior —«solo
+   * digital»— y rechazaría un cambio válido. Aplicar la presentación primero deja
+   * el `patch` con la verdad de esta escritura, y la validación del conteo la lee.
+   */
+  doc2AplicarPersonalizacion_(fila, c, patch, antes);
+
   if (c.hojasFisicas !== undefined || c.hojas_fisicas !== undefined) {
     antes.hojas_fisicas = docInt_(fila.hojas_fisicas, 0);
     patch.hojas_fisicas = doc2ValidarHojasFisicas_(
-      c.hojasFisicas !== undefined ? c.hojasFisicas : c.hojas_fisicas, fila);
+      c.hojasFisicas !== undefined ? c.hojasFisicas : c.hojas_fisicas, fila, patch);
+  }
+
+  /**
+   * Un documento que deja de ser físico deja de tener hojas.
+   *
+   * Si el requisito pasa a solo digital, el conteo se pone a cero en la misma
+   * escritura. Dejarlo como estaba produciría el dato contradictorio que todo lo
+   * demás se esfuerza en impedir: un documento sin presencia física con nueve
+   * hojas de papel.
+   */
+  if (patch.presentacion_fisica === 'NO' && docInt_(fila.hojas_fisicas, 0) > 0 && patch.hojas_fisicas === undefined) {
+    antes.hojas_fisicas = docInt_(fila.hojas_fisicas, 0);
+    patch.hojas_fisicas = 0;
   }
 
   if (!Object.keys(patch).length) {
@@ -785,10 +868,17 @@ function doc2ActualizarRequisitosEnLote_(expedienteId, lista, ctx, opciones) {
         antes.observaciones = fila.observaciones;
         patch.observaciones = doc2TextoLargo_(cambio.observaciones !== undefined ? cambio.observaciones : cambio.observacion, DOC2_LIMITS.MAX_TEXTO_MEDIO);
       }
+      // Igual que en el camino de uno en uno: primero la presentación, después el
+      // conteo de hojas, que es el que depende de ella.
+      doc2AplicarPersonalizacion_(fila, cambio, patch, antes);
       if (cambio.hojasFisicas !== undefined || cambio.hojas_fisicas !== undefined) {
         antes.hojas_fisicas = docInt_(fila.hojas_fisicas, 0);
         patch.hojas_fisicas = doc2ValidarHojasFisicas_(
-          cambio.hojasFisicas !== undefined ? cambio.hojasFisicas : cambio.hojas_fisicas, fila);
+          cambio.hojasFisicas !== undefined ? cambio.hojasFisicas : cambio.hojas_fisicas, fila, patch);
+      }
+      if (patch.presentacion_fisica === 'NO' && docInt_(fila.hojas_fisicas, 0) > 0 && patch.hojas_fisicas === undefined) {
+        antes.hojas_fisicas = docInt_(fila.hojas_fisicas, 0);
+        patch.hojas_fisicas = 0;
       }
       if (!Object.keys(patch).length) continue;
 
@@ -839,17 +929,28 @@ function doc2ActualizarRequisitosEnLote_(expedienteId, lista, ctx, opciones) {
  *      tiene hojas físicas que contar, y guardar un número ahí llenaría el total
  *      del libro anual con cifras que nadie puede explicar.
  *
+ * ── Por qué recibe el `patch` en curso ──────────────────────────────────────
+ * Porque en un requisito personalizable la respuesta a «¿lleva conteo?» puede
+ * estar cambiando EN ESTA MISMA escritura: la persona marca «Ambos» y escribe
+ * tres hojas en el mismo guardado. Mirando solo la fila guardada, la validación
+ * consultaría la presentación anterior —«solo digital»— y rechazaría un cambio
+ * perfectamente válido con el mensaje «este documento no lleva conteo de hojas»,
+ * que desde la pantalla es indistinguible de un fallo del sistema.
+ *
  * El error viaja con `fields` para que el formulario marque el campo exacto en
  * lugar de mostrar un aviso genérico.
  */
-function doc2ValidarHojasFisicas_(valor, fila) {
+function doc2ValidarHojasFisicas_(valor, fila, patchEnCurso) {
   var def = doc2CatalogoItem_(fila.codigo_documento);
-  var pide = !!(def && def.requiere_conteo_hojas === true);
-  if (!pide) {
+  var proyectada = doc2FilaConPatch_(fila, patchEnCurso);
+  var efectiva = doc2PresentacionEfectiva_(proyectada, def);
+  if (!efectiva.requiereConteoHojas) {
     throw docError_(DOC_CODE.VALIDATION_ERROR,
       'El requisito "' + doc2NombreRequisito_(fila) + '" no lleva conteo de hojas.',
       {
-        hint: 'Solo los documentos que se presentan en físico registran cuántas hojas tienen.',
+        hint: efectiva.presentacionEditable
+          ? 'Marca este documento como FÍSICO o AMBOS y el contador de hojas aparecerá solo.'
+          : 'Solo los documentos que se presentan en físico registran cuántas hojas tienen.',
         details: { fields: doc2Campo_('hojas_fisicas', 'Este documento no lleva conteo de hojas.'), codigo: fila.codigo_documento }
       });
   }
@@ -874,6 +975,115 @@ function doc2ValidarHojasFisicas_(valor, fila) {
   return numero;
 }
 
+/** La fila tal como quedará si se aplica el patch. Solo para validar. */
+function doc2FilaConPatch_(fila, patch) {
+  if (!patch) return fila;
+  var proyectada = {};
+  for (var k in fila) {
+    if (Object.prototype.hasOwnProperty.call(fila, k)) proyectada[k] = fila[k];
+  }
+  for (var p in patch) {
+    if (Object.prototype.hasOwnProperty.call(patch, p)) proyectada[p] = patch[p];
+  }
+  return proyectada;
+}
+
+/**
+ * Aplica el nombre libre y la presentación elegida a un requisito personalizable.
+ *
+ * ── Qué acepta y qué rechaza ────────────────────────────────────────────────
+ * Solo los requisitos que el catálogo marca como personalizables. Mandar un
+ * nombre propio para el REJAP no es una preferencia excéntrica: es la forma de
+ * que el mismo documento aparezca con nombres distintos en dos expedientes y de
+ * que el reporte «documentos no entregados» deje de poder agrupar. Se rechaza
+ * con un mensaje que dice exactamente eso.
+ *
+ * ── `presentacion` como atajo ───────────────────────────────────────────────
+ * La pantalla piensa en tres opciones —FÍSICO, DIGITAL, AMBOS— y el modelo en
+ * dos campos independientes. La traducción se hace aquí, una vez, y no en el
+ * componente: si la hiciera el componente, cualquier otro cliente (el menú del
+ * libro, una automatización) tendría que volver a acertar con la combinación.
+ *
+ * @param {Object} fila   Fila actual de `ExpedienteDocumentos`.
+ * @param {Object} cambio Cambios pedidos por el cliente.
+ * @param {Object} patch  Patch en construcción; se modifica en el sitio.
+ * @param {Object} antes  Valores anteriores para el historial; se modifica.
+ */
+function doc2AplicarPersonalizacion_(fila, cambio, patch, antes) {
+  var c = cambio || {};
+  var pideNombre = c.nombrePersonalizado !== undefined || c.nombre_personalizado !== undefined;
+  var pidePresentacion = c.presentacion !== undefined ||
+    c.presentacionFisica !== undefined || c.presentacion_fisica !== undefined ||
+    c.presentacionDigital !== undefined || c.presentacion_digital !== undefined;
+  if (!pideNombre && !pidePresentacion) return;
+
+  var def = doc2CatalogoItem_(fila.codigo_documento);
+  var capacidades = doc2PresentacionEfectiva_(fila, def);
+
+  if (pideNombre) {
+    if (!capacidades.permiteNombreLibre) {
+      throw docError_(DOC_CODE.VALIDATION_ERROR,
+        'El requisito "' + doc2NombreRequisito_(fila) + '" no admite un nombre propio.',
+        {
+          hint: 'Solo los requisitos de tipo «Otros» llevan nombre libre. Para los demás, el nombre lo fija el catálogo, que es lo que permite agrupar y reportar.',
+          details: { fields: doc2Campo_('nombre_personalizado', 'Este requisito no admite un nombre propio.'), codigo: fila.codigo_documento }
+        });
+    }
+    var bruto = c.nombrePersonalizado !== undefined ? c.nombrePersonalizado : c.nombre_personalizado;
+    var nombre = doc2Texto_(bruto, DOC2_LIMITS.MAX_NOMBRE_PERSONALIZADO);
+    if (String(fila.nombre_personalizado || '') !== nombre) {
+      antes.nombre_personalizado = fila.nombre_personalizado || '';
+      patch.nombre_personalizado = nombre;
+    }
+  }
+
+  if (pidePresentacion) {
+    if (!capacidades.presentacionEditable) {
+      throw docError_(DOC_CODE.VALIDATION_ERROR,
+        'La presentación del requisito "' + doc2NombreRequisito_(fila) + '" la fija el catálogo.',
+        {
+          hint: 'Si este documento cambió de físico a digital para todo el banco, cámbialo en Configuración › Catálogo de requisitos: así cambia en todos los expedientes a la vez.',
+          details: { fields: doc2Campo_('presentacion_fisica', 'La presentación de este requisito no se edita por expediente.'), codigo: fila.codigo_documento }
+        });
+    }
+    var fisica;
+    var digital;
+    if (c.presentacion !== undefined) {
+      var modo = String(c.presentacion || '').toUpperCase();
+      if (modo === 'FISICO' || modo === 'FÍSICO' || modo === 'FISICA') { fisica = 'SI'; digital = 'NO'; }
+      else if (modo === 'DIGITAL') { fisica = 'NO'; digital = 'SI'; }
+      else if (modo === 'AMBOS') { fisica = 'SI'; digital = 'SI'; }
+      else {
+        throw docError_(DOC_CODE.VALIDATION_ERROR, 'La presentación "' + c.presentacion + '" no existe.',
+          {
+            hint: 'Valores admitidos: FISICO, DIGITAL, AMBOS.',
+            details: { fields: doc2Campo_('presentacion', 'Elige FÍSICO, DIGITAL o AMBOS.') }
+          });
+      }
+    } else {
+      var fPedida = c.presentacionFisica !== undefined ? c.presentacionFisica : c.presentacion_fisica;
+      var dPedida = c.presentacionDigital !== undefined ? c.presentacionDigital : c.presentacion_digital;
+      fisica = fPedida === undefined ? capacidades.fisica : doc2Enum_(fPedida, ['SI', 'NO', 'CONDICIONAL'], 'NO');
+      digital = dPedida === undefined ? capacidades.digital : doc2Enum_(dPedida, ['SI', 'NO'], 'SI');
+    }
+    if (fisica === 'NO' && digital === 'NO') {
+      throw docError_(DOC_CODE.VALIDATION_ERROR, 'El documento tiene que presentarse en físico, en digital o en ambos.',
+        {
+          hint: 'Deja marcada al menos una de las dos formas.',
+          details: { fields: doc2Campo_('presentacion', 'Marca al menos una forma de presentación.') }
+        });
+    }
+    if (String(fila.presentacion_fisica || '') !== fisica) {
+      antes.presentacion_fisica = fila.presentacion_fisica || '';
+      patch.presentacion_fisica = fisica;
+    }
+    if (String(fila.presentacion_digital || '') !== digital) {
+      antes.presentacion_digital = fila.presentacion_digital || '';
+      patch.presentacion_digital = digital;
+    }
+  }
+}
+
 /** Requisito de un expediente por su código de catálogo. */
 function doc2RequisitoPorCodigo_(expedienteId, codigo) {
   var filas = doc2By_(DOC2_SHEET.EXPEDIENTE_DOCS, 'expediente_id', expedienteId, true);
@@ -884,10 +1094,9 @@ function doc2RequisitoPorCodigo_(expedienteId, codigo) {
   return null;
 }
 
-/** Nombre visible de un requisito, con reserva al código. */
+/** Nombre visible de un requisito, con el personalizado por delante. */
 function doc2NombreRequisito_(fila) {
-  var def = doc2CatalogoItem_(fila.codigo_documento);
-  return (def && def.nombre_visible) || String(fila.codigo_documento || '');
+  return doc2NombreEfectivoRequisito_(fila, doc2CatalogoItem_(fila.codigo_documento));
 }
 
 /** Un expediente cerrado no admite cambios operativos. */
@@ -1106,11 +1315,19 @@ function doc2ExpedienteOperativo_(idOIdentificador, ctx, opciones) {
   for (var i = 0; i < requisitos.length; i++) {
     var r = requisitos[i];
     var def = doc2CatalogoItem_(r.codigo_documento);
+    /* La presentación efectiva y el nombre efectivo se resuelven UNA vez, con la
+       misma función que usan la validación, los reportes y el informe mensual.
+       Es la razón de que la pantalla y el Excel no puedan discrepar. */
+    var pres = doc2PresentacionEfectiva_(r, def);
     vistaRequisitos.push({
       expedienteDocumentoId: r.expediente_documento_id,
       codigo: r.codigo_documento,
-      nombre: (def && def.nombre_visible) || r.codigo_documento,
+      nombre: doc2NombreEfectivoRequisito_(r, def),
+      /** Nombre del catálogo, para poder decir «Otros → “tal cosa”». */
+      nombreCatalogo: (def && def.nombre_visible) || r.codigo_documento,
+      nombrePersonalizado: r.nombre_personalizado || '',
       descripcion: (def && def.descripcion) || '',
+      textoObservacion: (def && def.texto_observacion) || '',
       seccion: r.seccion,
       /* La subsección materializada en la fila manda sobre la del catálogo: si el
          catálogo cambió de opinión, el expediente conserva el título con el que
@@ -1121,9 +1338,11 @@ function doc2ExpedienteOperativo_(idOIdentificador, ctx, opciones) {
       estado: r.estado_documental,
       observaciones: r.observaciones || '',
       hojasFisicas: docInt_(r.hojas_fisicas, 0),
-      presentacionFisica: (def && def.presentacion_fisica) || 'NO',
-      presentacionDigital: (def && def.presentacion_digital) || 'SI',
-      requiereConteoHojas: !!(def && def.requiere_conteo_hojas === true),
+      presentacionFisica: pres.fisica,
+      presentacionDigital: pres.digital,
+      requiereConteoHojas: pres.requiereConteoHojas,
+      permiteNombreLibre: pres.permiteNombreLibre,
+      presentacionEditable: pres.presentacionEditable,
       /* Un requisito retirado del proceso que este expediente sí tenía: se marca
          para que la interfaz lo muestre como heredado y nadie lo confunda con un
          requisito vigente que alguien olvidó pedir. */
@@ -1690,16 +1909,17 @@ function doc2ADossierHeredado_(expediente) {
     // conteo real de hojas físicas, así que el total del libro cuadra con la
     // pantalla sin tocar ni renumerar las columnas A-W.
     var hojas = docInt_(r.hojas_fisicas, 0);
+    var nombreItem = doc2NombreEfectivoRequisito_(r, def);
     var item = {
       id: r.codigo_documento,
-      label: (def && def.nombre_visible) || r.codigo_documento,
+      label: nombreItem,
       group: r.grupo || 'personal',
       status: estado,
       pages: hojas
     };
     if (hojas > 0) {
       hojasTotales += hojas;
-      detalleHojas.push(((def && def.nombre_visible) || r.codigo_documento) + ': ' + hojas);
+      detalleHojas.push(nombreItem + ': ' + hojas);
     }
     if (r.observaciones) item.observation = String(r.observaciones);
     if (r.permite_prorroga === true) item.allowProrroga = true;

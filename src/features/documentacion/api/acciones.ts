@@ -68,6 +68,19 @@ export interface CatalogoDocumento {
   presentacionDigital: "SI" | "NO";
   /** Solo los documentos físicos anotan cuántas hojas tienen. */
   requiereConteoHojas: boolean;
+  /**
+   * ¿El nombre lo escribe la persona que registra el expediente?
+   *
+   * Solo `otros-documento`. Cuando es `true` la fila pide un campo de texto en
+   * lugar de mostrar un nombre fijo, y ese texto se guarda en el expediente, no
+   * en el catálogo: dos expedientes pueden usar «Otros» para documentos
+   * distintos sin pisarse.
+   */
+  permiteNombreLibre?: boolean;
+  /** ¿Se elige FÍSICO / DIGITAL / AMBOS por expediente? */
+  presentacionEditable?: boolean;
+  /** Estado documental con el que nace el requisito. Vacío = `PENDIENTE`. */
+  estadoInicial?: string;
   confidencialidad: string;
   requiereRevision: boolean;
   requiereAprobacion: boolean;
@@ -104,6 +117,15 @@ export interface CatalogoCliente {
     total: number;
     obligatorios: number;
     conConteoHojas: number;
+    /**
+     * Requisitos que esta rama añade a los generales.
+     *
+     * Cero significa «esta categoría no pide nada más». Es lo que permite al
+     * asistente saltarse el paso de requisitos específicos sin recorrer el
+     * catálogo por su cuenta, y sin que la decisión quede cableada por código
+     * de rama.
+     */
+    propios?: number;
     codigos: string[];
     subsecciones: string[];
     nota: string;

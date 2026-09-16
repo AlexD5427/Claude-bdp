@@ -78,6 +78,25 @@ var DOC2_MIGRACIONES = [
     nombre: 'Añadir el conteo de hojas físicas y los metadatos de presentación del catálogo',
     porLotes: true,
     ejecutar: function (ctx, opciones) { return doc2MigracionHojasFisicas_(ctx, opciones); }
+  },
+  {
+    /**
+     * Catálogo v4: legajo administrativo y requisitos personalizables (esquema 6).
+     *
+     * Hace lo que ninguna migración anterior hacía: además de crear columnas y
+     * refrescar el catálogo, **siembra en los expedientes que ya existen los
+     * requisitos nuevos**. Sin ese tercer paso, los cuatro documentos nuevos solo
+     * aparecerían en las altas posteriores al despliegue, y el área acabaría con
+     * dos clases de expediente —los de antes y los de después— sin ninguna forma
+     * de distinguirlos salvo mirándolos.
+     *
+     * Es la parte por lotes: crear veinte requisitos en novecientos expedientes
+     * son dieciocho mil filas, y Apps Script corta a los seis minutos.
+     */
+    version: '4.2.0-legajo-administrativo',
+    nombre: 'Catálogo v4: generales administrativos, «Otros» personalizable y presentación por expediente',
+    porLotes: true,
+    ejecutar: function (ctx, opciones) { return doc2MigracionLegajoAdministrativo_(ctx, opciones); }
   }
 ];
 
@@ -1011,6 +1030,184 @@ function doc2MigracionHojasFisicas_(ctx, opciones) {
       actualizados + ' requisito(s) de expediente con su subsección al día' +
       (quedan ? '. Quedan ' + (requisitosTodos.length - siguiente) + '.' : '.')
   };
+}
+
+/* ========================================================================== */
+/* Catálogo v4 · legajo administrativo y requisitos personalizables            */
+/* ========================================================================== */
+
+/**
+ * Migración `4.2.0-legajo-administrativo`.
+ *
+ * ── Qué hace, en tres pasos ─────────────────────────────────────────────────
+ *  1. **Estructura**: crea las columnas del esquema 6 —`nombre_personalizado`,
+ *     `presentacion_fisica` y `presentacion_digital` en `ExpedienteDocumentos`;
+ *     `permite_nombre_libre`, `presentacion_editable` y `estado_inicial` en
+ *     `CatalogoDocumentos`—. Se añaden al final, sin tocar ni renumerar nada.
+ *  2. **Catálogo**: sube la semilla a la versión 4. Eso crea los cuatro
+ *     requisitos generales nuevos y refresca los metadatos de los dos que
+ *     cambiaron de presentación (seguro de accidentes y folio real).
+ *  3. **Expedientes existentes**: sincroniza cada expediente con el catálogo
+ *     nuevo, por lotes. Es lo que hace que los cuatro requisitos nuevos aparezcan
+ *     también en los expedientes que ya estaban abiertos.
+ *
+ * ── Qué NO hace, y por qué ──────────────────────────────────────────────────
+ *  · **No inventa conteos de hojas.** Los requisitos nuevos nacen en cero, que
+ *    significa «sin contar». El filtro «Hojas sin contar» de la lista sirve
+ *    exactamente para encontrarlos.
+ *  · **No borra el conteo del seguro de accidentes.** Ese documento pasó a solo
+ *    digital y su contador desaparece de la pantalla, pero si alguien había
+ *    anotado cinco hojas, el número se conserva en la celda. Borrarlo sería
+ *    destruir un dato que alguien registró mirando un papel; si el documento
+ *    vuelve a ser físico algún día, el conteo está ahí.
+ *  · **No toca el estado de ningún requisito existente.** `estado_inicial` solo
+ *    se aplica a los que se CREAN.
+ *  · **No cierra expedientes aprobados ni archivados.** Sembrar un requisito
+ *    nuevo en un expediente ya aprobado lo dejaría incompleto y cambiaría un
+ *    estado que una persona decidió. Se omiten y se informa de cuántos: si el
+ *    área quiere completarlos, los reabre y usa «Sincronizar requisitos».
+ *
+ * Idempotente y reanudable: los identificadores de requisito son deterministas
+ * (`doc2StableId_`), así que ejecutarla dos veces no duplica nada.
+ */
+function doc2MigracionLegajoAdministrativo_(ctx, opciones) {
+  var contexto = ctx || doc2CtxActual_();
+  var o = opciones || {};
+  var simular = o.simular === true;
+  var lote = Math.min(Math.max(docInt_(o.lote, 40), 5), 200);
+  var desde = Math.max(docInt_(o.desde, 0), 0);
+
+  /* Los estados que una persona decidió y que no se pueden alterar sembrando
+     requisitos nuevos. Se comprueban por estado y no por `estado_operacion`
+     porque un expediente puede estar APROBADO y operativamente activo. */
+  var intocables = {};
+  intocables[DOC2_ESTADO_EXPEDIENTE.APROBADO] = true;
+  intocables[DOC2_ESTADO_EXPEDIENTE.ARCHIVADO] = true;
+  intocables[DOC2_ESTADO_EXPEDIENTE.PENDIENTE_ELIMINACION] = true;
+  intocables[DOC2_ESTADO_EXPEDIENTE.ELIMINADO_LOGICO] = true;
+
+  if (simular) {
+    var faltan = [];
+    var columnas = [
+      [DOC2_SHEET.EXPEDIENTE_DOCS, 'nombre_personalizado'],
+      [DOC2_SHEET.EXPEDIENTE_DOCS, 'presentacion_fisica'],
+      [DOC2_SHEET.EXPEDIENTE_DOCS, 'presentacion_digital'],
+      [DOC2_SHEET.CATALOGO, 'permite_nombre_libre'],
+      [DOC2_SHEET.CATALOGO, 'presentacion_editable'],
+      [DOC2_SHEET.CATALOGO, 'estado_inicial']
+    ];
+    for (var k = 0; k < columnas.length; k++) {
+      if (!doc2TieneColumna_(columnas[k][0], columnas[k][1])) faltan.push(columnas[k][0] + '.' + columnas[k][1]);
+    }
+
+    var porCrear = [];
+    var porActualizar = 0;
+    try {
+      var actual = doc2Catalogo_(true);
+      var porCodigo = {};
+      for (var c = 0; c < actual.length; c++) porCodigo[String(actual[c].codigo_documento)] = actual[c];
+      for (var s = 0; s < DOC2_CATALOGO_SEMILLA.length; s++) {
+        var existente = porCodigo[DOC2_CATALOGO_SEMILLA[s].codigo];
+        if (!existente) porCrear.push(DOC2_CATALOGO_SEMILLA[s].codigo);
+        else if (docInt_(existente.version_catalogo, 0) < DOC2_CATALOGO_VERSION) porActualizar++;
+      }
+    } catch (e) { porCrear = doc2CodigosDeSemilla_(); }
+
+    var expedientes = [];
+    try { expedientes = doc2All_(DOC2_SHEET.EXPEDIENTES, true); } catch (e2) { expedientes = []; }
+    var sincronizables = 0;
+    var omitidos = 0;
+    for (var x = 0; x < expedientes.length; x++) {
+      if (intocables[String(expedientes[x].estado_expediente || '')]) omitidos++;
+      else sincronizables++;
+    }
+
+    return {
+      quedan: false, siguiente: 0, progreso: 100, filas: 0,
+      detalle: {
+        columnasPorCrear: faltan,
+        requisitosDeCatalogoPorCrear: porCrear,
+        requisitosDeCatalogoPorActualizar: porActualizar,
+        expedientesPorSincronizar: sincronizables,
+        expedientesOmitidos: omitidos
+      },
+      resumen: 'Simulación: se crearían ' + faltan.length + ' columna(s), ' + porCrear.length +
+        ' requisito(s) de catálogo (' + (porCrear.join(', ') || 'ninguno') + '), se refrescarían ' + porActualizar +
+        ' y se sincronizarían ' + sincronizables + ' expediente(s) (' + omitidos +
+        ' omitido(s) por estar aprobados o archivados). Ningún conteo de hojas se inventa.'
+    };
+  }
+
+  /* Pasos 1 y 2 solo en la primera tanda: repetirlos en cada lote sería releer y
+     reescribir el catálogo entero N veces. */
+  var estructura = [];
+  var catalogo = null;
+  if (desde === 0) {
+    estructura = doc2EnsureSheets_({ silencioso: true, sinEstilo: true });
+    doc2CatalogoReset_();
+    catalogo = doc2SeedCatalogo_(contexto);
+    doc2EspejoCatalogoHeredado_();
+    doc2CacheInvalidar_([DOC2_CACHE.CATALOGO, DOC2_CACHE.PANEL, DOC2_CACHE.AUXILIAR]);
+  }
+
+  // Paso 3: sembrar los requisitos nuevos en los expedientes que ya existen.
+  var filas = [];
+  try { filas = doc2All_(DOC2_SHEET.EXPEDIENTES, true); } catch (e3) { filas = []; }
+
+  var procesados = 0;
+  var sincronizados = 0;
+  var creados = 0;
+  var omitidosLote = 0;
+  var fallidos = [];
+
+  for (var i = desde; i < filas.length && procesados < lote; i++) {
+    procesados++;
+    var expediente = filas[i];
+    if (intocables[String(expediente.estado_expediente || '')]) { omitidosLote++; continue; }
+    try {
+      var r = doc2SincronizarRequisitos_(expediente.expediente_id, contexto, { silencioso: true });
+      if (r.creados > 0) {
+        creados += r.creados;
+        sincronizados++;
+        // El resumen del expediente cambia: tiene más requisitos exigibles.
+        doc2RecalcularExpediente_(expediente.expediente_id, contexto);
+      }
+    } catch (error) {
+      fallidos.push({ expedienteId: expediente.expediente_id, motivo: docClassify_(error).message });
+    }
+  }
+
+  var siguiente = desde + procesados;
+  var quedan = siguiente < filas.length;
+
+  return {
+    quedan: quedan,
+    siguiente: siguiente,
+    progreso: filas.length ? Math.round((siguiente / filas.length) * 100) : 100,
+    checkpoint: { indice: siguiente, total: filas.length },
+    filas: creados,
+    detalle: {
+      estructura: estructura,
+      catalogo: catalogo,
+      expedientesSincronizados: sincronizados,
+      requisitosCreados: creados,
+      expedientesOmitidos: omitidosLote,
+      fallidos: fallidos
+    },
+    resumen: (catalogo ? (catalogo.creados + ' requisito(s) de catálogo creado(s), ' + catalogo.actualizados +
+      ' actualizado(s). ') : '') +
+      sincronizados + ' expediente(s) con ' + creados + ' requisito(s) nuevo(s)' +
+      (omitidosLote ? ', ' + omitidosLote + ' omitido(s) por estar aprobados o archivados' : '') +
+      (fallidos.length ? ', ' + fallidos.length + ' con error' : '') +
+      (quedan ? '. Quedan ' + (filas.length - siguiente) + ' expediente(s).' : '.')
+  };
+}
+
+/** Códigos declarados en la semilla del catálogo. */
+function doc2CodigosDeSemilla_() {
+  var out = [];
+  for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) out.push(DOC2_CATALOGO_SEMILLA[i].codigo);
+  return out;
 }
 
 /* ========================================================================== */

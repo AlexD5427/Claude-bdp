@@ -209,7 +209,7 @@ describe("catálogo · copia local como red de seguridad", () => {
     await comprobarConexion({ url: URL_PRUEBAS });
     await waitFor(() => expect(window.localStorage.getItem("bdp-documentacion-catalogo")).toBeTruthy());
     const guardado = JSON.parse(window.localStorage.getItem("bdp-documentacion-catalogo")!);
-    expect(guardado.catalogo.documentos.length).toBe(39);
+    expect(guardado.catalogo.documentos.length).toBe(43);
     expect(guardado.guardadoEn).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });

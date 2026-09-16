@@ -25,7 +25,8 @@
  *    obligar a contar las hojas otra vez.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Minus, Plus } from "lucide-react";
 
 /** Tope del backend (`DOC2_LIMITS.MAX_HOJAS_FISICAS`). */
@@ -184,3 +185,202 @@ export function LeyendaCondicional() {
     </p>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Presentación elegible: el chip deslizable                           */
+/* ------------------------------------------------------------------ */
+
+/** Las tres formas en que el área piensa la presentación de un documento. */
+export type ModoPresentacion = "FISICO" | "DIGITAL" | "AMBOS";
+
+const MODOS: { codigo: ModoPresentacion; etiqueta: string; ayuda: string }[] = [
+  { codigo: "FISICO", etiqueta: "Físico", ayuda: "Solo en papel: se archiva en el legajo y se cuentan sus hojas." },
+  { codigo: "DIGITAL", etiqueta: "Digital", ayuda: "Solo escaneado o por correo: no tiene hojas que contar." },
+  { codigo: "AMBOS", etiqueta: "Ambos", ayuda: "En papel y escaneado. Es lo más habitual, y por eso viene marcado." },
+];
+
+/** Par de banderas del modelo → el modo que entiende la pantalla. */
+export function modoDesdePresentacion(fisica: string, digital: string): ModoPresentacion {
+  const hayFisica = fisica === "SI" || fisica === "CONDICIONAL";
+  const hayDigital = digital === "SI";
+  if (hayFisica && hayDigital) return "AMBOS";
+  if (hayFisica) return "FISICO";
+  return "DIGITAL";
+}
+
+/** ¿Este modo lleva conteo de hojas? Es la regla del backend, en una línea. */
+export function modoLlevaHojas(modo: ModoPresentacion): boolean {
+  return modo !== "DIGITAL";
+}
+
+/**
+ * Selector de presentación con indicador deslizante.
+ *
+ * ── Por qué un segmentado y no dos casillas ─────────────────────────────────
+ * Dos casillas «física» y «digital» permiten desmarcar las dos, y un documento
+ * que no se entrega de ninguna forma no existe. El backend lo rechaza, pero
+ * rechazar algo que la interfaz dejó construir es una mala conversación: la
+ * persona ya decidió algo imposible y tiene que deshacerlo. Con tres opciones
+ * excluyentes, el estado imposible no se puede ni pedir.
+ *
+ * ── Por qué el indicador se mueve con `transform` ───────────────────────────
+ * Un `layoutId` de framer-motion mide y reposiciona en el hilo principal en cada
+ * fotograma. Aquí la posición es aritmética —un tercio por opción— así que se
+ * anima `translateX`, que el compositor resuelve en la GPU y no toca el diseño.
+ * En un equipo modesto con veinticinco filas en pantalla, esa diferencia es la
+ * que separa un deslizamiento fluido de un salto.
+ */
+export function SelectorPresentacion({
+  valor,
+  onChange,
+  nombreDocumento,
+  deshabilitado,
+  reducido,
+}: {
+  valor: ModoPresentacion;
+  onChange: (modo: ModoPresentacion) => void;
+  nombreDocumento: string;
+  deshabilitado?: boolean;
+  reducido?: boolean;
+}) {
+  const indice = Math.max(0, MODOS.findIndex((m) => m.codigo === valor));
+  const grupo = useRef<HTMLDivElement | null>(null);
+
+  function mover(direccion: 1 | -1) {
+    const siguiente = MODOS[(indice + direccion + MODOS.length) % MODOS.length];
+    onChange(siguiente.codigo);
+    grupo.current?.querySelector<HTMLElement>(`[data-modo="${siguiente.codigo}"]`)?.focus();
+  }
+
+  return (
+    <span
+      ref={grupo}
+      role="radiogroup"
+      aria-label={`Forma de presentación de ${nombreDocumento}`}
+      className="doc-presentacion"
+      data-inactivo={deshabilitado ? "si" : undefined}
+      data-reducido={reducido ? "si" : undefined}
+    >
+      <span
+        className="doc-presentacion-indicador"
+        style={{ transform: `translate3d(${indice * 100}%, 0, 0)` }}
+        aria-hidden
+      />
+      {MODOS.map((modo) => {
+        const activo = modo.codigo === valor;
+        return (
+          <button
+            key={modo.codigo}
+            type="button"
+            role="radio"
+            aria-checked={activo}
+            data-modo={modo.codigo}
+            /* Patrón de radiogrupo: una sola parada de tabulador y las flechas
+               recorren las tres opciones. Con tres botones tabulables, llegar al
+               campo siguiente costaba tres pulsaciones por fila. */
+            tabIndex={activo || (indice < 0 && modo.codigo === "AMBOS") ? 0 : -1}
+            disabled={deshabilitado}
+            title={modo.ayuda}
+            onClick={() => onChange(modo.codigo)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                e.preventDefault();
+                mover(1);
+              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                e.preventDefault();
+                mover(-1);
+              }
+            }}
+          >
+            {modo.etiqueta}
+          </button>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
+ * El contador de hojas que aparece y desaparece.
+ *
+ * ── Por qué la altura se anima y el contenido no se desmonta al instante ────
+ * Porque el contador aparece como CONSECUENCIA de elegir «Físico» o «Ambos», y
+ * una fila que crece de golpe empuja las de abajo sin avisar: quien iba a pulsar
+ * el chip de la fila siguiente pulsa otra cosa. Con la transición, el ojo sigue
+ * el movimiento.
+ *
+ * `AnimatePresence` desmonta al terminar la salida, así que un contador oculto
+ * no queda en el árbol: un campo de formulario invisible sigue siendo tabulable
+ * y sigue leyéndose con un lector de pantalla.
+ */
+export function ContadorHojasRevelado({
+  visible,
+  reducido,
+  children,
+}: {
+  visible: boolean;
+  reducido?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    /* `AnimatePresence` identifica a sus hijos por `key`. Sin ella no detecta la
+       salida y el nodo se queda montado: el contador desaparecía de la vista
+       —ancho cero— pero seguía en el árbol, tabulable y audible. */
+    <AnimatePresence initial={false}>
+      {visible && (
+        <motion.span
+          key="contador-hojas"
+          className="inline-flex overflow-hidden"
+          initial={reducido ? false : { opacity: 0, width: 0, scale: 0.94 }}
+          animate={{ opacity: 1, width: "auto", scale: 1 }}
+          exit={reducido ? undefined : { opacity: 0, width: 0, scale: 0.94 }}
+          transition={reducido ? { duration: 0 } : { duration: 0.34, ease: [0.32, 0.72, 0, 1] }}
+          style={{ transformOrigin: "left center" }}
+        >
+          {children}
+        </motion.span>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * Campo de nombre libre para el requisito «Otros».
+ *
+ * ── Tres decisiones ─────────────────────────────────────────────────────────
+ * 1. **El nombre no se valida como obligatorio al escribir.** Se avisa, en ámbar
+ *    y sin bloquear: quien está llenando el expediente puede querer volver luego.
+ *    La revisión final del asistente sí lo lista como pendiente.
+ * 2. **Tope de 160 caracteres**, el mismo del backend, aplicado en el campo: un
+ *    rechazo del servidor por longitud es una espera de red para decir algo que
+ *    el navegador sabía.
+ * 3. **Sin `autoFocus`.** Es una fila entre veinte: robar el foco al pintarla
+ *    interrumpe a quien está tecleando en otra.
+ */
+export function CampoNombreLibre({
+  valor,
+  onChange,
+  deshabilitado,
+  placeholder = "Escribe el nombre del documento",
+}: {
+  valor: string;
+  onChange: (valor: string) => void;
+  deshabilitado?: boolean;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      type="text"
+      value={valor}
+      disabled={deshabilitado}
+      maxLength={MAX_NOMBRE_LIBRE}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      aria-label="Nombre del documento"
+      className="doc-nombre-libre"
+    />
+  );
+}
+
+/** Tope del backend (`DOC2_LIMITS.MAX_NOMBRE_PERSONALIZADO`). */
+export const MAX_NOMBRE_LIBRE = 160;

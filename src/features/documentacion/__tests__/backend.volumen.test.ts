@@ -92,8 +92,8 @@ describe("documentación · volumen: 100 expedientes por el camino real", () => 
   it("los 100 expedientes quedan registrados con sus requisitos", () => {
     expect(ids.length).toBe(100);
     expect(h.rowsOf("Expedientes").length).toBe(100);
-    // 16 generales, más los nueve de garantía (Tipo 2) en uno de cada cinco.
-    expect(h.rowsOf("ExpedienteDocumentos").length).toBeGreaterThan(1600);
+    // 20 generales, más los nueve de garantía (Tipo 2) en uno de cada cinco.
+    expect(h.rowsOf("ExpedienteDocumentos").length).toBeGreaterThan(2000);
   });
 
   it("el espejo del libro anual sigue al día con 100 expedientes", () => {
@@ -166,8 +166,8 @@ describe("documentación · volumen: 1 000 expedientes", () => {
   it("mil expedientes y casi veinte mil requisitos entran en el libro", () => {
     expect(ids.length).toBe(1000);
     expect(h.rowsOf("Expedientes").length).toBe(1000);
-    // 16 generales por expediente, más los nueve de garantía (Tipo 2) en uno de cada cinco.
-    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(17800);
+    // 20 generales por expediente, más los nueve de garantía (Tipo 2) en uno de cada cinco.
+    expect(h.rowsOf("ExpedienteDocumentos").length).toBe(21800);
   });
 
   it("la lista sigue devolviendo una página, no la base entera", () => {

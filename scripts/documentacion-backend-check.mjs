@@ -299,10 +299,15 @@ const retirados = harness.read("doc2CodigosRetirados_()");
 const generales = semilla.filter((d) => d.seccion === "generales");
 const generalesVigentes = generales.filter((d) => d.retirado !== true);
 
-/* Los 16 generales de la lista que entregó el área, en su orden y con su
+/* Los 20 generales de la lista que entregó el área, en su orden y con su
    redacción. La comprobación es por CÓDIGO: renombrar un código rompería los
    expedientes guardados, así que lo que se verifica es que la lista vigente sea
-   exactamente esta y en este orden. */
+   exactamente esta y en este orden.
+
+   Los cuatro últimos son los del legajo administrativo (catálogo v4) y van AL
+   FINAL a propósito: el `orden` sale de la posición en la semilla, así que
+   ponerlos al final es lo que hace que aparezcan después de los dieciséis
+   originales sin renumerar nada. */
 const GENERALES_VIGENTES = [
   "foto-4x4",
   "antecedentes-felcc",
@@ -320,15 +325,19 @@ const GENERALES_VIGENTES = [
   "seguro-accidentes",
   "seguro-vida",
   "carnet-heredero",
+  "manual-funciones",
+  "memorandum-designacion",
+  "comunicacion-interna",
+  "otros-documento",
 ];
 const ordenGenerales = generalesVigentes.map((d) => d.codigo);
 if (ordenGenerales.join("|") !== GENERALES_VIGENTES.join("|")) {
   fallo(
-    "Los 16 documentos generales no coinciden con la lista del área",
+    "Los 20 documentos generales no coinciden con la lista del área",
     `Esperado: ${GENERALES_VIGENTES.join(", ")}. Encontrado: ${ordenGenerales.join(", ")}.`,
   );
 } else {
-  ok("16 documentos generales vigentes, en el orden de la lista del área");
+  ok("20 documentos generales vigentes, en el orden de la lista del área");
 }
 
 const RETIRADOS_ESPERADOS = ["cert-trabajo", "rc-iva"];
@@ -342,22 +351,23 @@ if (RETIRADOS_ESPERADOS.some((c) => !retirados.includes(c)) || retirados.length 
   ok("cert-trabajo y rc-iva están retirados, no borrados");
 }
 
-if (semilla.length !== 39) {
-  fallo("El catálogo no tiene 39 documentos", `Tiene ${semilla.length}.`);
+if (semilla.length !== 43) {
+  fallo("El catálogo no tiene 43 documentos", `Tiene ${semilla.length}.`);
 } else {
-  ok("39 documentos en el catálogo canónico (37 vigentes + 2 retirados)");
+  ok("43 documentos en el catálogo canónico (41 vigentes + 2 retirados)");
 }
 
 /* Recuentos por rama. Es la comprobación que impide que un cambio de
    aplicabilidad pase inadvertido: el asistente, el visor y los reportes leen
    todos de aquí, así que si esto se mueve se mueve el módulo entero. */
 const RAMAS_ESPERADAS = [
-  ["GENERAL", "NINGUNA", 16],
-  ["COMERCIAL", "COMERCIAL_1", 21],
-  ["COMERCIAL", "COMERCIAL_2", 25],
-  ["COMERCIAL", "COMERCIAL_3", 21],
-  ["AUDITORIA", "NINGUNA", 17],
-  ["CUMPLIMIENTO", "NINGUNA", 19],
+  ["GENERAL", "NINGUNA", 20],
+  ["ADMINISTRATIVO", "NINGUNA", 20],
+  ["COMERCIAL", "COMERCIAL_1", 25],
+  ["COMERCIAL", "COMERCIAL_2", 29],
+  ["COMERCIAL", "COMERCIAL_3", 25],
+  ["AUDITORIA", "NINGUNA", 21],
+  ["CUMPLIMIENTO", "NINGUNA", 23],
 ];
 const desviaciones = [];
 for (const [funcionario, garantia, esperado] of RAMAS_ESPERADAS) {
@@ -367,7 +377,7 @@ for (const [funcionario, garantia, esperado] of RAMAS_ESPERADAS) {
 if (desviaciones.length) {
   fallo("Los recuentos por rama no son los acordados con el área", desviaciones.join("; "));
 } else {
-  ok("recuentos por rama: General 16 · T1 21 · T2 25 · T3 21 · Auditoría 17 · Cumplimiento 19");
+  ok("recuentos por rama: General 20 · Administrativo 20 · T1 25 · T2 29 · T3 25 · Auditoría 21 · Cumplimiento 23");
 }
 
 /* Subsecciones: el caso del documento compartido entre Tipo 1 y Tipo 3 es la
@@ -387,13 +397,21 @@ if (subT1 === subT3 || !subT1 || !subT3) {
   ok(`garante-inmueble cambia de subsección por rama ("${subT1}" / "${subT3}")`);
 }
 
-/* Contador de hojas: solo los físicos, y exactamente los nueve acordados. */
+/* Contador de hojas: exactamente los doce acordados con el área.
+   `seguro-accidentes` SALIÓ de la lista (pasó a solo digital: no llega papel al
+   legajo) y entraron los tres generales administrativos, el «Otros»
+   personalizable y `garante-folio`, el folio real del bien inmueble, que es el
+   único documento de garantía que se archiva en papel. */
 const CON_CONTEO_ESPERADO = [
   "antecedentes-felcc",
   "rejap",
   "titulo-legalizado",
-  "seguro-accidentes",
   "seguro-vida",
+  "manual-funciones",
+  "memorandum-designacion",
+  "comunicacion-interna",
+  "otros-documento",
+  "garante-folio",
   "impedimento-auditor",
   "djj-prohibiciones-cumplimiento",
   "lgi-ft",
@@ -410,10 +428,10 @@ if (sobran.length || faltanConteo.length) {
       sobran.length ? `sobran: ${sobran.join(", ")}` : "",
     ]
       .filter(Boolean)
-      .join(" · ") + ". Los de garantía nunca llevan contador.",
+      .join(" · "),
   );
 } else {
-  ok(`${conConteo.length} documentos físicos con contador de hojas, ninguno de garantía`);
+  ok(`${conConteo.length} documentos con contador de hojas, y el seguro de accidentes ya no lleva`);
 }
 
 /* Coherencia de la presentación: nada puede ser ni físico ni digital. */

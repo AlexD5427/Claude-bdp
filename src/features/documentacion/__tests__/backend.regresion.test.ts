@@ -399,7 +399,7 @@ describe("regresión · las dos arquitecturas conviven", () => {
   });
 });
 
-describe("regresión · los 16 documentos generales y las ramas", () => {
+describe("regresión · los 20 documentos generales y las ramas", () => {
   it("el catálogo heredado y el nuevo describen los mismos documentos", () => {
     const h = loadBackend();
     h.pedir("instalar", {});
@@ -408,21 +408,22 @@ describe("regresión · los 16 documentos generales y las ramas", () => {
     const heredado = h.read<any[]>("DOC_CATALOGO_SEMILLA").map((d) => d.id).sort();
     const nuevo = h.ok("documentacion.catalogo").documentos.map((d: any) => d.codigo).sort();
     expect(nuevo).toEqual(heredado);
-    expect(nuevo.length).toBe(39);
+    expect(nuevo.length).toBe(43);
   });
 
   it("cada rama produce el número de requisitos esperado", () => {
     const h = loadInstalledBackend();
-    /* Recuentos del catálogo v3, acordados con el área. Son los mismos números
+    /* Recuentos del catálogo v4, acordados con el área. Son los mismos números
        que comprueban `npm run doc:check`, `10_Tests.gs` y el mapa de
        aplicabilidad: si se mueven en un sitio, fallan en todos. */
     const casos: [string, string, number][] = [
-      ["GENERAL", "NINGUNA", 16],
-      ["COMERCIAL", "COMERCIAL_1", 21],
-      ["COMERCIAL", "COMERCIAL_2", 25],
-      ["COMERCIAL", "COMERCIAL_3", 21],
-      ["AUDITORIA", "NINGUNA", 17],
-      ["CUMPLIMIENTO", "NINGUNA", 19],
+      ["GENERAL", "NINGUNA", 20],
+      ["ADMINISTRATIVO", "NINGUNA", 20],
+      ["COMERCIAL", "COMERCIAL_1", 25],
+      ["COMERCIAL", "COMERCIAL_2", 29],
+      ["COMERCIAL", "COMERCIAL_3", 25],
+      ["AUDITORIA", "NINGUNA", 21],
+      ["CUMPLIMIENTO", "NINGUNA", 23],
     ];
     let n = 0;
     for (const [funcionario, garantia, esperado] of casos) {

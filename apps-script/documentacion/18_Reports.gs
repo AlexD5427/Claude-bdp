@@ -367,7 +367,7 @@ function doc2Reporte_(tipo, filtros, ctx) {
         if (!incluir) continue;
         salida.filas.push([duenio.identificador, duenio.nombre, duenio.agencia,
           doc2NombreRequisito_(req), req.seccion, req.subseccion || '',
-          doc2PideConteoDeHojas_(req.codigo_documento) ? docInt_(req.hojas_fisicas, 0) : '',
+          doc2PideConteoDeHojas_(req.codigo_documento, req) ? docInt_(req.hojas_fisicas, 0) : '',
           estadoD, revision, req.observaciones || '', req.updated_at || '']);
       }
       break;

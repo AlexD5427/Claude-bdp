@@ -27,14 +27,16 @@
  * aire alrededor. En móvil ocupa todo, que ahí es lo correcto.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
   ArrowRight,
+  Building2,
   CalendarClock,
   Check,
   ChevronRight,
+  FileQuestion,
   FolderOpen,
   FolderPlus,
   HardHat,
@@ -43,6 +45,7 @@ import {
   MessageSquarePlus,
   ShieldQuestion,
   Timer,
+  User,
 } from "lucide-react";
 import { docApi } from "../api/acciones";
 import { useConsola } from "../state/consola";
@@ -52,7 +55,18 @@ import { Aviso, Boton, Campo, Confirmacion, Entrada, TONO } from "./piezas";
 import { CampoFecha, diasDesdeHoy, fechaLegible } from "./CampoFecha";
 import { TextoRevelado } from "./DocTexto";
 import { SelectorAuxiliar } from "./SelectorAuxiliar";
-import { ContadorHojas, LeyendaCondicional, SelloPresentacion } from "./ContadorHojas";
+import {
+  CampoNombreLibre,
+  ContadorHojas,
+  ContadorHojasRevelado,
+  LeyendaCondicional,
+  SelectorPresentacion,
+  SelloPresentacion,
+  modoDesdePresentacion,
+  modoLlevaHojas,
+  type ModoPresentacion,
+} from "./ContadorHojas";
+import { AnilloProgreso } from "./AnilloProgreso";
 import { CURVA_HOJA, HojaCentral } from "./HojaCentral";
 import { useFormDraft } from "../../../hooks/useFormDraft";
 import {
@@ -79,20 +93,76 @@ interface EstadoDoc {
   prorrogaActiva: boolean;
   prorrogaFecha: string;
   prorrogaMotivo: string;
+  /** Solo en los requisitos de nombre libre («Otros»). */
+  nombrePersonalizado: string;
+  /**
+   * Presentación elegida en los requisitos que la admiten.
+   *
+   * `null` significa «la que diga el catálogo». No se inicializa con el valor
+   * heredado a propósito: así el asistente solo manda la presentación cuando la
+   * persona la tocó de verdad, y el historial del expediente no se llena de
+   * cambios que nadie hizo.
+   */
+  presentacion: ModoPresentacion | null;
 }
 
-function docInicial(): EstadoDoc {
+function docInicial(estadoInicial: EstadoDocumento = "PENDIENTE"): EstadoDoc {
   return {
-    estado: "PENDIENTE",
+    estado: estadoInicial,
     observaciones: "",
     hojasFisicas: 0,
     prorrogaActiva: false,
     prorrogaFecha: "",
     prorrogaMotivo: "",
+    nombrePersonalizado: "",
+    presentacion: null,
   };
 }
 
+/**
+ * Estado inicial de un documento según el catálogo.
+ *
+ * `otros-documento` nace `NO_APLICA` para no arrastrar un pendiente eterno. El
+ * dato viene del catálogo (`estadoInicial`), no cableado por código: si el área
+ * decide mañana que otro requisito opcional nazca igual, no hay nada que tocar
+ * aquí.
+ */
+function estadoInicialDe(doc: CatalogoDocumento): EstadoDocumento {
+  const declarado = String(doc.estadoInicial ?? "").toUpperCase();
+  const validos: EstadoDocumento[] = ["PENDIENTE", "ENTREGADO", "NO_ENTREGADO", "NO_APLICA"];
+  return (validos as string[]).includes(declarado) ? (declarado as EstadoDocumento) : "PENDIENTE";
+}
+
+/** Presentación efectiva de un documento en el asistente. */
+function modoEfectivo(doc: CatalogoDocumento, estado: EstadoDoc): ModoPresentacion {
+  if (estado.presentacion) return estado.presentacion;
+  return modoDesdePresentacion(doc.presentacionFisica, doc.presentacionDigital);
+}
+
+/** ¿Hay que mostrar el contador de hojas de este documento, aquí y ahora? */
+function llevaHojas(doc: CatalogoDocumento, estado: EstadoDoc): boolean {
+  if (doc.presentacionEditable) return modoLlevaHojas(modoEfectivo(doc, estado));
+  return doc.requiereConteoHojas;
+}
+
 type PasoId = "identidad" | "generales" | "categoria" | "especificos" | "revision";
+
+/**
+ * Un cambio de requisito listo para viajar.
+ *
+ * `presentacion` y `nombrePersonalizado` solo se aceptan en los requisitos que
+ * el catálogo marca como personalizables; el backend rechaza el resto con un
+ * mensaje explícito, y esta capa no intenta adivinarlo: manda lo que la persona
+ * tocó y deja que la regla viva en un solo sitio.
+ */
+interface CambioRequisito {
+  codigo: string;
+  estado?: string;
+  observaciones?: string;
+  hojasFisicas?: number;
+  nombrePersonalizado?: string;
+  presentacion?: ModoPresentacion;
+}
 
 interface Paso {
   id: PasoId;
@@ -283,14 +353,98 @@ function WizardCuerpo({
   const hayDatos =
     form.identificador.trim() !== "" || form.nombre.trim() !== "" || categoria !== "" || Object.keys(docs).length > 0;
 
-  const pasos: Paso[] = [
-    { id: "identidad", titulo: "Identidad", descripcion: "Quién es y de dónde viene." },
-    { id: "generales", titulo: "Documentos generales", descripcion: "Los 16 requisitos de toda incorporación." },
-    { id: "categoria", titulo: "Tipo de funcionario", descripcion: "El punto de inflexión del expediente." },
-    { id: "especificos", titulo: "Requisitos de la categoría", descripcion: "Solo los de su rama." },
-    { id: "revision", titulo: "Revisión y guardado", descripcion: "Confirma y abre el expediente." },
-  ];
-  const indice = pasos.findIndex((p) => p.id === paso);
+  /**
+   * Avance documental, con la MISMA regla que el backend.
+   *
+   * Entregados sobre exigibles, donde «exigibles» son todos menos los marcados
+   * «no aplica». Repetir la regla aquí no es duplicarla por gusto: el asistente
+   * tiene que poder mostrar el avance mientras se marca, antes de que exista
+   * expediente contra el que preguntar. La prueba `dominio.test.ts` compara las
+   * dos implementaciones para que no se separen.
+   *
+   * Mientras no hay categoría elegida, los exigibles son los generales: es lo
+   * que hay, y decir 0 % con dieciséis documentos marcados sería mentir.
+   */
+  const avanceDocumental = useMemo(() => {
+    const aplicables = categoria && !enConstruccion ? [...generales, ...especificos] : generales;
+    if (!aplicables.length) return 0;
+    let entregados = 0;
+    let noAplica = 0;
+    for (const doc of aplicables) {
+      const estado = docs[doc.codigo]?.estado ?? estadoInicialDe(doc);
+      if (estado === "ENTREGADO") entregados += 1;
+      else if (estado === "NO_APLICA") noAplica += 1;
+    }
+    const denominador = aplicables.length - noAplica;
+    if (denominador <= 0) return 100;
+    return Math.round((entregados / denominador) * 100);
+  }, [categoria, enConstruccion, generales, especificos, docs]);
+
+  /**
+   * ¿Añade esta rama requisitos propios?
+   *
+   * Se pregunta al catálogo, en dos niveles y por ese orden:
+   *
+   *   1. `aplicabilidad[].propios` — el recuento que calcula el backend. Es la
+   *      verdad, porque sale del mismo motor que va a crear los requisitos.
+   *   2. La lista de específicos ya resuelta, si el backend desplegado es
+   *      anterior a este cambio y no manda `propios`.
+   *
+   * Y solo si no hay catálogo todavía se usa la pista de la categoría
+   * (`sinRequisitosPropios`), que existe para poder decir «no pide más
+   * documentos» en la tarjeta antes de que llegue la red.
+   *
+   * Nada de esto compara con `"ADMINISTRATIVO"`. Es deliberado: el día que el
+   * área defina los requisitos de Ejecutivo —o quite los de Cumplimiento— el
+   * asistente se adapta sin que nadie recuerde que había un `if` con un nombre
+   * de rama dentro.
+   */
+  const ramaSinRequisitosPropios = useMemo(() => {
+    if (!categoria || enConstruccion) return false;
+    const rama = catalogo?.aplicabilidad.find(
+      (a) => a.tipoFuncionario === categoria && a.tipoGarantia === garantiaEfectiva,
+    );
+    if (rama) {
+      if (typeof rama.propios === "number") return rama.propios === 0;
+      return especificos.length === 0;
+    }
+    return cat?.sinRequisitosPropios === true;
+  }, [catalogo, categoria, garantiaEfectiva, enConstruccion, especificos.length, cat]);
+
+  /**
+   * El camino del asistente, que NO siempre tiene cinco pasos.
+   *
+   * Cuando la rama elegida no añade documentación —el área administrativa, hoy—
+   * el paso de requisitos específicos desaparece del recorrido: el indicador
+   * pasa a decir «Paso 3 de 4» y «Continuar» lleva directo a la revisión.
+   * Mostrarlo vacío con un cartel de «esta categoría no añade requisitos» era
+   * una pantalla entera para no decir nada.
+   */
+  const pasos: Paso[] = useMemo(() => {
+    const camino: Paso[] = [
+      { id: "identidad", titulo: "Identidad", descripcion: "Quién es y de dónde viene." },
+      { id: "generales", titulo: "Documentos generales", descripcion: "Los requisitos de toda incorporación." },
+      { id: "categoria", titulo: "Tipo de funcionario", descripcion: "El punto de inflexión del expediente." },
+      { id: "especificos", titulo: "Requisitos de la categoría", descripcion: "Solo los de su rama." },
+      { id: "revision", titulo: "Revisión y guardado", descripcion: "Confirma y abre el expediente." },
+    ];
+    return ramaSinRequisitosPropios ? camino.filter((p) => p.id !== "especificos") : camino;
+  }, [ramaSinRequisitosPropios]);
+
+  /**
+   * El paso que se pinta de verdad.
+   *
+   * Si alguien estaba en «requisitos de la categoría» y vuelve atrás a elegir el
+   * área administrativa, ese paso deja de existir. Sin esta corrección el índice
+   * sería −1 y «Continuar» devolvería al primer paso, que es el peor resultado
+   * posible: parece que el formulario se reinició.
+   */
+  const pasoVigente: PasoId = pasos.some((p) => p.id === paso) ? paso : "revision";
+  useEffect(() => {
+    if (pasoVigente !== paso) setPaso(pasoVigente);
+  }, [pasoVigente, paso]);
+
+  const indice = Math.max(0, pasos.findIndex((p) => p.id === pasoVigente));
 
   function poner(campo: keyof typeof form, valor: string) {
     setForm((prev) => ({ ...prev, [campo]: valor }));
@@ -304,7 +458,11 @@ function WizardCuerpo({
   }
 
   function ponerDoc(codigo: string, patch: Partial<EstadoDoc>) {
-    setDocs((prev) => ({ ...prev, [codigo]: { ...docInicial(), ...prev[codigo], ...patch } }));
+    setDocs((prev) => {
+      const doc = documentos.find((d) => d.codigo === codigo);
+      const base = docInicial(doc ? estadoInicialDe(doc) : "PENDIENTE");
+      return { ...prev, [codigo]: { ...base, ...prev[codigo], ...patch } };
+    });
   }
 
   /* --- Validación por paso --- */
@@ -325,8 +483,8 @@ function WizardCuerpo({
   }
 
   function puedeAvanzar(): boolean {
-    if (paso === "identidad") return validarIdentidad();
-    if (paso === "categoria") {
+    if (pasoVigente === "identidad") return validarIdentidad();
+    if (pasoVigente === "categoria") {
       if (!categoria) {
         setErrores({ categoria: "Elige el tipo de funcionario." });
         return false;
@@ -355,16 +513,21 @@ function WizardCuerpo({
   }
 
   function irA(destino: PasoId) {
-    const idxDestino = pasos.findIndex((p) => p.id === destino);
+    /* Un destino que no está en el camino actual —«requisitos de la categoría»
+       cuando la rama no los tiene— se resuelve a la revisión en lugar de no
+       hacer nada: un botón que no responde parece roto. */
+    const existe = pasos.some((p) => p.id === destino);
+    const objetivo: PasoId = existe ? destino : "revision";
+    const idxDestino = pasos.findIndex((p) => p.id === objetivo);
     // Solo se puede saltar hacia atrás, o hacia adelante si los pasos previos son válidos.
     if (idxDestino <= indice) {
       setErrores({});
-      setPaso(destino);
+      setPaso(objetivo);
       return;
     }
-    if (paso === "identidad" && !validarIdentidad()) return;
+    if (pasoVigente === "identidad" && !validarIdentidad()) return;
     setErrores({});
-    setPaso(destino);
+    setPaso(objetivo);
   }
 
   /**
@@ -375,20 +538,37 @@ function WizardCuerpo({
    * Mandar los veinticinco requisitos con su valor por defecto llenaría el
    * historial de cambios que nunca ocurrieron.
    */
-  function cambiosDeRequisitos(): { codigo: string; estado?: string; observaciones?: string; hojasFisicas?: number }[] {
-    const salida: { codigo: string; estado?: string; observaciones?: string; hojasFisicas?: number }[] = [];
+  function cambiosDeRequisitos(): CambioRequisito[] {
+    const salida: CambioRequisito[] = [];
     const aplicables = new Set(codigosAplicables);
+    const porCodigo = new Map(documentos.map((d) => [d.codigo, d]));
     for (const [codigo, ed] of Object.entries(docs)) {
       if (!aplicables.has(codigo)) continue; // no aplica a esta rama: se ignora
-      const cambioEstado = ed.estado !== "PENDIENTE";
+      const doc = porCodigo.get(codigo);
+      /**
+       * «Tocado» se compara contra el estado INICIAL del catálogo, no contra
+       * `PENDIENTE`.
+       *
+       * Es el matiz que trajo «Otros»: ese requisito nace `NO_APLICA`, así que
+       * comparar con `PENDIENTE` lo consideraba modificado siempre y mandaba un
+       * cambio —`estado: NO_APLICA`— por cada expediente creado. El backend lo
+       * aceptaba sin hacer nada y el historial se llenaba de líneas que no
+       * registran ninguna decisión.
+       */
+      const inicial = doc ? estadoInicialDe(doc) : "PENDIENTE";
+      const cambioEstado = ed.estado !== inicial;
       const cambioObs = ed.observaciones.trim() !== "";
       const cambioHojas = ed.hojasFisicas > 0;
-      if (!cambioEstado && !cambioObs && !cambioHojas) continue;
+      const cambioNombre = Boolean(doc?.permiteNombreLibre) && ed.nombrePersonalizado.trim() !== "";
+      const cambioPresentacion = Boolean(doc?.presentacionEditable) && ed.presentacion !== null;
+      if (!cambioEstado && !cambioObs && !cambioHojas && !cambioNombre && !cambioPresentacion) continue;
       salida.push({
         codigo,
         ...(cambioEstado ? { estado: ed.estado } : {}),
         ...(cambioObs ? { observaciones: ed.observaciones.trim() } : {}),
         ...(cambioHojas ? { hojasFisicas: ed.hojasFisicas } : {}),
+        ...(cambioNombre ? { nombrePersonalizado: ed.nombrePersonalizado.trim() } : {}),
+        ...(cambioPresentacion ? { presentacion: ed.presentacion as ModoPresentacion } : {}),
       });
     }
     return salida;
@@ -591,7 +771,17 @@ function WizardCuerpo({
         bloqueada={guardando}
         pideConfirmacion={hayDatos}
         onPedirConfirmacion={() => setPidiendoCierre(true)}
-        encabezado={<Encabezado pasos={pasos} indice={indice} onIr={irA} />}
+        encabezado={
+          <Encabezado
+            pasos={pasos}
+            indice={indice}
+            onIr={irA}
+            identidad={form}
+            categoria={cat}
+            avance={avanceDocumental}
+            reducido={reducido}
+          />
+        }
         pie={
           <Pie
             indice={indice}
@@ -610,18 +800,18 @@ function WizardCuerpo({
         {/* Sin `mode="wait"`: si un paso no reporta el fin de su salida, el
             siguiente no se montaría nunca y el asistente quedaría en blanco. */}
         <motion.div
-          key={paso}
+          key={pasoVigente}
           initial={reducido ? false : { opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={reducido ? { duration: 0 } : { duration: 0.42, ease: CURVA_HOJA }}
         >
-          {paso === "identidad" && (
+          {pasoVigente === "identidad" && (
             <PasoIdentidad form={form} poner={poner} errores={errores} catalogo={catalogo} reducido={reducido} onAviso={onAviso} />
           )}
-          {paso === "generales" && (
+          {pasoVigente === "generales" && (
             <PasoDocumentos
               titulo="Documentos generales"
-              descripcion="Los 16 requisitos de toda incorporación. Puedes marcarlos ahora o dejarlos pendientes y completarlos en el expediente."
+              descripcion={`Los ${generales.length} requisitos de toda incorporación. Puedes marcarlos ahora o dejarlos pendientes y completarlos en el expediente.`}
               documentos={generales}
               garantia={garantiaEfectiva}
               docs={docs}
@@ -629,11 +819,12 @@ function WizardCuerpo({
               reducido={reducido}
             />
           )}
-          {paso === "categoria" && (
+          {pasoVigente === "categoria" && (
             <PasoCategoria
               categoria={categoria}
               garantia={garantia}
               catalogo={catalogo}
+              sinRequisitosPropios={ramaSinRequisitosPropios}
               onCategoria={(c) => {
                 setCategoria(c);
                 setErrores({});
@@ -647,7 +838,7 @@ function WizardCuerpo({
               reducido={reducido}
             />
           )}
-          {paso === "especificos" && (
+          {pasoVigente === "especificos" && (
             <PasoEspecificos
               categoria={cat ?? CATEGORIA_GENERAL}
               garantia={garantiaEfectiva}
@@ -658,7 +849,7 @@ function WizardCuerpo({
               reducido={reducido}
             />
           )}
-          {paso === "revision" && (
+          {pasoVigente === "revision" && (
             <PasoRevision
               form={form}
               categoria={cat ?? CATEGORIA_GENERAL}
@@ -668,6 +859,7 @@ function WizardCuerpo({
               docs={docs}
               errores={errores}
               onIr={irA}
+              sinRequisitosPropios={ramaSinRequisitosPropios}
             />
           )}
         </motion.div>
@@ -692,24 +884,145 @@ function WizardCuerpo({
 /* Encabezado con indicador de pasos                                   */
 /* ------------------------------------------------------------------ */
 
-function Encabezado({ pasos, indice, onIr }: { pasos: Paso[]; indice: number; onIr: (id: PasoId) => void }) {
+/**
+ * Cabecera del asistente: quién, dónde va y cuánto lleva.
+ *
+ * ── El fallo que corrige ────────────────────────────────────────────────────
+ * Antes decía «Nuevo expediente documental / Paso 4 de 5 · Requisitos de la
+ * categoría» y nada más. En el paso cuatro, quien llena el expediente lleva
+ * tres pantallas sin ver a QUIÉN pertenece: si se equivocó de persona en el
+ * paso uno, se enteraba al guardar. Ahora los tres datos que identifican el
+ * expediente —nombre, carnet y agencia— viajan en la cabecera, y el anillo dice
+ * cuánta documentación hay resuelta.
+ *
+ * ── Contraste ───────────────────────────────────────────────────────────────
+ * El texto del paso estaba en `--doc-text-muted`, que en el tema claro es un
+ * gris azulado (#33506f) sobre cristal blanco: cumple AA pero se lee mal con
+ * brillo bajo, y era exactamente la queja. El nombre y el número del paso pasan
+ * a `--doc-text` (#0a2747, casi negro, 13:1) y solo el conector queda atenuado.
+ *
+ * ── Animación ───────────────────────────────────────────────────────────────
+ * Discreta y una sola por cambio: el título del paso entra con un
+ * desplazamiento de 4 px y el anillo interpola su arco. Nada de rebotes: esta
+ * cabecera se mira treinta veces por expediente.
+ */
+function Encabezado({
+  pasos,
+  indice,
+  onIr,
+  identidad,
+  categoria,
+  avance,
+  reducido,
+}: {
+  pasos: Paso[];
+  indice: number;
+  onIr: (id: PasoId) => void;
+  identidad: Identidad;
+  categoria: Categoria | null;
+  avance: number;
+  reducido: boolean;
+}) {
+  const nombre = identidad.nombre.trim();
+  const carnet = identidad.identificador.trim();
+  const agencia = identidad.agencia.trim();
+  const hayIdentidad = Boolean(nombre || carnet || agencia);
+  const color = categoria?.color;
+
   return (
     <div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         <span
           className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl"
           style={{ background: "var(--doc-info-bg)", color: "var(--doc-info-fg)" }}
         >
           <FolderPlus className="h-5 w-5" aria-hidden />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="doc-balance text-[15px] font-bold tracking-tight text-[color:var(--doc-text)]">
             Nuevo expediente documental
           </h2>
-          <p className="doc-prose text-xs text-[color:var(--doc-text-muted)]">
-            Paso {indice + 1} de {pasos.length} · <em className="not-italic font-semibold">{pasos[indice]?.titulo}</em>
+          {/* El número del paso en tinta plena; el conector, atenuado. */}
+          <p className="doc-prose text-xs text-[color:var(--doc-text)]">
+            <span className="doc-metric font-bold">
+              Paso {indice + 1} de {pasos.length}
+            </span>
+            <span className="mx-1 text-[color:var(--doc-text-faint)]" aria-hidden>
+              ·
+            </span>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.em
+                key={pasos[indice]?.id ?? indice}
+                className="not-italic font-bold"
+                initial={reducido ? false : { opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reducido ? undefined : { opacity: 0, y: -4 }}
+                transition={reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaExpo }}
+                style={{ display: "inline-block" }}
+              >
+                {pasos[indice]?.titulo}
+              </motion.em>
+            </AnimatePresence>
           </p>
+
+          {/* Identidad en contexto. Aparece en cuanto hay algo que mostrar y no
+              antes: tres chips vacíos serían ruido en el primer paso. */}
+          <AnimatePresence initial={false}>
+            {hayIdentidad && (
+              <motion.div
+                className="doc-identidad mt-2"
+                initial={reducido ? false : { opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={reducido ? undefined : { opacity: 0, height: 0 }}
+                transition={reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaQuint }}
+              >
+                {nombre && (
+                  <span className="doc-identidad-dato doc-identidad-nombre" title={nombre}>
+                    <User className="h-3.5 w-3.5" aria-hidden />
+                    {nombre}
+                  </span>
+                )}
+                {carnet && (
+                  <span className="doc-identidad-dato doc-metric" title={`Carnet de identidad ${carnet}`}>
+                    <IdCard className="h-3.5 w-3.5" aria-hidden />
+                    {carnet}
+                  </span>
+                )}
+                {agencia ? (
+                  <span className="doc-identidad-dato" title={`Agencia ${agencia}`}>
+                    <Building2 className="h-3.5 w-3.5" aria-hidden />
+                    {agencia}
+                  </span>
+                ) : (
+                  <span className="doc-identidad-dato" data-vacio="si">
+                    <Building2 className="h-3.5 w-3.5" aria-hidden />
+                    Sin agencia
+                  </span>
+                )}
+                {categoria && (
+                  <span
+                    className="doc-identidad-dato"
+                    style={{ boxShadow: `inset 0 0 0 1.5px ${hexAlpha(categoria.color, 0.55)}` }}
+                    title={categoria.etiqueta}
+                  >
+                    <categoria.Icono className="h-3.5 w-3.5" style={{ color: categoria.color }} />
+                    {categoria.etiquetaCorta}
+                  </span>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
+
+        {/* Anillo de avance documental. Se actualiza en el mismo fotograma en
+            que se marca un documento: no espera al backend, porque el dato es
+            el de la pantalla. */}
+        <span className="flex shrink-0 flex-col items-center gap-0.5 pt-0.5">
+          <AnilloProgreso valor={avance} etiqueta="Avance documental" color={color} reducido={reducido} />
+          <span className="text-[9px] font-bold uppercase tracking-wider text-[color:var(--doc-text-faint)]">
+            avance
+          </span>
+        </span>
       </div>
 
       {/* Pasos: navegación cómoda hacia atrás, con progreso animado. */}
@@ -965,7 +1278,7 @@ function PasoDocumentos({
             key={doc.codigo}
             doc={doc}
             garantia={garantia}
-            estado={docs[doc.codigo] ?? docInicial()}
+            estado={docs[doc.codigo] ?? docInicial(estadoInicialDe(doc))}
             onDoc={onDoc}
             reducido={reducido}
             orden={i}
@@ -999,6 +1312,45 @@ function FilaDocumento({
   const mostrarObs = obsAbierta || estado.observaciones.trim() !== "";
   const diasProrroga = estado.prorrogaActiva && estado.prorrogaFecha ? diasDesdeHoy(estado.prorrogaFecha) : null;
   const noAplica = estado.estado === "NO_APLICA";
+  /* La presentación efectiva y el nombre efectivo se resuelven aquí y se pasan a
+     los hijos: así el contador, el selector y las etiquetas accesibles hablan
+     todos del mismo documento, incluso cuando la persona acaba de renombrarlo. */
+  const modo = modoEfectivo(doc, estado);
+  const pideHojas = llevaHojas(doc, estado);
+  const nombreVisible = estado.nombrePersonalizado.trim() || doc.nombre;
+
+  /**
+   * Escribir el nombre de «Otros» lo pone EN USO; borrarlo lo saca.
+   *
+   * ── Por qué hace falta ────────────────────────────────────────────────────
+   * Este requisito nace `NO_APLICA` para no arrastrar un pendiente eterno en
+   * todos los expedientes del banco. Pero el «no aplica» apaga los chips y el
+   * contador, así que sin esta promoción automática la persona escribía el
+   * nombre y se encontraba una fila muerta: tenía que adivinar que primero hay
+   * que pulsar «Pendiente».
+   *
+   * La vuelta atrás es igual de importante y solo ocurre cuando no hay nada que
+   * perder: si alguien ya marcó «Entregado», contó hojas o escribió una
+   * observación, borrar el nombre NO saca el requisito del expediente. Sería
+   * descontar trabajo hecho por una tecla de borrar.
+   */
+  function escribirNombre(valor: string) {
+    const inicial = estadoInicialDe(doc);
+    const patch: Partial<EstadoDoc> = { nombrePersonalizado: valor };
+    const hayNombre = valor.trim() !== "";
+    if (inicial === "NO_APLICA") {
+      if (hayNombre && estado.estado === "NO_APLICA") patch.estado = "PENDIENTE";
+      else if (
+        !hayNombre &&
+        estado.estado === "PENDIENTE" &&
+        estado.hojasFisicas === 0 &&
+        estado.observaciones.trim() === ""
+      ) {
+        patch.estado = "NO_APLICA";
+      }
+    }
+    onDoc(doc.codigo, patch);
+  }
 
   return (
     /* Entrada en CSS, no con framer-motion: son dieciséis filas en los generales
@@ -1013,27 +1365,81 @@ function FilaDocumento({
           {/* El texto completo, sin recortar: los nombres de esta lista son
               frases enteras y un nombre con puntos suspensivos obliga a pasar el
               puntero para saber qué documento es. */}
-          <p className="doc-prose doc-wrap-name text-[13px] font-medium leading-snug text-[color:var(--doc-text)]">
-            {doc.nombre}
-            {doc.obligatorio ? (
-              <span className="ml-1 align-super text-[10px]" style={{ color: "var(--doc-danger)" }} title="Obligatorio">
-                *
-              </span>
-            ) : null}
-          </p>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <SelloPresentacion fisica={doc.presentacionFisica} digital={doc.presentacionDigital} />
-            {doc.requiereConteoHojas && (
-              <ContadorHojas
-                valor={estado.hojasFisicas}
-                onChange={(v) => onDoc(doc.codigo, { hojasFisicas: v })}
-                deshabilitado={noAplica}
-                nombreDocumento={doc.nombre}
-                condicional={doc.presentacionFisica === "CONDICIONAL"}
+          {doc.permiteNombreLibre ? (
+            /* Requisito de nombre libre: el nombre del catálogo queda como
+               rótulo del bloque y el campo es el que manda. Se muestran los dos
+               porque hacen falta los dos: el rótulo dice qué es esta fila y el
+               campo dice qué documento concreto se está registrando. */
+            <div className="space-y-1.5">
+              <p className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[color:var(--doc-text-faint)]">
+                <FileQuestion className="h-3.5 w-3.5" aria-hidden />
+                {doc.nombre}
+              </p>
+              {/* El campo de nombre NUNCA se deshabilita.
+                  Es la puerta de entrada del requisito: si se apagara con el
+                  «no aplica» con el que nace, nadie podría llegar a usarlo. */}
+              <CampoNombreLibre valor={estado.nombrePersonalizado} onChange={escribirNombre} />
+              {estado.nombrePersonalizado.trim() === "" && (
+                <p className="doc-prose text-[11px] text-[color:var(--doc-text-faint)]">
+                  Déjalo vacío si no hay ningún documento extra. Al escribir un nombre, el requisito entra en el
+                  expediente.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="doc-prose doc-wrap-name text-[13px] font-medium leading-snug text-[color:var(--doc-text)]">
+              {doc.nombre}
+              {doc.obligatorio ? (
+                <span className="ml-1 align-super text-[10px]" style={{ color: "var(--doc-danger)" }} title="Obligatorio">
+                  *
+                </span>
+              ) : null}
+            </p>
+          )}
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {doc.presentacionEditable ? (
+              /* La presentación es CONFIGURACIÓN del documento, no un dato
+                 operativo: se puede elegir aunque el requisito todavía no esté
+                 en uso. Deshabilitarla con el «no aplica» inicial dejaba el
+                 control muerto justo cuando hacía falta. */
+              <SelectorPresentacion
+                valor={modo}
+                onChange={(m) => onDoc(doc.codigo, { presentacion: m })}
+                nombreDocumento={nombreVisible}
+                reducido={reducido}
               />
+            ) : (
+              <SelloPresentacion fisica={doc.presentacionFisica} digital={doc.presentacionDigital} />
+            )}
+            {/* El contador aparece y desaparece con la presentación elegida. En
+                los documentos de presentación fija no hay nada que revelar, así
+                que se pinta directo y no se paga una animación por fila. */}
+            {doc.presentacionEditable ? (
+              <ContadorHojasRevelado visible={pideHojas} reducido={reducido}>
+                <ContadorHojas
+                  valor={estado.hojasFisicas}
+                  onChange={(v) => onDoc(doc.codigo, { hojasFisicas: v })}
+                  deshabilitado={noAplica}
+                  nombreDocumento={nombreVisible}
+                  condicional={false}
+                />
+              </ContadorHojasRevelado>
+            ) : (
+              pideHojas && (
+                <ContadorHojas
+                  valor={estado.hojasFisicas}
+                  onChange={(v) => onDoc(doc.codigo, { hojasFisicas: v })}
+                  deshabilitado={noAplica}
+                  nombreDocumento={nombreVisible}
+                  condicional={doc.presentacionFisica === "CONDICIONAL"}
+                />
+              )
             )}
           </div>
           {doc.descripcion && <p className="doc-prose mt-1 text-[11px] text-[color:var(--doc-text-faint)]">{doc.descripcion}</p>}
+          {doc.permiteNombreLibre && doc.textoObservacion && (
+            <p className="doc-prose mt-1 text-[11px] italic text-[color:var(--doc-text-faint)]">{doc.textoObservacion}</p>
+          )}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {opciones.map((op) => (
@@ -1080,8 +1486,8 @@ function FilaDocumento({
             <textarea
               value={estado.observaciones}
               onChange={(e) => onDoc(doc.codigo, { observaciones: e.target.value })}
-              placeholder={`Observaciones (${doc.nombre.slice(0, 48)}${doc.nombre.length > 48 ? "…" : ""})`}
-              aria-label={`Observaciones de ${doc.nombre}`}
+              placeholder={`Observaciones (${nombreVisible.slice(0, 48)}${nombreVisible.length > 48 ? "…" : ""})`}
+              aria-label={`Observaciones de ${nombreVisible}`}
               rows={2}
               className="mt-2 w-full resize-y rounded-[var(--doc-radius-sm)] border border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-3 py-2 text-sm text-[color:var(--doc-text)] outline-none transition-colors placeholder:text-[color:var(--doc-text-faint)] focus:border-[color:var(--doc-focus)]"
             />
@@ -1109,7 +1515,7 @@ function FilaDocumento({
                     onChange={(v) => onDoc(doc.codigo, { prorrogaFecha: v })}
                     min={hoy()}
                     sentido="futuro"
-                    etiquetaAccesible={`Fecha límite de la prórroga de ${doc.nombre}`}
+                    etiquetaAccesible={`Fecha límite de la prórroga de ${nombreVisible}`}
                   />
                 </div>
                 <label className="block">
@@ -1202,6 +1608,7 @@ function PasoCategoria({
   categoria,
   garantia,
   catalogo,
+  sinRequisitosPropios,
   onCategoria,
   onGarantia,
   errores,
@@ -1210,6 +1617,7 @@ function PasoCategoria({
   categoria: string;
   garantia: string;
   catalogo: CatalogoCliente | null;
+  sinRequisitosPropios: boolean;
   onCategoria: (c: string) => void;
   onGarantia: (g: string) => void;
   errores: Record<string, string>;
@@ -1290,6 +1698,29 @@ function PasoCategoria({
                 ))}
               </div>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Rama sin requisitos propios: se anuncia el atajo ANTES de pulsar
+          «Continuar». Que el asistente pase de cuatro pantallas a tres sin
+          decirlo se lee como un paso que se saltó por error. */}
+      <AnimatePresence initial={false}>
+        {cat && cat.activa && sinRequisitosPropios && (
+          <motion.div
+            initial={reducido ? false : { opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={reducido ? undefined : { opacity: 0, height: 0 }}
+            transition={reducido ? { duration: 0 } : { duration: DURACION.normal, ease: CURVA.salidaQuint }}
+            className="overflow-hidden"
+          >
+            <Aviso intencion="exito" titulo="Esta categoría no pide documentación adicional">
+              <span className="inline-flex items-center gap-1.5">
+                <Check className="h-3.5 w-3.5" aria-hidden />
+                Con los documentos generales el expediente queda completo. Al continuar se va directo a{" "}
+                <strong>Revisión y guardado</strong>.
+              </span>
+            </Aviso>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1519,7 +1950,7 @@ function PasoEspecificos({
                   key={doc.codigo}
                   doc={doc}
                   garantia={garantia}
-                  estado={docs[doc.codigo] ?? docInicial()}
+                  estado={docs[doc.codigo] ?? docInicial(estadoInicialDe(doc))}
                   onDoc={onDoc}
                   reducido={reducido}
                   orden={i}
@@ -1555,6 +1986,7 @@ function PasoRevision({
   docs,
   errores,
   onIr,
+  sinRequisitosPropios,
 }: {
   form: Identidad;
   categoria: Categoria;
@@ -1564,14 +1996,20 @@ function PasoRevision({
   docs: Record<string, EstadoDoc>;
   errores: Record<string, string>;
   onIr: (id: PasoId) => void;
+  sinRequisitosPropios: boolean;
 }) {
   const Icono = categoria.Icono;
   const garantiaCard = GARANTIAS_COMERCIAL.find((g) => g.codigo === garantia);
   const todos = [...generales, ...especificos];
   const total = todos.length;
-  const cuenta = (estado: EstadoDocumento) => todos.filter((d) => (docs[d.codigo]?.estado ?? "PENDIENTE") === estado).length;
+  const estadoDe = (d: CatalogoDocumento) => docs[d.codigo]?.estado ?? estadoInicialDe(d);
+  const cuenta = (estado: EstadoDocumento) => todos.filter((d) => estadoDe(d) === estado).length;
+  const nombreDe = (d: CatalogoDocumento) => (docs[d.codigo]?.nombrePersonalizado ?? "").trim() || d.nombre;
 
-  const fisicos = todos.filter((d) => d.requiereConteoHojas);
+  /* «Físico» aquí es la presentación EFECTIVA, no la del catálogo: un «Otros»
+     marcado como digital no debe aparecer en la lista de documentos físicos ni
+     contar en el total de hojas del legajo. */
+  const fisicos = todos.filter((d) => llevaHojas(d, docs[d.codigo] ?? docInicial(estadoInicialDe(d))));
   const hojas = fisicos.reduce((suma, d) => suma + (docs[d.codigo]?.hojasFisicas ?? 0), 0);
   const sinContar = fisicos.filter((d) => (docs[d.codigo]?.hojasFisicas ?? 0) <= 0);
   const conObservacion = todos.filter((d) => (docs[d.codigo]?.observaciones ?? "").trim() !== "");
@@ -1586,7 +2024,23 @@ function PasoRevision({
   if (!form.fechaIngreso)
     problemas.push({ texto: "Sin fecha de ingreso: el expediente no tendrá antigüedad ni pestaña anual.", paso: "identidad" });
   for (const doc of prorrogasSinFecha) {
-    problemas.push({ texto: `La prórroga de «${doc.nombre.slice(0, 40)}…» no tiene fecha límite.`, paso: "especificos" });
+    /* El paso de destino depende del documento: los generales están en el paso
+       dos y los propios de la rama en el cuatro —que puede no existir—. Mandar
+       a todos a «especificos» llevaba al sitio equivocado en la mitad de los
+       casos, y con el área administrativa a un paso que no está en el camino. */
+    const destino: PasoId = generales.some((g) => g.codigo === doc.codigo) ? "generales" : "especificos";
+    problemas.push({ texto: `La prórroga de «${nombreDe(doc).slice(0, 40)}…» no tiene fecha límite.`, paso: destino });
+  }
+  /* Un «Otros» en uso sin nombre es el único dato que el backend aceptaría y el
+     legajo no podría interpretar: una fila con hojas contadas y sin título. */
+  for (const doc of todos) {
+    if (!doc.permiteNombreLibre) continue;
+    const ed = docs[doc.codigo];
+    if (!ed) continue;
+    const enUso = ed.estado !== "NO_APLICA" || ed.hojasFisicas > 0 || ed.observaciones.trim() !== "";
+    if (enUso && !ed.nombrePersonalizado.trim()) {
+      problemas.push({ texto: "El documento «Otros» está en uso pero no tiene nombre.", paso: "generales" });
+    }
   }
 
   return (
@@ -1662,7 +2116,7 @@ function PasoRevision({
               const n = docs[doc.codigo]?.hojasFisicas ?? 0;
               return (
                 <li key={doc.codigo} className="flex items-baseline justify-between gap-3 text-[11px]">
-                  <span className="doc-prose min-w-0 flex-1 text-[color:var(--doc-text-muted)]">{doc.nombre.slice(0, 72)}</span>
+                  <span className="doc-prose min-w-0 flex-1 text-[color:var(--doc-text-muted)]">{nombreDe(doc).slice(0, 72)}</span>
                   <span className="doc-metric shrink-0 font-bold" style={{ color: n > 0 ? "var(--doc-text)" : "var(--doc-text-faint)" }}>
                     {n > 0 ? `${n} hoja${n === 1 ? "" : "s"}` : "sin contar"}
                   </span>
@@ -1687,7 +2141,7 @@ function PasoRevision({
           <ul className="mt-2 space-y-1.5">
             {conObservacion.map((doc) => (
               <li key={doc.codigo} className="text-[11px]">
-                <span className="font-semibold text-[color:var(--doc-text-muted)]">{doc.nombre.slice(0, 56)}: </span>
+                <span className="font-semibold text-[color:var(--doc-text-muted)]">{nombreDe(doc).slice(0, 56)}: </span>
                 <span className="doc-prose italic text-[color:var(--doc-text-muted)]">{docs[doc.codigo]?.observaciones}</span>
               </li>
             ))}
@@ -1701,7 +2155,7 @@ function PasoRevision({
           <ul className="mt-2 space-y-1">
             {conProrroga.map((doc) => (
               <li key={doc.codigo} className="flex flex-wrap items-baseline justify-between gap-2 text-[11px]">
-                <span className="doc-prose text-[color:var(--doc-text-muted)]">{doc.nombre.slice(0, 56)}</span>
+                <span className="doc-prose text-[color:var(--doc-text-muted)]">{nombreDe(doc).slice(0, 56)}</span>
                 <span className="doc-metric font-bold" style={{ color: TONO.aviso.texto }}>
                   hasta {fechaLegible(docs[doc.codigo]?.prorrogaFecha ?? "")}
                 </span>
@@ -1720,14 +2174,16 @@ function PasoRevision({
         >
           Revisar documentos generales
         </button>
-        <button
-          type="button"
-          onClick={() => onIr("especificos")}
-          className="doc-tap rounded-full px-3 py-1.5 text-[11px] font-bold"
-          style={{ background: "var(--doc-surface-raised)", boxShadow: "inset 0 0 0 1px var(--doc-border)", color: "var(--doc-text-muted)" }}
-        >
-          Revisar requisitos de la categoría
-        </button>
+        {!sinRequisitosPropios && (
+          <button
+            type="button"
+            onClick={() => onIr("especificos")}
+            className="doc-tap rounded-full px-3 py-1.5 text-[11px] font-bold"
+            style={{ background: "var(--doc-surface-raised)", boxShadow: "inset 0 0 0 1px var(--doc-border)", color: "var(--doc-text-muted)" }}
+          >
+            Revisar requisitos de la categoría
+          </button>
+        )}
       </div>
     </div>
   );

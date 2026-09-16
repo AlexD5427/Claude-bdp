@@ -35,13 +35,22 @@
 /**
  * Versión del modelo normalizado. La migración compara contra este número.
  *
- * v5 añade el conteo de hojas de los documentos físicos (`hojas_fisicas` en
+ * v5 añadió el conteo de hojas de los documentos físicos (`hojas_fisicas` en
  * `ExpedienteDocumentos`) y los metadatos de presentación del catálogo
  * (`presentacion_fisica`, `presentacion_digital`, `requiere_conteo_hojas`,
- * `subseccion`). Subirla también renueva las claves de caché, que la incluyen:
- * una respuesta cacheada con la forma anterior no puede sobrevivir al despliegue.
+ * `subseccion`).
+ *
+ * v6 añade el **requisito personalizable**: un documento cuyo nombre y cuya
+ * forma de presentación los decide quien registra el expediente, no el catálogo.
+ * Eso son tres columnas nuevas en `ExpedienteDocumentos`
+ * (`nombre_personalizado`, `presentacion_fisica`, `presentacion_digital`) y tres
+ * en `CatalogoDocumentos` (`permite_nombre_libre`, `presentacion_editable`,
+ * `estado_inicial`).
+ *
+ * Subirla también renueva las claves de caché, que la incluyen: una respuesta
+ * cacheada con la forma anterior no puede sobrevivir al despliegue.
  */
-var DOC2_SCHEMA_VERSION = 5;
+var DOC2_SCHEMA_VERSION = 6;
 
 /** Identidad de la arquitectura nueva, para las metas de las respuestas. */
 var DOC2_BACKEND = {
@@ -367,9 +376,44 @@ var DOC2_TIPO_FUNCIONARIO = [
   { codigo: 'COMERCIAL', etiqueta: 'Funcionario comercial', activo: true, descripcion: 'Añade la garantía comercial según el tipo elegido.' },
   { codigo: 'AUDITORIA', etiqueta: 'Auditoría interna', activo: true, descripcion: 'Añade la declaración de impedimento para ser auditor.' },
   { codigo: 'CUMPLIMIENTO', etiqueta: 'Cumplimiento / UIF', activo: true, descripcion: 'Añade la acreditación LGI/FT y el examen de la UIF.' },
+  /**
+   * Área administrativa: los generales y nada más.
+   *
+   * ── Por qué es una rama propia y no «GENERAL» ─────────────────────────────
+   * Porque clasificar bien es la mitad del trabajo del área. Registrar a alguien
+   * de administración como «funcionario general» funciona el primer día y arruina
+   * el reporte por categoría para siempre: nadie puede después distinguir a quien
+   * pertenece al área administrativa de quien se registró sin clasificar. La rama
+   * existe, no pide nada extra, y el asistente lo dice en voz alta y salta
+   * directamente a la revisión.
+   */
+  { codigo: 'ADMINISTRATIVO', etiqueta: 'Funcionario área administrativa', activo: true, descripcion: 'Solo los requisitos generales: esta rama no añade documentación adicional.' },
   { codigo: 'EJECUTIVO', etiqueta: 'Funcionario ejecutivo', activo: false, descripcion: 'En construcción: la lista de requisitos está en definición.' },
   { codigo: 'DIRECTORIO', etiqueta: 'Directorio', activo: false, descripcion: 'En construcción: la lista de requisitos está en definición.' }
 ];
+
+/**
+ * Tipos de funcionario admitidos al escribir.
+ *
+ * Se deriva de `DOC2_TIPO_FUNCIONARIO` en lugar de repetirse a mano en los tres
+ * `doc2Enum_` que lo necesitaban (crear, actualizar, filtrar). Esa repetición ya
+ * costó un fallo real: añadir una rama al vocabulario sin añadirla a las listas
+ * hacía que el asistente la ofreciera y el alta la rechazara con
+ * «tipo de funcionario no existe», un mensaje imposible de interpretar desde la
+ * pantalla.
+ */
+function doc2CodigosTipoFuncionario_() {
+  var out = [];
+  for (var i = 0; i < DOC2_TIPO_FUNCIONARIO.length; i++) out.push(DOC2_TIPO_FUNCIONARIO[i].codigo);
+  return out;
+}
+
+/** Códigos de tipo de garantía admitidos al escribir. Misma razón que arriba. */
+function doc2CodigosTipoGarantia_() {
+  var out = [];
+  for (var i = 0; i < DOC2_TIPO_GARANTIA.length; i++) out.push(DOC2_TIPO_GARANTIA[i].codigo);
+  return out;
+}
 
 var DOC2_TIPO_GARANTIA = [
   { codigo: 'NINGUNA', etiqueta: 'Sin garantía', activo: true, descripcion: 'El cargo no exige garantía comercial.' },
@@ -401,7 +445,7 @@ var DOC2_SECCIONES = [
 var DOC2_PRESENTACION = { SI: 'SI', NO: 'NO', CONDICIONAL: 'CONDICIONAL' };
 
 /**
- * El catálogo canónico (versión 3).
+ * El catálogo canónico (versión 4).
  *
  * ── Qué cambió en la versión 3 ──────────────────────────────────────────────
  * 1. Los documentos GENERALES pasan a ser exactamente los 16 de la lista que el
@@ -424,6 +468,18 @@ var DOC2_PRESENTACION = { SI: 'SI', NO: 'NO', CONDICIONAL: 'CONDICIONAL' };
  * 4. Cumplimiento gana un requisito nuevo: la declaración jurada de
  *    prohibiciones del personal de la Unidad de Cumplimiento.
  *
+ * ── Qué cambia en la versión 4 ──────────────────────────────────────────────
+ * 5. **Cuatro generales nuevos al final de la lista**: manual de funciones,
+ *    memorándum de designación, comunicación interna y `otros-documento`.
+ * 6. **El seguro de accidentes deja de llevar conteo de hojas**: pasa a ser solo
+ *    digital, porque no llega papel al legajo.
+ * 7. **El folio real del bien inmueble pasa a físico Y digital con conteo**, en
+ *    las dos ramas donde aplica, con un solo cambio.
+ * 8. **Requisitos personalizables**: `nombreLibre` y `presentacionEditable`
+ *    delegan el nombre y la forma de presentación al expediente concreto, y
+ *    `estadoInicial` permite que un requisito opcional nazca fuera del cálculo
+ *    de avance.
+ *
  * `codigo` conserva los identificadores que ya existían (`foto-4x4`,
  * `garante-ci`…). No se renombran: los expedientes guardados los referencian y
  * cambiarlos obligaría a una migración de datos a cambio de nada. Lo que cambia
@@ -433,8 +489,8 @@ var DOC2_PRESENTACION = { SI: 'SI', NO: 'NO', CONDICIONAL: 'CONDICIONAL' };
  * significa «para todos». El motor de 13_Catalog.gs las interpreta.
  *
  * Recuentos que produce esta semilla (comprobados por `10_Tests.gs` y por
- * `npm run doc:check`): General 16 · Comercial T1 21 · T2 25 · T3 21 ·
- * Auditoría 17 · Cumplimiento 19.
+ * `npm run doc:check`): General 20 · Administrativo 20 · Comercial T1 25 ·
+ * T2 29 · T3 25 · Auditoría 21 · Cumplimiento 23.
  */
 var DOC2_CATALOGO_SEMILLA = [
   /* ── 16 Documentos Generales, en el orden de la lista del área ─────────── */
@@ -519,10 +575,21 @@ var DOC2_CATALOGO_SEMILLA = [
     presentacionFisica: 'NO', presentacionDigital: 'SI'
   },
   {
+    /**
+     * Seguro de Accidentes Personales (Alianza).
+     *
+     * ── Por qué ya no lleva conteo de hojas ───────────────────────────────────
+     * Porque dejó de entregarse en papel. El formulario lo proporciona el banco,
+     * se llena y se remite a la aseguradora por correo: al legajo físico no llega
+     * nada que archivar, así que el contador de hojas pedía un dato que no
+     * existe. Un contador que nadie puede rellenar con la verdad se rellena con
+     * un cero, y un cero en esa columna se lee como «documento sin hojas», que es
+     * una afirmación falsa. Solo `DIGITAL`.
+     */
     codigo: 'seguro-accidentes',
     nombre: 'Seguro de Accidentes Personales (formulario proporcionado por el banco).',
     seccion: 'generales', grupo: 'personal', obligatorio: true, columna: 'seguros_alianza',
-    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+    presentacionFisica: 'NO', presentacionDigital: 'SI'
   },
   {
     codigo: 'seguro-vida',
@@ -555,12 +622,74 @@ var DOC2_CATALOGO_SEMILLA = [
     presentacionFisica: 'NO', presentacionDigital: 'SI', retirado: true
   },
 
+  /* ── Generales del legajo administrativo (versión 4 del catálogo) ───────────
+   * Los tres primeros son documentos que el área produce y archiva: el manual de
+   * funciones firmado, el memorándum de designación y la comunicación interna del
+   * alta. Van en papel al legajo Y escaneados al expediente digital, así que los
+   * tres llevan contador de hojas.
+   *
+   * Entran AL FINAL de los generales a propósito: su `orden` sale de la posición
+   * en este arreglo, y ponerlos al final es lo que hace que aparezcan después de
+   * los dieciséis de la lista original —que es donde el área los espera— sin
+   * renumerar nada de lo que ya existe. */
+  {
+    codigo: 'manual-funciones',
+    nombre: 'Manual de Funciones del cargo.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    codigo: 'memorandum-designacion',
+    nombre: 'Memorándum de Designación.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    codigo: 'comunicacion-interna',
+    nombre: 'Comunicación Interna.',
+    seccion: 'generales', grupo: 'personal', obligatorio: true,
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+  {
+    /**
+     * «Otros»: el requisito que el catálogo no puede prever.
+     *
+     * ── Qué problema resuelve ─────────────────────────────────────────────────
+     * Un legajo real trae, de vez en cuando, un papel que ninguna lista
+     * contempla: una certificación de un colegio profesional, una autorización
+     * puntual, un anexo que pidió el directorio. Hasta ahora eso terminaba en el
+     * campo de observaciones de otro documento, donde no se puede contar, ni
+     * filtrar, ni exportar, ni saber cuántas hojas ocupa en el archivador.
+     *
+     * ── Tres cosas que lo hacen distinto de los demás ─────────────────────────
+     * 1. `nombreLibre`: el nombre lo escribe quien registra el expediente y se
+     *    guarda EN LA FILA DEL EXPEDIENTE (`nombre_personalizado`), no en el
+     *    catálogo. Si se guardara en el catálogo, el segundo expediente que usara
+     *    «Otros» renombraría el del primero.
+     * 2. `presentacionEditable`: físico, digital o ambos se decide por expediente.
+     *    De ahí sale si lleva contador de hojas: un documento solo digital no
+     *    tiene hojas que contar.
+     * 3. `estadoInicial: 'NO_APLICA'`: nace fuera del cálculo de avance. Es la
+     *    diferencia entre ofrecer una herramienta y castigar a quien no la usa:
+     *    si naciera `PENDIENTE`, TODOS los expedientes del banco mostrarían un
+     *    requisito pendiente eterno y ninguno llegaría al 100 %.
+     */
+    codigo: 'otros-documento',
+    nombre: 'Otros documentos (especificar)',
+    seccion: 'generales', grupo: 'personal', obligatorio: false, noAplica: true,
+    nombreLibre: true, presentacionEditable: true, estadoInicial: 'NO_APLICA',
+    observacion: 'Escribe el nombre del documento y elige si se presenta en físico, en digital o en ambos.',
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
+  },
+
   /* ── Garantía comercial ────────────────────────────────────────────────────
    * Tres ramas mutuamente excluyentes de FUNCIONARIO ÁREA COMERCIAL. El motor de
    * 13_Catalog.gs filtra por `garantia`, así que un expediente ve SOLO los
    * documentos de su tipo. El ORDEN del arreglo fija el orden de presentación
    * dentro de cada rama (el `orden` se deriva de la posición) y, con él, el orden
-   * de las subsecciones. Todo digital y sin contador de hojas: son fotocopias.
+   * de las subsecciones. Casi todos son fotocopias: digitales y sin contador de
+   * hojas. La excepción es `garante-folio` —el folio real del bien inmueble—, que
+   * sí se archiva en papel y por eso lleva las dos presentaciones y su conteo.
    *
    * ── Tipo 1 · garante con bien inmueble + garante familiar (4° grado) ── */
   {
@@ -580,11 +709,27 @@ var DOC2_CATALOGO_SEMILLA = [
     presentacionFisica: 'NO', presentacionDigital: 'SI'
   },
   {
-    codigo: 'garante-folio', nombre: 'Fotocopia de folio / Información rápida con antigüedad no menor a un mes',
+    /**
+     * Folio real del bien inmueble.
+     *
+     * ── Un solo documento en dos ramas, y por eso el cambio es global ─────────
+     * Esta entrada aplica a Comercial Tipo 1 (como documento del garante con bien
+     * inmueble) y a Comercial Tipo 3 (como documento del propio postulante). Es
+     * la MISMA fila del catálogo en los dos sitios: por eso marcar aquí que se
+     * presenta en físico y en digital, y que lleva conteo de hojas, lo cambia en
+     * las dos ramas, en la vista del expediente, en los reportes, en el informe
+     * mensual y en la exportación, sin tocar nada más. Ese es el argumento de que
+     * el catálogo sea una sola fuente.
+     *
+     * El folio real es un documento de Derechos Reales que se archiva en el
+     * legajo en papel y que además se escanea, así que `SI` / `SI` + conteo.
+     */
+    codigo: 'garante-folio',
+    nombre: 'Folio real del bien inmueble / Información rápida con antigüedad no menor a un mes.',
     seccion: 'garantia', grupo: 'garantia', obligatorio: true, columna: 'vista_informacion_rapida',
     funcionario: ['COMERCIAL'], garantia: ['COMERCIAL_1', 'COMERCIAL_3'],
     subseccion: { COMERCIAL_1: '1 Garante con Bien Inmueble', COMERCIAL_3: 'Postulante con inmueble propio' },
-    presentacionFisica: 'NO', presentacionDigital: 'SI'
+    presentacionFisica: 'SI', presentacionDigital: 'SI', requiereConteoHojas: true
   },
   {
     codigo: 'garante-t1-fam-ci', nombre: 'Fotocopia de CI',
@@ -737,7 +882,7 @@ var DOC2_CATALOGO_SEMILLA = [
  * `doc2SeedCatalogo_` (sección, aplicabilidad, presentación, subsección) sin
  * pisar lo que el área haya editado a mano.
  */
-var DOC2_CATALOGO_VERSION = 3;
+var DOC2_CATALOGO_VERSION = 4;
 
 /**
  * Códigos generales retirados de la lista vigente.
@@ -805,6 +950,105 @@ function doc2SerializarSubseccion_(valor) {
   if (!valor) return '';
   if (typeof valor === 'string') return valor;
   return docWriteJson_(valor);
+}
+
+/* ========================================================================== */
+/* Requisitos personalizables                                                  */
+/* ========================================================================== */
+
+/**
+ * Presentación EFECTIVA de un requisito de expediente.
+ *
+ * ── El problema ─────────────────────────────────────────────────────────────
+ * Hasta la versión 5 la respuesta era trivial: la presentación la decía el
+ * catálogo y punto. Con `otros-documento` deja de serlo, porque ese requisito
+ * permite que cada expediente elija físico, digital o ambos. Eso abre la puerta
+ * al error clásico de tener la misma pregunta contestada en cuatro sitios: la
+ * pantalla del alta, la vista del expediente, los reportes y el informe mensual.
+ * Cuando uno de los cuatro se olvida de mirar el valor de la fila, el documento
+ * aparece con contador de hojas en la pantalla y sin columna en el Excel.
+ *
+ * Así que la respuesta vive en UNA función, y las cuatro capas la llaman.
+ *
+ * ── La regla, en tres líneas ────────────────────────────────────────────────
+ *  1. si la fila trae una presentación propia, esa manda;
+ *  2. si no, manda la del catálogo;
+ *  3. el conteo de hojas se DERIVA: un requisito editable lleva contador si su
+ *     presentación efectiva no es «solo digital»; uno normal lleva lo que diga
+ *     `requiere_conteo_hojas`.
+ *
+ * El punto 3 es el que evita el estado imposible: un «Otros» marcado como solo
+ * digital con doce hojas registradas.
+ *
+ * @param {Object} fila Fila de `ExpedienteDocumentos`, o `null`.
+ * @param {Object} def  Fila del catálogo, o `null`.
+ */
+function doc2PresentacionEfectiva_(fila, def) {
+  var editable = !!(def && def.presentacion_editable === true);
+  var libre = !!(def && def.permite_nombre_libre === true);
+
+  var fisicaFila = fila ? String(fila.presentacion_fisica || '').toUpperCase() : '';
+  var digitalFila = fila ? String(fila.presentacion_digital || '').toUpperCase() : '';
+
+  var fisica = doc2PresentacionValida_(fisicaFila, ['SI', 'NO', 'CONDICIONAL'])
+    ? fisicaFila
+    : String((def && def.presentacion_fisica) || 'NO').toUpperCase();
+  var digital = doc2PresentacionValida_(digitalFila, ['SI', 'NO'])
+    ? digitalFila
+    : String((def && def.presentacion_digital) || 'SI').toUpperCase();
+
+  if (!doc2PresentacionValida_(fisica, ['SI', 'NO', 'CONDICIONAL'])) fisica = 'NO';
+  if (!doc2PresentacionValida_(digital, ['SI', 'NO'])) digital = 'SI';
+
+  // Un requisito sin ninguna forma de presentación no es representable: el área
+  // no puede pedir un documento que no se entrega de ninguna manera. Se resuelve
+  // a digital, que es la entrega por defecto de todo el proceso.
+  if (fisica === 'NO' && digital === 'NO') digital = 'SI';
+
+  var conteo = editable ? fisica !== 'NO' : !!(def && def.requiere_conteo_hojas === true);
+
+  return {
+    fisica: fisica,
+    digital: digital,
+    requiereConteoHojas: conteo,
+    presentacionEditable: editable,
+    permiteNombreLibre: libre
+  };
+}
+
+/** ¿Es uno de los valores admitidos? Sin lanzar: se usa para decidir reservas. */
+function doc2PresentacionValida_(valor, permitidos) {
+  if (!valor) return false;
+  for (var i = 0; i < permitidos.length; i++) {
+    if (permitidos[i] === valor) return true;
+  }
+  return false;
+}
+
+/**
+ * Nombre EFECTIVO de un requisito.
+ *
+ * El nombre personalizado de la fila gana sobre el del catálogo, y el código es
+ * el último recurso. Se usa en la pantalla, en los reportes, en el informe
+ * mensual, en el espejo del libro anual y en los mensajes de error: un «Otros»
+ * que en un sitio se llama «Certificación del colegio» y en otro
+ * «Otros documentos (especificar)» es el mismo documento con dos nombres, y eso
+ * rompe la única cosa que un legajo tiene que garantizar.
+ */
+function doc2NombreEfectivoRequisito_(fila, def) {
+  var propio = fila ? String(fila.nombre_personalizado || '').trim() : '';
+  if (propio) return propio;
+  if (def && def.nombre_visible) return String(def.nombre_visible);
+  return String((fila && fila.codigo_documento) || '');
+}
+
+/** Códigos de la semilla que permiten escribir su propio nombre. */
+function doc2CodigosPersonalizables_() {
+  var out = [];
+  for (var i = 0; i < DOC2_CATALOGO_SEMILLA.length; i++) {
+    if (DOC2_CATALOGO_SEMILLA[i].nombreLibre === true) out.push(DOC2_CATALOGO_SEMILLA[i].codigo);
+  }
+  return out;
 }
 
 /* ========================================================================== */
@@ -1013,6 +1257,14 @@ var DOC2_LIMITS = {
    * distorsiona el total de hojas del libro anual sin que nadie lo note.
    */
   MAX_HOJAS_FISICAS: 999,
+  /**
+   * Tope del nombre libre de un requisito personalizable.
+   *
+   * Cabe en la columna, cabe en la celda del libro anual y cabe en el encabezado
+   * de una fila del informe impreso sin partirla. Más allá de eso el nombre deja
+   * de ser un nombre y empieza a ser una observación, y para eso ya hay campo.
+   */
+  MAX_NOMBRE_PERSONALIZADO: 160,
   /** Tope de expedientes por lectura múltiple: seis minutos de Apps Script manda. */
   MAX_DETALLE_MULTIPLE: 12,
   CACHE_PANEL_SEG: 120,
@@ -1096,6 +1348,11 @@ doc2Registrar_(DOC2_SHEET.EXPEDIENTE_DOCS,
     'expediente_documento_id:k', 'expediente_id:t', 'codigo_documento:t', 'version_catalogo:i',
     'seccion:t', 'subseccion:t', 'grupo:t', 'orden:i', 'estado_documental:t', 'observaciones:l',
     'hojas_fisicas:i',
+    /* Personalización por expediente (esquema 6). Vacío = «lo que diga el
+       catálogo»; no se rellenan con el valor heredado a propósito, porque
+       entonces un cambio del catálogo no alcanzaría a los expedientes que nunca
+       personalizaron nada. */
+    'nombre_personalizado:t', 'presentacion_fisica:t', 'presentacion_digital:t',
     'obligatorio:b', 'permite_no_aplica:b', 'permite_prorroga:b',
     'tipo_funcionario:t', 'tipo_garantia:t', 'estado_revision:t',
     'revision_actual_id:t', 'aprobacion_actual_id:t', 'version_registro:i',
@@ -1120,6 +1377,9 @@ doc2Registrar_(DOC2_SHEET.CATALOGO,
     'seccion:t', 'subseccion:l', 'grupo:t', 'orden:i', 'obligatorio:b', 'estados_permitidos:t',
     'permite_no_aplica:b', 'permite_prorroga:b', 'tipo_funcionario:t', 'tipo_garantia:t',
     'presentacion_fisica:t', 'presentacion_digital:t', 'requiere_conteo_hojas:b',
+    /* Personalización (esquema 6): quién puede escribir su propio nombre, quién
+       puede elegir su presentación y con qué estado documental nace. */
+    'permite_nombre_libre:b', 'presentacion_editable:b', 'estado_inicial:t',
     'nivel_confidencialidad:t', 'requiere_revision:b', 'requiere_aprobacion:b',
     'activo:b', 'version_catalogo:i', 'fecha_inicio_vigencia:d', 'fecha_fin_vigencia:d',
     'columna_libro:t'
@@ -1462,7 +1722,9 @@ function doc2Vocabulario_() {
     secciones: DOC2_SECCIONES,
     presentaciones: DOC2_PRESENTACION,
     codigosRetirados: doc2CodigosRetirados_(),
+    codigosPersonalizables: doc2CodigosPersonalizables_(),
     maxHojasFisicas: DOC2_LIMITS.MAX_HOJAS_FISICAS,
+    maxNombrePersonalizado: DOC2_LIMITS.MAX_NOMBRE_PERSONALIZADO,
     motivosRevision: DOC2_MOTIVOS_REVISION,
     automatizaciones: DOC2_AUTOMATIZACIONES,
     capacidades: DOC2_CAPACIDAD,

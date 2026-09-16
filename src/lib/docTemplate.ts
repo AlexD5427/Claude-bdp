@@ -54,11 +54,15 @@ export const DOC_TEMPLATE: DocDef[] = [
   { id: "seguro-vida", group: "personal", label: "Seguro de Vida Individual" },
   { id: "rc-iva", group: "personal", label: "Certificado de saldo a favor del dependiente (RC-IVA)" },
   { id: "carnet-heredero", group: "personal", label: "Fotocopia de carnet de heredero de contrato" },
+  { id: "manual-funciones", group: "personal", label: "Manual de Funciones del cargo" },
+  { id: "memorandum-designacion", group: "personal", label: "Memorándum de Designación" },
+  { id: "comunicacion-interna", group: "personal", label: "Comunicación Interna" },
+  { id: "otros-documento", group: "personal", label: "Otros documentos (especificar)", optional: true, hint: "Nombre libre y presentación a elegir" },
 
   // ── Garantía / Garantes (depende del tipo de funcionario) ─────────────
   { id: "garante-ci", group: "garantia", label: "Fotocopia de CI del garante", optional: true },
   { id: "garante-inmueble", group: "garantia", label: "Bien inmueble con o sin hipoteca", optional: true },
-  { id: "garante-folio", group: "garantia", label: "Folio / Información rápida", hint: "Antigüedad no menor a un mes", optional: true },
+  { id: "garante-folio", group: "garantia", label: "Folio real del bien inmueble", hint: "Información rápida con antigüedad no menor a un mes", optional: true },
   { id: "garante-croquis-negocio", group: "garantia", label: "Croquis del negocio / fuente laboral", optional: true },
   { id: "garante-boletas", group: "garantia", label: "3 últimas boletas de pago", hint: "Garante dependiente", optional: true },
   { id: "garante-form-200-400", group: "garantia", label: "Formulario 200 - 400 (últimas 3 DDJJ)", hint: "Garante independiente", optional: true },

@@ -141,7 +141,7 @@ describe("alta completa en una sola llamada", () => {
     expect(res.requisitosAplicados).toBe(3);
     expect(res.prorrogasCreadas).toHaveLength(1);
     // Y el detalle vuelve en la misma respuesta: el visor abre sin otra espera.
-    expect(res.detalle.requisitos.length).toBe(25);
+    expect(res.detalle.requisitos.length).toBe(29);
 
     const detalle = h.ok("documentacion.expediente.obtener", { identificador: "UNA-LLAMADA-1" });
     const porCodigo = new Map(detalle.requisitos.map((r: { codigo: string }) => [r.codigo, r]));
@@ -217,7 +217,7 @@ describe("alta completa en una sola llamada", () => {
     });
     expect(res.creado).toBe(true);
     expect(res.requisitosAplicados).toBeUndefined();
-    expect(res.requisitos).toBe(16);
+    expect(res.requisitos).toBe(20);
   });
 });
 
@@ -231,7 +231,7 @@ describe("lectura de varios expedientes en una llamada", () => {
     const res = h.ok("documentacion.expedientes.detalle", { expedienteIds: ids });
     expect(res.devueltos).toBe(4);
     expect(Object.keys(res.expedientes)).toHaveLength(4);
-    expect(res.expedientes[ids[0]].requisitos.length).toBe(16);
+    expect(res.expedientes[ids[0]].requisitos.length).toBe(20);
     expect(res.fallidos).toEqual([]);
   });
 

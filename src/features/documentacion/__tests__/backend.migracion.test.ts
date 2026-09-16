@@ -205,12 +205,12 @@ describe("documentación · migración: importación de datos", () => {
     seedLegacyBook(h, 2026);
     const antes = h.ok("documentacion.migraciones.estado");
     expect(antes.aplicadas).toEqual([]);
-    expect(antes.pendientes.length).toBe(5);
+    expect(antes.pendientes.length).toBe(6);
 
     h.pedir("documentacion.instalar", { conRespaldo: false });
     const despues = h.ok("documentacion.migraciones.estado");
     expect(despues.pendientes).toEqual([]);
-    expect(despues.aplicadas.length).toBe(5);
+    expect(despues.aplicadas.length).toBe(6);
   });
 
   it("el respaldo previo guarda los expedientes del libro antes de tocar nada", () => {

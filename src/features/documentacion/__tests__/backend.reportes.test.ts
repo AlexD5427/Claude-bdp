@@ -333,7 +333,7 @@ describe("documentación · exportaciones", () => {
     expect(iReq).toBeGreaterThanOrEqual(0);
     const sinConteo = reporte.filas.filter((f: any[]) => f[iHojas] === "");
     expect(sinConteo.length).toBeGreaterThan(0);
-    expect(conteoDeSemilla.length).toBe(9);
+    expect(conteoDeSemilla.length).toBe(13);
   });
 
   it("la hoja de requisitos de la exportación completa lleva subsección, presentación y hojas", () => {

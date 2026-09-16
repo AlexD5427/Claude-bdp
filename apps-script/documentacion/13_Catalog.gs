@@ -83,6 +83,9 @@ function doc2SeedCatalogo_(contexto) {
       presentacion_fisica: doc2Enum_(def.presentacionFisica || 'NO', ['SI', 'NO', 'CONDICIONAL'], 'NO'),
       presentacion_digital: doc2Enum_(def.presentacionDigital || 'SI', ['SI', 'NO'], 'SI'),
       requiere_conteo_hojas: def.requiereConteoHojas === true,
+      permite_nombre_libre: def.nombreLibre === true,
+      presentacion_editable: def.presentacionEditable === true,
+      estado_inicial: doc2Enum_(def.estadoInicial || '', doc2ValoresDe_(DOC2_ESTADO_DOCUMENTO), ''),
       nivel_confidencialidad: def.confidencial || 'INTERNO',
       requiere_revision: def.revision === true,
       requiere_aprobacion: def.aprobacion === true,
@@ -116,6 +119,9 @@ function doc2SeedCatalogo_(contexto) {
         presentacion_fisica: fila.presentacion_fisica,
         presentacion_digital: fila.presentacion_digital,
         requiere_conteo_hojas: fila.requiere_conteo_hojas,
+        permite_nombre_libre: fila.permite_nombre_libre,
+        presentacion_editable: fila.presentacion_editable,
+        estado_inicial: fila.estado_inicial,
         requiere_revision: fila.requiere_revision,
         requiere_aprobacion: fila.requiere_aprobacion,
         permite_no_aplica: fila.permite_no_aplica,
@@ -279,10 +285,18 @@ function doc2CatalogoItem_(codigo) {
  * Existe como función propia porque la usan los reportes, las exportaciones y el
  * informe mensual, y cada uno resolviéndolo a su manera es cómo un documento
  * acaba con hojas en un sitio y sin ellas en otro.
+ *
+ * ── `fila` es opcional y cambia la respuesta ────────────────────────────────
+ * Con la fila del expediente delante, la respuesta se resuelve con la
+ * presentación EFECTIVA: un `otros-documento` marcado como solo digital en ESE
+ * expediente no lleva conteo, aunque el catálogo diga que el requisito admite
+ * hojas. Sin fila, se contesta con el catálogo, que es lo correcto cuando la
+ * pregunta es sobre el requisito en abstracto.
  */
-function doc2PideConteoDeHojas_(codigo) {
+function doc2PideConteoDeHojas_(codigo, fila) {
   var def = doc2CatalogoItem_(codigo);
-  return !!(def && def.requiere_conteo_hojas === true);
+  if (!fila) return !!(def && def.requiere_conteo_hojas === true);
+  return doc2PresentacionEfectiva_(fila, def).requiereConteoHojas;
 }
 
 /**
@@ -290,10 +304,19 @@ function doc2PideConteoDeHojas_(codigo) {
  *
  * Solo se pueden tocar los campos editables por el área: nombre visible,
  * descripción, texto de observación, orden, obligatoriedad, prórroga, no aplica,
- * revisión, aprobación, vigencia y actividad. La sección y la aplicabilidad son
- * estructura del proceso y se cambian con una versión nueva del catálogo, no
- * desde un formulario, porque cambiarlas altera qué requisitos existen en
- * expedientes ya creados.
+ * revisión, aprobación, vigencia, actividad y **la forma de presentación**. La
+ * sección y la aplicabilidad son estructura del proceso y se cambian con una
+ * versión nueva del catálogo, no desde un formulario, porque cambiarlas altera
+ * qué requisitos existen en expedientes ya creados.
+ *
+ * ── Por qué la presentación SÍ se puede editar desde aquí ───────────────────
+ * Porque es la clase de cambio que ocurre sin avisar y que hoy obliga a
+ * desplegar código. El seguro de accidentes pasó de papel a digital de un mes
+ * para otro; el folio real hizo el camino inverso. Cuando eso vuelva a pasar, el
+ * área tiene que poder reflejarlo el mismo día: marcar un documento como digital
+ * apaga su contador de hojas en la pantalla, en los reportes y en el informe, y
+ * marcarlo como físico lo enciende. Es una palanca de emergencia con
+ * consecuencias acotadas y auditadas, no una puerta a la estructura del proceso.
  */
 function doc2CatalogoGuardar_(lista, contexto) {
   var ctx = contexto || {};
@@ -310,6 +333,27 @@ function doc2CatalogoGuardar_(lista, contexto) {
       continue;
     }
     var existente = docById_(DOC2_SHEET.CATALOGO, codigo);
+    /**
+     * Presentación: se acepta la que llegue, y el conteo de hojas se DERIVA.
+     *
+     * No se acepta `requiere_conteo_hojas` como campo independiente a propósito.
+     * Dejar que llegaran los dos por separado permitiría guardar la combinación
+     * imposible —solo digital con contador de hojas— y esa combinación es la que
+     * produce un 0 en la columna «Hojas físicas» de un documento que no tiene
+     * hojas. Con la derivación, el estado imposible no es representable.
+     */
+    var fisicaPedida = d.presentacion_fisica !== undefined ? d.presentacion_fisica : d.presentacionFisica;
+    var digitalPedida = d.presentacion_digital !== undefined ? d.presentacion_digital : d.presentacionDigital;
+    var fisica = doc2Enum_(
+      fisicaPedida !== undefined ? fisicaPedida : (existente && existente.presentacion_fisica) || 'NO',
+      ['SI', 'NO', 'CONDICIONAL'], 'NO');
+    var digital = doc2Enum_(
+      digitalPedida !== undefined ? digitalPedida : (existente && existente.presentacion_digital) || 'SI',
+      ['SI', 'NO'], 'SI');
+    if (fisica === 'NO' && digital === 'NO') {
+      rechazados.push({ codigo: codigo, motivo: 'Un requisito tiene que presentarse en físico, en digital o en ambos.' });
+      continue;
+    }
     var patch = {
       nombre_visible: doc2Texto_(d.nombre_visible || d.nombre || (existente && existente.nombre_visible) || codigo, 300),
       descripcion: doc2TextoLargo_(d.descripcion !== undefined ? d.descripcion : (existente && existente.descripcion) || '', DOC2_LIMITS.MAX_TEXTO_MEDIO),
@@ -323,6 +367,9 @@ function doc2CatalogoGuardar_(lista, contexto) {
       nivel_confidencialidad: doc2Enum_(d.nivel_confidencialidad || (existente && existente.nivel_confidencialidad) || 'INTERNO', ['PUBLICO', 'INTERNO', 'CONFIDENCIAL', 'RESERVADO'], 'INTERNO'),
       fecha_inicio_vigencia: doc2ValidarFecha_(d.fecha_inicio_vigencia !== undefined ? d.fecha_inicio_vigencia : (existente && existente.fecha_inicio_vigencia) || '', 'fecha_inicio_vigencia'),
       fecha_fin_vigencia: doc2ValidarFecha_(d.fecha_fin_vigencia !== undefined ? d.fecha_fin_vigencia : (existente && existente.fecha_fin_vigencia) || '', 'fecha_fin_vigencia'),
+      presentacion_fisica: fisica,
+      presentacion_digital: digital,
+      requiere_conteo_hojas: fisica !== 'NO',
       activo: d.activo === undefined ? (existente ? existente.activo === true : true) : doc2Bool_(d.activo)
     };
 
@@ -486,7 +533,7 @@ function doc2MapaAplicabilidad_() {
       if (!tipo.activo) {
         salida.push({
           tipoFuncionario: tipo.codigo, etiqueta: tipo.etiqueta, tipoGarantia: garantias[g],
-          habilitada: false, total: 0, obligatorios: 0, conConteoHojas: 0,
+          habilitada: false, total: 0, obligatorios: 0, conConteoHojas: 0, propios: 0,
           codigos: [], subsecciones: [], nota: tipo.descripcion
         });
         continue;
@@ -495,12 +542,18 @@ function doc2MapaAplicabilidad_() {
       var codigos = [];
       var obligatorios = 0;
       var conConteo = 0;
+      var propios = 0;
       var subsecciones = [];
       var vistas = {};
       for (var i = 0; i < aplicables.length; i++) {
         codigos.push(aplicables[i].codigo_documento);
         if (aplicables[i].obligatorio === true) obligatorios++;
         if (aplicables[i].requiere_conteo_hojas === true) conConteo++;
+        /* `propios` son los requisitos que esta rama añade a los generales. Es lo
+           que permite al asistente saber, sin recorrer el catálogo por su cuenta,
+           que una rama como la administrativa no tiene paso de requisitos
+           específicos y puede saltar directo a la revisión. */
+        if (String(aplicables[i].seccion || '') !== 'generales') propios++;
         var titulo = doc2ResolverSubseccion_(aplicables[i].subseccion, garantias[g]);
         if (titulo && !vistas[titulo]) {
           vistas[titulo] = true;
@@ -515,6 +568,7 @@ function doc2MapaAplicabilidad_() {
         total: aplicables.length,
         obligatorios: obligatorios,
         conConteoHojas: conConteo,
+        propios: propios,
         codigos: codigos,
         subsecciones: subsecciones,
         nota: ''
@@ -566,6 +620,11 @@ function doc2CatalogoParaCliente_() {
       presentacionFisica: c.presentacion_fisica || 'NO',
       presentacionDigital: c.presentacion_digital || 'SI',
       requiereConteoHojas: c.requiere_conteo_hojas === true,
+      /* Personalización: el cliente necesita saber, ANTES de pintar la fila, si
+         tiene que ofrecer un campo de nombre y un selector de presentación. */
+      permiteNombreLibre: c.permite_nombre_libre === true,
+      presentacionEditable: c.presentacion_editable === true,
+      estadoInicial: c.estado_inicial || '',
       confidencialidad: c.nivel_confidencialidad || 'INTERNO',
       requiereRevision: c.requiere_revision === true,
       requiereAprobacion: c.requiere_aprobacion === true,

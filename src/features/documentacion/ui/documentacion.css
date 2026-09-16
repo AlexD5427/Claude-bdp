@@ -671,6 +671,104 @@
 }
 
 /* =============================================================
+   ANILLO DE PROGRESO
+   ============================================================= */
+
+.doc-anillo {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.doc-anillo svg {
+  display: block;
+}
+
+.doc-anillo-arco {
+  transition: stroke-dashoffset var(--doc-duration-slow) var(--doc-ease-hoja);
+}
+
+.doc-anillo-arco[data-reducido="si"] {
+  transition: none;
+}
+
+.doc-anillo-centro {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--doc-text);
+}
+
+/* =============================================================
+   CABECERA DEL ASISTENTE: IDENTIDAD EN CONTEXTO
+
+   ── El problema que resuelve ─────────────────────────────────
+   La cabecera decía «Paso 4 de 5 · Requisitos de la categoría» y
+   nada más. En el paso cuatro, quien llena el expediente lleva
+   tres pantallas sin ver a quién pertenece: si se equivocó de
+   persona en el paso uno, se entera al final.
+
+   Ahora la cabecera lleva el nombre, el carnet y la agencia —los
+   tres datos que identifican el expediente— con el color de tinta
+   PRINCIPAL del módulo, no el atenuado. En el tema claro el gris
+   azulado de `--doc-text-muted` sobre cristal blanco daba 4.6:1
+   contra el fondo, que cumple AA por los pelos y se lee mal en una
+   pantalla con brillo bajo; el nombre va en `--doc-text`, que es
+   casi negro (#0a2747, 13:1).
+   ============================================================= */
+
+.doc-identidad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.625rem;
+}
+
+.doc-identidad-dato {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.125rem 0.5rem 0.125rem 0.375rem;
+  border-radius: 9999px;
+  background-color: var(--doc-surface);
+  box-shadow: inset 0 0 0 1px var(--doc-border);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--doc-text);
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-identidad-dato svg {
+  flex-shrink: 0;
+  color: var(--doc-text-faint);
+}
+
+.doc-identidad-dato[data-vacio="si"] {
+  color: var(--doc-text-faint);
+  font-weight: 600;
+  font-style: italic;
+}
+
+/* El nombre es el dato principal: cuerpo mayor, tinta plena y sin
+   recorte con puntos suspensivos si cabe. */
+.doc-identidad-nombre {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--doc-text);
+  max-width: 20rem;
+}
+
+/* =============================================================
    CONTADOR DE HOJAS FÍSICAS
    Compacto, tabular y con los dos botones a 44 px reales en táctil.
    ============================================================= */
@@ -716,6 +814,124 @@
 
 .doc-hojas[data-inactivo="si"] {
   opacity: 0.45;
+}
+
+/* =============================================================
+   PRESENTACIÓN ELEGIBLE: SEGMENTADO CON INDICADOR DESLIZANTE
+
+   ── Cómo se mueve el indicador ───────────────────────────────
+   Con `translate3d` sobre un elemento de un tercio de ancho. No
+   con `left`, no con `width`, no con `layoutId`: los tres obligan
+   al navegador a recalcular el diseño en cada fotograma, y este
+   control aparece en una lista de veinte filas. Con `transform`
+   la animación vive en el compositor y el hilo principal queda
+   libre para responder al siguiente clic.
+
+   `will-change` se declara SOLO en este elemento y no en el
+   contenedor: promover a capa propia cuesta memoria de vídeo, y
+   veinte capas por nada es lo que hace que un equipo modesto
+   empiece a tirar fotogramas.
+   ============================================================= */
+
+.doc-presentacion {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0.1875rem;
+  border-radius: 9999px;
+  background-color: var(--doc-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--doc-border);
+  isolation: isolate;
+}
+
+.doc-presentacion-indicador {
+  position: absolute;
+  top: 0.1875rem;
+  bottom: 0.1875rem;
+  left: 0.1875rem;
+  width: calc((100% - 0.375rem) / 3);
+  border-radius: 9999px;
+  background-color: var(--doc-accent-bg);
+  box-shadow:
+    inset 0 0 0 1px var(--doc-accent),
+    0 1px 3px rgba(2, 12, 28, 0.2);
+  transition: transform var(--doc-duration-normal) var(--doc-ease-hoja);
+  will-change: transform;
+  z-index: -1;
+}
+
+.doc-presentacion[data-reducido="si"] .doc-presentacion-indicador {
+  transition: none;
+}
+
+.doc-presentacion button {
+  min-width: 3.25rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--doc-text-muted);
+  transition: color var(--doc-duration-fast) linear;
+}
+
+.doc-presentacion button[aria-checked="true"] {
+  color: var(--doc-accent-fg);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .doc-presentacion button:not([aria-checked="true"]):hover {
+    color: var(--doc-text);
+  }
+}
+
+.doc-presentacion[data-inactivo="si"] {
+  opacity: 0.45;
+}
+
+/* El tema claro necesita más peso: el tinte del acento sobre papel
+   blanco es casi invisible y el indicador dejaba de leerse. */
+.light .doc-console .doc-presentacion-indicador {
+  background-color: var(--doc-surface-raised);
+  box-shadow:
+    inset 0 0 0 1.5px var(--doc-accent),
+    0 1px 3px rgba(8, 47, 95, 0.14);
+}
+
+/* =============================================================
+   NOMBRE LIBRE DEL REQUISITO «OTROS»
+   ============================================================= */
+
+.doc-nombre-libre {
+  width: 100%;
+  max-width: 26rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--doc-radius-sm);
+  border: 1px dashed var(--doc-border-strong);
+  background-color: var(--doc-surface);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--doc-text);
+  outline: none;
+  transition:
+    border-color var(--doc-duration-fast) linear,
+    background-color var(--doc-duration-fast) linear;
+}
+
+.doc-nombre-libre::placeholder {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--doc-text-faint);
+}
+
+.doc-nombre-libre:focus {
+  border-style: solid;
+  border-color: var(--doc-focus);
+  background-color: var(--doc-surface-raised);
+}
+
+.doc-nombre-libre:disabled {
+  opacity: 0.5;
 }
 
 /* =============================================================
