@@ -127,13 +127,16 @@ describe("conteo de hojas · libro anual", () => {
       fechaIngreso: `${anio}-03-10`,
     });
     const rejap = requisitos.find((r: { codigo: string }) => r.codigo === "rejap")!;
-    const seguro = requisitos.find((r: { codigo: string }) => r.codigo === "seguro-accidentes")!;
+    /* Antes esta prueba usaba el seguro de accidentes. Dejó de llevar conteo
+       —pasó a solo digital— así que el segundo documento físico es ahora el
+       memorándum de designación, uno de los tres del legajo administrativo. */
+    const memo = requisitos.find((r: { codigo: string }) => r.codigo === "memorandum-designacion")!;
 
     h.ok("documentacion.requisitos.guardar", {
       expedienteId,
       cambios: [
         { expedienteDocumentoId: rejap.expedienteDocumentoId, hojasFisicas: 3, estado: "ENTREGADO" },
-        { expedienteDocumentoId: seguro.expedienteDocumentoId, hojasFisicas: 2, estado: "ENTREGADO" },
+        { expedienteDocumentoId: memo.expedienteDocumentoId, hojasFisicas: 2, estado: "ENTREGADO" },
       ],
     });
 

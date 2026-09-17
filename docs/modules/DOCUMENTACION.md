@@ -109,18 +109,29 @@ Qué documentos exige un expediente sale de dos ejes:
 
 | Tipo de funcionario | Garantía | Documentos |
 |---|---|---|
-| GENERAL | NINGUNA | 16 |
-| COMERCIAL | COMERCIAL_1 | 21 |
-| COMERCIAL | COMERCIAL_2 | 25 |
-| COMERCIAL | COMERCIAL_3 | 21 |
-| AUDITORIA | NINGUNA | 17 |
-| CUMPLIMIENTO | NINGUNA | 19 |
+| GENERAL | NINGUNA | 20 |
+| ADMINISTRATIVO | NINGUNA | 20 |
+| COMERCIAL | COMERCIAL_1 | 25 |
+| COMERCIAL | COMERCIAL_2 | 29 |
+| COMERCIAL | COMERCIAL_3 | 25 |
+| AUDITORIA | NINGUNA | 21 |
+| CUMPLIMIENTO | NINGUNA | 23 |
 
-> Los recuentos bajaron dos en todas las ramas al retirar el certificado de
-> trabajo y el RC-IVA, que el área dejó de pedir. **No se borraron del catálogo**:
-> llevan `retirado: true`, así que no se siembran en expedientes nuevos pero los
-> existentes los conservan con su estado y su historia. El catálogo canónico tiene
-> 39 entradas: 37 vigentes y esas 2.
+> Los recuentos subieron cuatro en todas las ramas con el **catálogo v4**: el
+> legajo administrativo añade el manual de funciones, el memorándum de
+> designación, la comunicación interna y el hueco de «Otros». Antes habían bajado
+> dos al retirar el certificado de trabajo y el RC-IVA, que el área dejó de pedir.
+> **Los retirados no se borraron del catálogo**: llevan `retirado: true`, así que
+> no se siembran en expedientes nuevos pero los existentes los conservan con su
+> estado y su historia. El catálogo canónico tiene 43 entradas: 41 vigentes y esas 2.
+
+> **`ADMINISTRATIVO` es la rama que no pide nada.** Exige exactamente los mismos
+> veinte generales que `GENERAL`, y existe como rama propia porque el reporte por
+> categoría tiene que poder distinguir al personal administrativo de quien se
+> registró sin clasificar. El asistente lo sabe por el catálogo —el mapa de
+> aplicabilidad devuelve `propios: 0`— y **salta el paso de requisitos
+> específicos**: el indicador pasa a «Paso 3 de 4» y «Continuar» lleva a la
+> revisión. No hay ninguna comparación con el nombre de la rama en la interfaz.
 
 Los 17 documentos de garantía cuelgan del tipo `COMERCIAL`: poner una garantía a
 un funcionario `GENERAL` no los añade, porque en el proceso real la fianza
@@ -491,8 +502,17 @@ Los requisitos llegan **agrupados por subsección** cuando la rama las tiene, co
 el título del bloque encima: en un Tipo 2 se ve «1 Garante con Bien Inmueble» y
 «2 Garante Familiar», y ya no hay dos «Título de propiedad» sin dueño.
 
-Los nueve documentos que se archivan en papel llevan su **contador de hojas**
+Los trece documentos que se archivan en papel llevan su **contador de hojas**
 (`ui/ContadorHojas.tsx`), y hay un filtro «Hojas sin contar» para encontrarlos.
+
+> **Dos cambios de presentación del catálogo v4.** El **seguro de accidentes**
+> dejó de llevar contador: pasó a solo digital porque el formulario se remite a
+> la aseguradora por correo y al legajo físico no llega nada que archivar. El
+> **folio real del bien inmueble** lo ganó: es un documento de Derechos Reales que
+> sí se archiva. Este segundo caso es el mejor argumento de que el catálogo sea
+> una sola fuente: es la MISMA fila en Comercial Tipo 1 y Tipo 3, así que el
+> cambio alcanzó a las dos ramas, a la vista, a los reportes y al informe mensual
+> con una línea.
 
 > **El contador es un `input type="text"`, no `type="number"`.** Un
 > `type="number"` cambia de valor al hacer scroll con el puntero encima, y en una
@@ -500,6 +520,54 @@ Los nueve documentos que se archivan en papel llevan su **contador de hojas**
 > Usa `inputMode="numeric"` para que el teclado del móvil salga numérico; la
 > validación de que es un entero entre 0 y 999 vive en el backend, que es donde
 > tiene que estar.
+
+### Requisitos personalizables: «Otros»
+
+`otros-documento` es el primer requisito cuyo contenido lo define el EXPEDIENTE y
+no el catálogo. Tres cosas lo distinguen:
+
+1. **Nombre libre.** Se escribe en la fila y se guarda en
+   `ExpedienteDocumentos.nombre_personalizado`, no en el catálogo: dos
+   expedientes pueden usar «Otros» para documentos distintos sin pisarse. En los
+   reportes, la columna `Requisito` trae el nombre escrito y la columna `Código`
+   trae `otros-documento`, que es por donde se agrupa.
+2. **Presentación elegible** con un segmentado de tres opciones —FÍSICO, DIGITAL,
+   AMBOS— y `AMBOS` por defecto. De ahí se **deriva** si lleva contador de hojas,
+   así que el estado imposible «solo digital con doce hojas de papel» no es
+   representable. Es un segmentado y no dos casillas porque dos casillas
+   permiten desmarcar las dos.
+3. **Nace `NO_APLICA`** (`CatalogoDocumentos.estado_inicial`), fuera del cálculo
+   de avance. Si naciera pendiente, todos los expedientes del banco arrastrarían
+   un requisito que nadie va a entregar. Escribir el nombre lo promueve a
+   `PENDIENTE` solo, y borrarlo lo devuelve a `NO_APLICA` **únicamente** si no hay
+   nada que perder: con hojas contadas, observación o estado marcado, el requisito
+   se queda.
+
+La pregunta «¿lleva conteo de hojas?» vive en una sola función del backend
+(`doc2PresentacionEfectiva_`), que es la que consultan la validación, la vista
+del expediente, los reportes y el informe mensual.
+
+### El módulo diagnostica su propio despliegue
+
+El backend declara en `documentacion.estado` su versión de esquema, su versión de
+catálogo y **la lista de acciones que sabe atender**.
+`domain/compatibilidad.ts` las compara con lo que este frontend necesita y
+produce hallazgos con nombre y con instrucción:
+
+| Hallazgo | Qué significa |
+|---|---|
+| `backend-ajeno` | La URL configurada es de otro proyecto de Apps Script (casi siempre el del talento) |
+| `esquema-anterior` | Los `.gs` no se pegaron, o se pegaron y no se publicó una **versión nueva** de la implementación |
+| `acciones-faltantes` | El backend no conoce una acción concreta; hay recaída para todas, así que solo va más lento |
+| `catalogo-anterior` | Falta ejecutar Instalar o actualizar modelo y Migrar |
+| `migraciones-pendientes` | Los datos son correctos pero las columnas nuevas están vacías |
+| `hojas-faltantes` | Al libro le faltan hojas del modelo |
+
+Los dos primeros son el mismo síntoma con arreglos opuestos, y por eso se
+distinguen. El diagnóstico aparece en la cinta superior del módulo y, con todo el
+detalle, en **Configuración › Esta pantalla**, junto a la **salud del backend**:
+media, última, peor y fallos de las últimas veinte llamadas, con una frase que
+dice qué hacer con ese número.
 
 El guardado por bloque se mantiene, y ahora se **nombra**: sin cambios, cambios
 por escribir, guardando, guardado en el servidor, conflicto de versión. El panel
@@ -620,11 +688,11 @@ npm run build        # compilación
 `doc:check` comprueba lo que un compilador no puede ver en Apps Script:
 funciones duplicadas en el espacio global, acciones que el frontend llama y el
 backend no atiende **y al revés**, escrituras declaradas distinto en las dos
-partes, acciones heredadas que hayan desaparecido, el catálogo con sus 39
+partes, acciones heredadas que hayan desaparecido, el catálogo con sus 43
 entradas y sus códigos originales, y el vocabulario compartido.
 
 Las comprobaciones añadidas en la reforma integral vigilan cosas que se rompen en
-silencio: que los 16 documentos generales estén en el orden de la lista del área,
+silencio: que los 20 documentos generales estén en el orden de la lista del área,
 que los retirados sigan presentes y marcados, los recuentos exactos por rama, que
 la subsección cambie de valor entre Tipo 2 y Tipo 3, que el contador de hojas solo
 aparezca donde la presentación es física, que la hoja `Auxiliar` declare sus tres

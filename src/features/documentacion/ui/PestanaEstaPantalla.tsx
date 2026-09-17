@@ -44,6 +44,13 @@ import {
   Undo2,
 } from "lucide-react";
 import { comprobarConexion, ponerDensidad, ponerFiltros, urlBackend, useConsola } from "../state/consola";
+import { saludBackend, type SaludBackend } from "../api/client";
+import {
+  diagnosticarCompatibilidad,
+  intencionDeSeveridad,
+  ESQUEMA_ESPERADO,
+  CATALOGO_ESPERADO,
+} from "../domain/compatibilidad";
 import {
   expedientesEnCache,
   suscribirCache,
@@ -136,6 +143,12 @@ function Autodiagnostico({ avisar }: Props) {
   useEffect(() => suscribirCache(() => setEnCache(tamanoCache())), []);
 
   const cola = estadoPrecarga();
+  /* La salud del backend no vive en React: se lee al pintar, y se vuelve a leer
+     al terminar cada prueba de conexión. Suscribirse a cada llamada del módulo
+     obligaría a renderizar esta pestaña cientos de veces por sesión para un dato
+     que solo se mira cuando algo va mal. */
+  const [salud, setSalud] = useState(() => saludBackend());
+  const compatibilidad = diagnosticarCompatibilidad(estado);
   const sinConfirmar = salida.entradas.filter((e) => e.estado !== "confirmado").length;
   const hayRespaldoDeCola = leerRespaldoDeCola().length > 0;
 
@@ -153,6 +166,7 @@ function Autodiagnostico({ avisar }: Props) {
       avisar(ok ? "exito" : "peligro", ok ? "El enlace responde." : "El enlace no responde.");
     } finally {
       setProbando(false);
+      setSalud(saludBackend());
     }
   }
 
@@ -270,9 +284,59 @@ function Autodiagnostico({ avisar }: Props) {
         </div>
       )}
 
+      {/* Compatibilidad del backend desplegado.
+          Va ANTES de los tiempos de respuesta porque, cuando hay una
+          incompatibilidad, es la causa de todo lo demás: explicarle a alguien
+          que el backend tarda cuatro segundos mientras está sirviendo una
+          versión anterior es mandarlo a investigar el síntoma equivocado. */}
+      {compatibilidad.hallazgos.length > 0 && (
+        <div className="mt-3 space-y-2">
+          {compatibilidad.hallazgos.map((hallazgo) => (
+            <Aviso key={hallazgo.codigo} intencion={intencionDeSeveridad(hallazgo.severidad)} titulo={hallazgo.titulo}>
+              <span className="block">{hallazgo.detalle}</span>
+              <span className="mt-1 block font-semibold">{hallazgo.queHacer}</span>
+            </Aviso>
+          ))}
+        </div>
+      )}
+
+      {/* Cómo está respondiendo el backend AHORA.
+          Es el dato que faltaba para poder decir «va lento» con un número
+          delante: sin él, la conversación era «a mí me va bien» contra «a mí
+          no». Se lee de la ventana móvil de las últimas veinte llamadas, así
+          que describe el momento y no el promedio histórico. */}
+      {salud.muestras > 0 && (
+        <div className="mt-3">
+          <Aviso intencion={intencionSalud(salud)} titulo="Cómo está respondiendo el backend">
+            <span className="doc-metric block">
+              {salud.mediaMs !== null ? `${(salud.mediaMs / 1000).toFixed(1)} s de media` : "sin respuestas"}
+              {salud.ultimaMs !== null ? ` · última ${(salud.ultimaMs / 1000).toFixed(1)} s` : ""}
+              {salud.peorMs !== null ? ` · peor ${(salud.peorMs / 1000).toFixed(1)} s` : ""}
+              {` · ${salud.muestras} llamada${salud.muestras === 1 ? "" : "s"} medida${salud.muestras === 1 ? "" : "s"}`}
+              {salud.fallos > 0 ? ` · ${salud.fallos} sin respuesta` : ""}
+            </span>
+            <span className="mt-1 block">{explicacionSalud(salud)}</span>
+          </Aviso>
+        </div>
+      )}
+
       <dl className="mt-3 grid gap-x-4 gap-y-1 text-[11px] sm:grid-cols-2">
         <DatoTecnico etiqueta="Conexión" valor={conexion} />
-        <DatoTecnico etiqueta="Esquema del libro" valor={estado ? String(estado.esquema) : "—"} />
+        {/* Los dos números que delatan un despliegue a medias, con el valor
+            que esta pantalla espera al lado: sin la comparación, «esquema 5» no
+            le dice nada a nadie. */}
+        <DatoTecnico
+          etiqueta="Esquema del libro"
+          valor={estado ? `${estado.esquema} (esta pantalla espera ${ESQUEMA_ESPERADO})` : "—"}
+        />
+        <DatoTecnico
+          etiqueta="Versión del catálogo"
+          valor={estado?.catalogoVersion ? `${estado.catalogoVersion} (espera ${CATALOGO_ESPERADO})` : "—"}
+        />
+        <DatoTecnico
+          etiqueta="Acciones del backend"
+          valor={estado?.acciones ? String(estado.acciones.length) : "no las declara"}
+        />
         <DatoTecnico etiqueta="Versión de la caché" valor={String(VERSION_CACHE)} />
         <DatoTecnico etiqueta="Expedientes en caché" valor={String(enCache)} />
         <DatoTecnico etiqueta="Cambios sin confirmar" valor={String(sinConfirmar)} />
@@ -633,4 +697,46 @@ function guardarRespaldoDeCola(entradas: EntradaSalida[]): void {
     /* Sin espacio o con el almacenamiento bloqueado: el respaldo es un extra, no
        una dependencia. */
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Lectura de la salud del backend                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Intención del aviso según cómo responde el backend.
+ *
+ * Los umbrales no son arbitrarios: dos segundos es lo que tarda una llamada en
+ * caliente de Apps Script sobre un libro grande, así que por debajo de eso no
+ * hay nada que decir. Por encima de seis, quien usa el módulo ya está esperando
+ * mirando la pantalla, y eso es un problema aunque nada falle.
+ */
+function intencionSalud(s: SaludBackend): "exito" | "aviso" | "peligro" {
+  if (s.fallosSeguidos >= 3) return "peligro";
+  if (s.fallos > 0 || (s.mediaMs ?? 0) > 6000) return "aviso";
+  return "exito";
+}
+
+/**
+ * Qué hacer con ese número.
+ *
+ * Un diagnóstico que dice «4,2 s de media» y nada más obliga a saber qué es
+ * normal. Cada rama de aquí termina en una acción o en un «esto es lo esperado»,
+ * que es la diferencia entre informar y ayudar.
+ */
+function explicacionSalud(s: SaludBackend): string {
+  if (s.fallosSeguidos >= 3) {
+    return "Tres o más llamadas seguidas sin respuesta. Suele ser la implementación de Apps Script sin publicar o publicada sin acceso para «cualquier usuario». Mientras se arregla, la vista local sigue funcionando.";
+  }
+  if (s.fallos > 0) {
+    return "Algunas llamadas no llegaron a contestar y se reintentaron solas. Si se repite, pruebe el enlace con el botón «Probar conexión».";
+  }
+  const media = s.mediaMs ?? 0;
+  if (media > 6000) {
+    return "Más de seis segundos de media. Casi siempre es el volumen del libro: conviene ejecutar Mantenimiento › Compactar y revisar si hay pestañas anuales muy grandes que se puedan archivar.";
+  }
+  if (media > 2500) {
+    return "Tiempos altos pero normales para Apps Script sobre un libro grande. La caché local hace que abrir un expediente ya visto no pague esta espera.";
+  }
+  return "Tiempos normales. Si la pantalla se siente lenta, el cuello de botella está en el equipo y no en el libro: pruebe el modo ligero, más abajo.";
 }

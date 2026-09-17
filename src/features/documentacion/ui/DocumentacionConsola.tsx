@@ -31,6 +31,7 @@ import { motion } from "framer-motion";
 import { CircleSlash, Database, FolderPlus, RefreshCw, Wrench } from "lucide-react";
 import { docApi } from "../api/acciones";
 import { seccionesPermitidas, type SeccionId } from "../domain/vocabulario";
+import { diagnosticarCompatibilidad, intencionDeSeveridad } from "../domain/compatibilidad";
 import { comprobarConexion, irASeccion, refrescarNotificaciones, useConsola } from "../state/consola";
 import { hidratarCache, vaciarCache } from "../state/cacheExpedientes";
 import { cancelarPrecarga } from "../state/precarga";
@@ -184,15 +185,27 @@ export function DocumentacionConsola() {
   const marcarCambio = useCallback(() => setRefresco((n) => n + 1), []);
   const cerrarAlta = useCallback(() => setAltaAbierta(false), []);
 
-  /* Aviso global: el módulo funciona, pero hay algo que conviene saber. */
-  const migracionesPendientes = consola.estado?.migraciones?.pendientes ?? [];
+  /**
+   * Aviso global: el módulo funciona, pero hay algo que conviene saber.
+   *
+   * ── Qué cambió aquí y por qué ─────────────────────────────────────────────
+   * Antes esto solo avisaba de las migraciones pendientes. Le faltaba el caso
+   * que más tiempo cuesta en la práctica: el backend desplegado es de una
+   * versión anterior a la pantalla —casi siempre porque se pegaron los `.gs` y
+   * no se publicó una versión nueva de la implementación—. Ese caso no rompe
+   * nada visible: rompe justo lo nuevo, en una pantalla cualquiera, con un
+   * mensaje que no menciona el despliegue. Ahora se detecta al arrancar y se
+   * dice arriba, con el paso exacto que lo arregla.
+   */
+  const compatibilidad = useMemo(() => diagnosticarCompatibilidad(consola.estado), [consola.estado]);
   const avisoGlobal =
-    conectado && (consola.estado?.problema || migracionesPendientes.length > 0) ? (
+    conectado && (consola.estado?.problema || compatibilidad.hallazgos.length > 0) ? (
       <DocModoDegradado
+        intencion={consola.estado?.problema ? "peligro" : intencionDeSeveridad(compatibilidad.severidad)}
         detalle={
           consola.estado?.problema
             ? consola.estado.problema
-            : `Hay ${migracionesPendientes.length} migración(es) pendiente(s) del modelo: ${migracionesPendientes.join(", ")}. Los datos son correctos, pero conviene aplicarlas antes de operar en volumen.`
+            : compatibilidad.hallazgos.map((h) => `${h.titulo}. ${h.queHacer}`).join(" · ")
         }
         acciones={
           consola.capacidades.migrar ? (

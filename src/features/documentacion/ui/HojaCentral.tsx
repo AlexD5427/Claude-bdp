@@ -251,7 +251,7 @@ export function HojaCentral({
             </header>
 
             {/* El scroll vive DENTRO de la hoja: el fondo no se mueve. */}
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6">{children}</div>
+            <div className="doc-scroll min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">{children}</div>
 
             {pie && (
               <footer className="shrink-0 border-t border-[color:var(--doc-border)] bg-[color:var(--doc-surface)] px-4 py-3 sm:px-6">

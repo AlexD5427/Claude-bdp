@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DocError,
   __reiniciarClienteParaPruebas,
+  saludBackend,
   accionesDeclaradas,
   configurarCliente,
   consultarVigente,
@@ -271,13 +272,13 @@ describe("cliente · integración con el backend real", () => {
   it("el estado llega con las capacidades del actor", async () => {
     const estado = await docApi.estado();
     expect(estado.instalado).toBe(true);
-    expect(estado.esquema).toBe(5);
+    expect(estado.esquema).toBe(6);
     expect(estado.capacidades.ver).toBe(true);
   });
 
-  it("el catálogo llega con los 39 documentos y los tres catálogos auxiliares", async () => {
+  it("el catálogo llega con los 43 documentos y los tres catálogos auxiliares", async () => {
     const catalogo = await docApi.catalogo();
-    expect(catalogo.documentos.length).toBe(39);
+    expect(catalogo.documentos.length).toBe(43);
     expect(catalogo.auxiliares.gerencia_bdp.length).toBeGreaterThan(0);
     expect(catalogo.aplicabilidad.length).toBeGreaterThan(5);
   });
@@ -292,7 +293,7 @@ describe("cliente · integración con el backend real", () => {
     expect(creado.creado).toBe(true);
 
     const detalle = await docApi.obtenerExpediente(creado.expedienteId);
-    expect(detalle.requisitos.length).toBe(16);
+    expect(detalle.requisitos.length).toBe(20);
 
     const cv = detalle.requisitos.find((r) => r.codigo === "cv")!;
     const guardado = await docApi.guardarRequisitos(creado.expedienteId, [
@@ -321,5 +322,155 @@ describe("cliente · integración con el backend real", () => {
     const panel = await docApi.panel();
     expect(panel.expedientes).toBe(1);
     expect(JSON.stringify(panel)).not.toContain("Panel Persona");
+  });
+});
+
+/* ================================================================== */
+/* Resistencia: topes progresivos, reintentos y salud                  */
+/* ================================================================== */
+
+describe("cliente · resistencia al backend lento", () => {
+  beforeEach(() => {
+    __reiniciarClienteParaPruebas();
+    configurarCliente({ url: URL_PRUEBAS });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * El tope de espera CRECE con el intento.
+   *
+   * ── El fallo que esto corrige ─────────────────────────────────────────────
+   * Con un tope único de 30 s y tres intentos, una llamada en frío que iba a
+   * contestar en el segundo 32 se abortaba tres veces: noventa segundos de
+   * espera para acabar diciendo «el backend tardó demasiado», cuando el backend
+   * estaba contestando. Y cada aborto dejaba su ejecución en curso en el
+   * servidor, así que el reintento competía con su propio antecesor.
+   */
+  it("el primer intento es corto y los siguientes dan aire al arranque en frío", async () => {
+    const topes: number[] = [];
+    vi.stubGlobal("fetch", (_url: string, init: RequestInit) => {
+      /* El tope se observa por el `AbortSignal`: se mide cuánto tarda en
+         abortarse en lugar de espiar una variable interna del cliente. */
+      return new Promise<Response>((_resolver, rechazar) => {
+        const inicio = Date.now();
+        init.signal?.addEventListener("abort", () => {
+          topes.push(Date.now() - inicio);
+          const error = new Error("The operation was aborted");
+          error.name = "AbortError";
+          rechazar(error);
+        });
+      });
+    });
+
+    vi.useFakeTimers();
+    const promesa = llamar("documentacion.panel", {}, { reintentos: 3 }).catch((e) => e);
+    // Primer intento: 20 s.
+    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(2_000); // la espera entre intentos
+    // Segundo: 45 s.
+    await vi.advanceTimersByTimeAsync(45_000);
+    await vi.advanceTimersByTimeAsync(4_000);
+    // Tercero: 70 s.
+    await vi.advanceTimersByTimeAsync(70_000);
+    const error = (await promesa) as DocError;
+    vi.useRealTimers();
+
+    expect(topes.length).toBe(3);
+    /* Los topes son crecientes: es la propiedad que importa, no el valor
+       exacto. Con temporizadores falsos la medición es determinista. */
+    expect(topes[1]).toBeGreaterThan(topes[0]);
+    expect(topes[2]).toBeGreaterThan(topes[1]);
+    expect(error).toBeInstanceOf(DocError);
+    expect(error.codigo).toBe("TIMEOUT");
+    // Y el mensaje dice cuántos intentos y cuánto se esperó.
+    expect(error.message).toMatch(/3 intentos/);
+    expect(error.pista).toMatch(/puede haberse completado/i);
+  }, 20_000);
+
+  /**
+   * El error original no se descarta.
+   *
+   * Antes «No se pudo contactar con el backend» era todo lo que llegaba: un
+   * fallo de CORS, un DNS caído y una implementación sin publicar producían el
+   * mismo mensaje, y el texto de `fetch` es lo único que los distingue.
+   */
+  it("un fallo de red conserva la causa original en el detalle", async () => {
+    vi.stubGlobal("fetch", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const error = (await llamar("documentacion.panel", {}, { reintentos: 1 }).catch((e) => e)) as DocError;
+    expect(error.codigo).toBe("SIN_RED");
+    expect(String(error.detalle.causa)).toContain("Failed to fetch");
+    expect(error.detalle.accion).toBe("documentacion.panel");
+    expect(typeof error.detalle.ms).toBe("number");
+  });
+
+  it("una cancelación externa no se reintenta ni cuenta contra la salud", async () => {
+    let llamadas = 0;
+    vi.stubGlobal("fetch", (_url: string, init: RequestInit) => {
+      llamadas += 1;
+      return new Promise<Response>((_r, rechazar) => {
+        init.signal?.addEventListener("abort", () => {
+          const error = new Error("abortada");
+          error.name = "AbortError";
+          rechazar(error);
+        });
+      });
+    });
+
+    const controlador = new AbortController();
+    const promesa = llamar("documentacion.panel", {}, { signal: controlador.signal, reintentos: 3 }).catch((e) => e);
+    controlador.abort();
+    await promesa;
+    /* Navegar a otra pantalla cancela lo que estaba en vuelo. Reintentarlo tres
+       veces sería pedir tres veces algo que ya no se va a mostrar, y contarlo
+       como fallo del backend haría que el diagnóstico acusara a quien no fue. */
+    expect(llamadas).toBe(1);
+    expect(saludBackend().fallos).toBe(0);
+  });
+
+  it("la salud distingue «contestó y rechazó» de «no contestó»", async () => {
+    // Un rechazo de validación: el backend contestó. No es un fallo de red.
+    vi.stubGlobal("fetch", async () => respuesta(sobreError("VALIDACION", "Falta el nombre.", { nombre: "Requerido" })));
+    await llamar("documentacion.expediente.crear", {}, { reintentos: 1 }).catch(() => {});
+    let salud = saludBackend();
+    expect(salud.muestras).toBe(1);
+    expect(salud.fallos).toBe(0);
+    expect(salud.fallosSeguidos).toBe(0);
+
+    // Y ahora una respuesta que no es JSON: el servidor devolvió otra cosa.
+    vi.stubGlobal("fetch", async () => respuesta(null, "<html>accounts.google.com</html>"));
+    await llamar("documentacion.panel", {}, { reintentos: 1 }).catch(() => {});
+    salud = saludBackend();
+    expect(salud.muestras).toBe(2);
+    expect(salud.fallos).toBe(1);
+    expect(salud.fallosSeguidos).toBe(1);
+
+    // Un éxito reinicia la racha, que es lo que hace que el aviso desaparezca.
+    vi.stubGlobal("fetch", async () => respuesta(sobreOk({ ok: true })));
+    await llamar("documentacion.panel", {}, { reintentos: 1 });
+    expect(saludBackend().fallosSeguidos).toBe(0);
+    expect(saludBackend().muestras).toBe(3);
+  });
+
+  it("un error de validación se mide UNA vez, no dos", async () => {
+    vi.stubGlobal("fetch", async () => respuesta(sobreError("VALIDACION", "Mal.", {})));
+    await llamar("documentacion.expediente.crear", {}, { reintentos: 1 }).catch(() => {});
+    /* El camino del rechazo pasa dos veces por el mismo punto: se mide antes de
+       lanzar el error y ese error reaparece en el `catch`. Sin la marca, cada
+       validación entraba dos veces en la ventana de veinte muestras. */
+    expect(saludBackend().muestras).toBe(1);
+  });
+
+  it("la ventana de salud no crece sin límite", async () => {
+    vi.stubGlobal("fetch", async () => respuesta(sobreOk({})));
+    for (let i = 0; i < 30; i++) {
+      await llamar("documentacion.panel", { i }, { reintentos: 1 });
+    }
+    // Veinte muestras: describe cómo va AHORA, no el promedio histórico.
+    expect(saludBackend().muestras).toBe(20);
   });
 });

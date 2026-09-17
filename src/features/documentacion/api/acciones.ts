@@ -20,6 +20,17 @@ export interface EstadoModulo {
   arquitectura: string;
   version: string;
   esquema: number;
+  /** Versión del catálogo de documentos. Se mueve aparte de la del esquema. */
+  catalogoVersion?: number;
+  /**
+   * Acciones que el backend desplegado sabe atender.
+   *
+   * Es lo que permite detectar el caso de «pegué los .gs y no publiqué una
+   * versión nueva de la implementación» y decirlo con nombre y apellido, en
+   * lugar de dejar que aparezca como un error suelto en una pantalla cualquiera.
+   * Opcional: un backend anterior no la manda.
+   */
+  acciones?: string[];
   backendHeredado: string;
   instalado: boolean;
   libro: string;
@@ -68,6 +79,19 @@ export interface CatalogoDocumento {
   presentacionDigital: "SI" | "NO";
   /** Solo los documentos físicos anotan cuántas hojas tienen. */
   requiereConteoHojas: boolean;
+  /**
+   * ¿El nombre lo escribe la persona que registra el expediente?
+   *
+   * Solo `otros-documento`. Cuando es `true` la fila pide un campo de texto en
+   * lugar de mostrar un nombre fijo, y ese texto se guarda en el expediente, no
+   * en el catálogo: dos expedientes pueden usar «Otros» para documentos
+   * distintos sin pisarse.
+   */
+  permiteNombreLibre?: boolean;
+  /** ¿Se elige FÍSICO / DIGITAL / AMBOS por expediente? */
+  presentacionEditable?: boolean;
+  /** Estado documental con el que nace el requisito. Vacío = `PENDIENTE`. */
+  estadoInicial?: string;
   confidencialidad: string;
   requiereRevision: boolean;
   requiereAprobacion: boolean;
@@ -104,6 +128,15 @@ export interface CatalogoCliente {
     total: number;
     obligatorios: number;
     conConteoHojas: number;
+    /**
+     * Requisitos que esta rama añade a los generales.
+     *
+     * Cero significa «esta categoría no pide nada más». Es lo que permite al
+     * asistente saltarse el paso de requisitos específicos sin recorrer el
+     * catálogo por su cuenta, y sin que la decisión quede cableada por código
+     * de rama.
+     */
+    propios?: number;
     codigos: string[];
     subsecciones: string[];
     nota: string;
@@ -419,7 +452,32 @@ export interface LoteExportacion {
 
 export const docApi = {
   /* --- Estado y catálogos ------------------------------------------ */
-  estado: (o?: OpcionesLlamada) => llamar<EstadoModulo>("documentacion.estado", {}, { reintentos: 1, timeoutMs: 15000, ...o }),
+  /**
+   * Sonda de estado: un solo intento.
+   *
+   * Sin `timeoutMs` explícito a propósito: el tope del primer intento lo decide
+   * el cliente (20 s), que es lo que distingue un backend caído de uno que
+   * simplemente está arrancando en frío. Un tope fijo de 15 s abortaba llamadas
+   * que iban a contestar en el segundo 17 y las reportaba como «el backend no
+   * responde».
+   */
+  estado: (o?: OpcionesLlamada) => llamar<EstadoModulo>("documentacion.estado", {}, { reintentos: 1, ...o }),
+  /**
+   * Arranque: estado y catálogo en una sola ida y vuelta.
+   *
+   * Es lo primero que pide el módulo. Un backend anterior a este cambio no
+   * conoce la acción y responde `ACCION_NO_SOPORTADA`; el almacén lo detecta y
+   * cae a las dos llamadas de siempre, así que el frontend se puede desplegar
+   * sin haber publicado todavía la versión nueva del Apps Script.
+   */
+  arranque: (o?: OpcionesLlamada) =>
+    llamar<{ estado: EstadoModulo; catalogo: CatalogoCliente | null; catalogoError?: string }>(
+      "documentacion.arranque",
+      {},
+      /* Dos intentos y los topes progresivos del cliente: 20 s y después 45 s.
+         Es la primera llamada del módulo, la que más a menudo cae en frío. */
+      { reintentos: 2, ...o },
+    ),
   catalogo: (o?: OpcionesLlamada) => llamar<CatalogoCliente>("documentacion.catalogo", {}, o),
   vocabulario: (o?: OpcionesLlamada) =>
     llamar<{

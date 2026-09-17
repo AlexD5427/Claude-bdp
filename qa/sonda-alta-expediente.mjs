@@ -111,7 +111,7 @@ async function main() {
   await pagina.getByRole("button", { name: /Continuar/ }).click();
   await pagina.waitForTimeout(700);
 
-  // 4 · Documentos generales: 16 filas, contador solo en los físicos.
+  // 4 · Documentos generales: 20 filas (catálogo v4), contador solo en los físicos.
   console.log("\n▸ Documentos generales");
   const generales = await pagina.evaluate(() => {
     const filas = [...document.querySelectorAll('[role="dialog"] li.doc-raised')];
@@ -121,12 +121,16 @@ async function main() {
       sellos: [...li.querySelectorAll("span")].map((s) => s.textContent?.trim()).filter((t) => t === "Física" || t === "Física*" || t === "Digital"),
     }));
   });
-  fallos += comprobar("son los 16 documentos generales de la lista del área", generales.length === 16, `${generales.length} filas`) ? 0 : 1;
+  fallos += comprobar("son los 20 documentos generales de la lista del área", generales.length === 20, `${generales.length} filas`) ? 0 : 1;
   const conContador = generales.filter((g) => g.contador).length;
+  /* Siete de los veinte: antecedentes FELCC, REJAP, título legalizado, seguro de
+     vida, manual de funciones, memorándum de designación y comunicación interna.
+     El «Otros» nace como AMBOS, así que también trae contador: son ocho. El
+     seguro de accidentes ya NO, porque pasó a solo digital. */
   fallos += comprobar(
     "el contador de hojas aparece solo en los físicos",
-    conContador === 5,
-    `${conContador} de 16 (antecedentes FELCC, REJAP, título, seguro de accidentes y seguro de vida)`,
+    conContador === 8,
+    `${conContador} de 20 (siete físicos del catálogo más el «Otros», que nace como AMBOS)`,
   )
     ? 0
     : 1;
@@ -200,7 +204,7 @@ async function main() {
   const revision = await pagina.evaluate(() => document.querySelector('[role="dialog"]')?.textContent ?? "");
   fallos += comprobar(
     "la revisión resume los requisitos, las hojas físicas y lo que falta",
-    /21/.test(revision) && /hoja/i.test(revision) && /Documentos físicos/i.test(revision),
+    /25/.test(revision) && /hoja/i.test(revision) && /Documentos físicos/i.test(revision),
     "recuento total, bloque de documentos físicos y su desglose",
   )
     ? 0
@@ -233,7 +237,7 @@ async function main() {
   const detalle = backend.ok("documentacion.expediente.obtener", { identificador: CARNET });
   const porCodigo = new Map(detalle.requisitos.map((r) => [r.codigo, r]));
   fallos += comprobar("el expediente quedó con la rama elegida", detalle.expediente.tipoGarantia === "COMERCIAL_1", detalle.expediente.tipoGarantia) ? 0 : 1;
-  fallos += comprobar("con sus 21 requisitos", detalle.requisitos.length === 21, `${detalle.requisitos.length}`) ? 0 : 1;
+  fallos += comprobar("con sus 25 requisitos", detalle.requisitos.length === 25, `${detalle.requisitos.length}`) ? 0 : 1;
   fallos += comprobar("la fotografía quedó entregada", porCodigo.get("foto-4x4")?.estado === "ENTREGADO") ? 0 : 1;
   fallos += comprobar("el REJAP guardó sus 3 hojas", porCodigo.get("rejap")?.hojasFisicas === 3, `${porCodigo.get("rejap")?.hojasFisicas}`) ? 0 : 1;
   fallos += comprobar(

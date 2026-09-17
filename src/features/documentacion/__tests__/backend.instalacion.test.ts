@@ -28,7 +28,7 @@ describe("documentación · instalación y estructura", () => {
     const res = h.pedir("documentacion.estado");
     expect(res.ok).toBe(true);
     expect(res.data.instalado).toBe(false);
-    expect(res.data.esquema).toBe(5);
+    expect(res.data.esquema).toBe(6);
     // El contrato nuevo y el histórico viajan juntos.
     expect(res.meta.requestId).toBeTruthy();
     expect(res.meta.timestamp).toBeTruthy();
@@ -101,20 +101,20 @@ describe("documentación · instalación y estructura", () => {
 });
 
 describe("documentación · catálogo único y aplicabilidad", () => {
-  it("el catálogo trae los 16 documentos generales vigentes en su orden", () => {
+  it("el catálogo trae los 20 documentos generales vigentes en su orden", () => {
     const h = loadInstalledBackend();
     const catalogo = h.ok("documentacion.catalogo");
     const generales = catalogo.documentos.filter((d: any) => d.seccion === "generales");
     const vigentes = generales.filter((d: any) => d.activo);
-    // 16 vigentes + los 2 retirados, que siguen en el catálogo para que los
+    // 20 vigentes + los 2 retirados, que siguen en el catálogo para que los
     // expedientes antiguos puedan mostrar su nombre.
-    expect(vigentes.length).toBe(16);
-    expect(generales.length).toBe(18);
-    // El orden es el de la lista del área: la fotografía primero y el carnet de
-    // heredero al final de los vigentes.
+    expect(vigentes.length).toBe(20);
+    expect(generales.length).toBe(22);
+    // El orden es el de la lista del área: la fotografía primero y el hueco de
+    // «Otros» al final de los vigentes.
     expect(vigentes[0].codigo).toBe("foto-4x4");
-    expect(vigentes[vigentes.length - 1].codigo).toBe("carnet-heredero");
-    expect(catalogo.documentos.length).toBe(39);
+    expect(vigentes[vigentes.length - 1].codigo).toBe("otros-documento");
+    expect(catalogo.documentos.length).toBe(43);
 
     const retirados = generales.filter((d: any) => d.retirado);
     expect(retirados.map((d: any) => d.codigo).sort()).toEqual(["cert-trabajo", "rc-iva"]);
@@ -146,16 +146,62 @@ describe("documentación · catálogo único y aplicabilidad", () => {
     expect(porCodigo.get("rejap").presentacionFisica).toBe("CONDICIONAL");
 
     // Físicos con contador.
-    for (const codigo of ["titulo-legalizado", "seguro-accidentes", "seguro-vida", "examen-uif"]) {
+    for (const codigo of [
+      "titulo-legalizado",
+      "seguro-vida",
+      "examen-uif",
+      "manual-funciones",
+      "memorandum-designacion",
+      "comunicacion-interna",
+    ]) {
       expect(porCodigo.get(codigo).presentacionFisica).not.toBe("NO");
       expect(porCodigo.get(codigo).requiereConteoHojas).toBe(true);
     }
 
-    // Ningún documento de garantía cuenta hojas: son fotocopias.
-    const garantiaConConteo = catalogo.documentos.filter(
-      (d: any) => d.seccion === "garantia" && d.requiereConteoHojas,
-    );
-    expect(garantiaConConteo).toEqual([]);
+    /* El seguro de accidentes pasó a solo digital: no llega papel al legajo, así
+       que su contador desaparece. Es el cambio que hace falta comprobar al
+       revés, porque un contador que reaparece produce ceros que se leen como
+       «cero hojas». */
+    expect(porCodigo.get("seguro-accidentes").presentacionFisica).toBe("NO");
+    expect(porCodigo.get("seguro-accidentes").presentacionDigital).toBe("SI");
+    expect(porCodigo.get("seguro-accidentes").requiereConteoHojas).toBe(false);
+
+    /* El folio real del bien inmueble es el ÚNICO documento de garantía que se
+       archiva en papel, y el cambio es global: la misma fila del catálogo aplica
+       a Tipo 1 y a Tipo 3. */
+    const folio = porCodigo.get("garante-folio");
+    expect(folio.presentacionFisica).toBe("SI");
+    expect(folio.presentacionDigital).toBe("SI");
+    expect(folio.requiereConteoHojas).toBe(true);
+    expect(folio.nombre).toContain("Folio real del bien inmueble");
+    expect(folio.tipoGarantia.sort()).toEqual(["COMERCIAL_1", "COMERCIAL_3"]);
+
+    // Y es el único: los demás de garantía son fotocopias.
+    const garantiaConConteo = catalogo.documentos
+      .filter((d: any) => d.seccion === "garantia" && d.requiereConteoHojas)
+      .map((d: any) => d.codigo);
+    expect(garantiaConConteo).toEqual(["garante-folio"]);
+  });
+
+  it("«Otros» es el único requisito con nombre libre y presentación editable", () => {
+    const h = loadInstalledBackend();
+    const catalogo = h.ok("documentacion.catalogo");
+
+    const libres = catalogo.documentos.filter((d: any) => d.permiteNombreLibre).map((d: any) => d.codigo);
+    expect(libres).toEqual(["otros-documento"]);
+
+    const editables = catalogo.documentos.filter((d: any) => d.presentacionEditable).map((d: any) => d.codigo);
+    expect(editables).toEqual(["otros-documento"]);
+
+    const otros = catalogo.documentos.find((d: any) => d.codigo === "otros-documento");
+    // Por defecto AMBOS, que es lo que pidió el área.
+    expect(otros.presentacionFisica).toBe("SI");
+    expect(otros.presentacionDigital).toBe("SI");
+    expect(otros.requiereConteoHojas).toBe(true);
+    // Nace fuera del cálculo de avance.
+    expect(otros.estadoInicial).toBe("NO_APLICA");
+    expect(otros.permiteNoAplica).toBe(true);
+    expect(otros.obligatorio).toBe(false);
   });
 
   it("las subsecciones de garantía llegan resueltas por rama", () => {
@@ -191,14 +237,26 @@ describe("documentación · catálogo único y aplicabilidad", () => {
       mapa.find((m: any) => m.tipoFuncionario === funcionario && m.tipoGarantia === garantia);
 
     const general = porClave("GENERAL", "NINGUNA");
-    expect(general.total).toBe(16);
+    expect(general.total).toBe(20);
+    // `propios` es lo que la rama añade a los generales: cero para General y
+    // cero para el área administrativa, que es lo que permite al asistente
+    // saltarse el paso de requisitos específicos sin recorrer el catálogo.
+    expect(general.propios).toBe(0);
+
+    const administrativo = porClave("ADMINISTRATIVO", "NINGUNA");
+    expect(administrativo.habilitada).toBe(true);
+    expect(administrativo.total).toBe(20);
+    expect(administrativo.propios).toBe(0);
+    expect(administrativo.codigos.sort()).toEqual(general.codigos.slice().sort());
 
     // Los recuentos acordados con el área, rama por rama.
-    expect(porClave("COMERCIAL", "COMERCIAL_1").total).toBe(21);
-    expect(porClave("COMERCIAL", "COMERCIAL_2").total).toBe(25);
-    expect(porClave("COMERCIAL", "COMERCIAL_3").total).toBe(21);
-    expect(porClave("AUDITORIA", "NINGUNA").total).toBe(17);
-    expect(porClave("CUMPLIMIENTO", "NINGUNA").total).toBe(19);
+    expect(porClave("COMERCIAL", "COMERCIAL_1").total).toBe(25);
+    expect(porClave("COMERCIAL", "COMERCIAL_2").total).toBe(29);
+    expect(porClave("COMERCIAL", "COMERCIAL_3").total).toBe(25);
+    expect(porClave("AUDITORIA", "NINGUNA").total).toBe(21);
+    expect(porClave("CUMPLIMIENTO", "NINGUNA").total).toBe(23);
+    expect(porClave("AUDITORIA", "NINGUNA").propios).toBe(1);
+    expect(porClave("CUMPLIMIENTO", "NINGUNA").propios).toBe(3);
 
     const tipo1 = porClave("COMERCIAL", "COMERCIAL_1");
     expect(tipo1.codigos).toContain("garante-inmueble");
@@ -255,11 +313,11 @@ describe("documentación · catálogo único y aplicabilidad", () => {
     expect(heredero.nombre).toBe("Carnet de heredero (en revisión)");
     expect(heredero.activo).toBe(false);
 
-    // Desactivado deja de ser aplicable: 15 generales en lugar de 16.
+    // Desactivado deja de ser aplicable: 19 generales en lugar de 20.
     const general = catalogo.aplicabilidad.find(
       (m: any) => m.tipoFuncionario === "GENERAL" && m.tipoGarantia === "NINGUNA",
     );
-    expect(general.total).toBe(15);
+    expect(general.total).toBe(19);
 
     // Y el espejo heredado `_CATALOGO` sigue existiendo para las acciones viejas.
     const espejo = h.rowsOf("_CATALOGO");

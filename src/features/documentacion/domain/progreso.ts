@@ -69,8 +69,14 @@ export interface ExpedienteCabecera {
 export interface RequisitoVista {
   expedienteDocumentoId: string;
   codigo: string;
+  /** Nombre EFECTIVO: el personalizado si lo hay, el del catálogo si no. */
   nombre: string;
+  /** Nombre del catálogo, para poder decir «Otros → “tal cosa”». */
+  nombreCatalogo?: string;
+  /** Lo que la persona escribió en un requisito de nombre libre. */
+  nombrePersonalizado?: string;
   descripcion: string;
+  textoObservacion?: string;
   seccion: string;
   /** Título de la subsección, ya resuelto para la rama de este expediente. */
   subseccion: string;
@@ -84,6 +90,10 @@ export interface RequisitoVista {
   presentacionDigital: "SI" | "NO";
   /** Solo los físicos llevan contador; los digitales no lo muestran ni oculto. */
   requiereConteoHojas: boolean;
+  /** ¿Admite un nombre escrito a mano? (solo `otros-documento`) */
+  permiteNombreLibre?: boolean;
+  /** ¿Se puede elegir FÍSICO / DIGITAL / AMBOS en este expediente? */
+  presentacionEditable?: boolean;
   /** Requisito retirado del proceso que este expediente sí tenía registrado. */
   heredado: boolean;
   obligatorio: boolean;

@@ -394,6 +394,9 @@ function doc2EnsureAuxiliar_() {
   }
 
   doc2CacheInvalidar_([DOC2_CACHE.AUXILIAR]);
+  // La hoja acaba de cambiar de forma: la lectura memoizada de esta petición ya
+  // no describe lo que hay.
+  doc2AuxiliarMemReset_();
 
   return {
     hoja: DOC2_SHEET.AUXILIAR,
@@ -412,22 +415,65 @@ function doc2EnsureAuxiliar_() {
  * los 300.
  */
 function doc2LeerAuxiliarCrudo_(columna) {
-  var ss = docSpreadsheet_();
-  var hoja = ss.getSheetByName(DOC2_SHEET.AUXILIAR);
-  if (!hoja) return [];
-  var indice = doc2ColumnaAuxiliar_(hoja, columna);
+  var bloque = doc2BloqueAuxiliar_();
+  if (!bloque) return [];
+  var clave = doc2ClaveCabeceraAuxiliar_(columna);
+  var indice = bloque.indice[clave] || -1;
   if (indice < 0) return [];
-  var filas = Math.max(hoja.getMaxRows(), 1);
-  if (filas < 2) return [];
-  var valores = hoja.getRange(2, indice, filas - 1, 1).getValues();
-  docCount_('hojasLeidas');
-  docCount_('filasLeidas', valores.length);
   var out = [];
-  for (var r = 0; r < valores.length; r++) {
-    var texto = docUntext_(valores[r][0]);
+  for (var r = 0; r < bloque.valores.length; r++) {
+    var texto = docUntext_(bloque.valores[r][indice - 1]);
     if (String(texto).trim()) out.push(texto);
   }
   return out;
+}
+
+/**
+ * La hoja `Auxiliar` completa, leída UNA vez por petición.
+ *
+ * ── Por qué una sola lectura y no una por columna ───────────────────────────
+ * `doc2LeerAuxiliarCrudo_` se llamaba tres veces —agencia, gerencia, cargo— y
+ * cada llamada hacía su propio `getRange(...).getValues()` sobre mil filas, más
+ * su propia lectura de la fila de cabeceras: seis viajes al servicio de Sheets
+ * para traer un rectángulo que cabe en uno. En Apps Script cada viaje cuesta
+ * entre 20 y 200 ms, así que el arranque del módulo pagaba casi un segundo por
+ * llenar tres desplegables.
+ *
+ * La lectura se memoiza POR PETICIÓN (`DOC2_AUXILIAR_MEM`), no entre peticiones:
+ * dentro de una misma ejecución la hoja no cambia sola, y entre peticiones ya
+ * hay una caché con plazo (`DOC2_CACHE.AUXILIAR`) que es la que corresponde.
+ * Confundir las dos es cómo se acaba mostrando un valor que alguien borró hace
+ * media hora.
+ */
+var DOC2_AUXILIAR_MEM = null;
+
+function doc2AuxiliarMemReset_() {
+  DOC2_AUXILIAR_MEM = null;
+}
+
+function doc2BloqueAuxiliar_() {
+  if (DOC2_AUXILIAR_MEM !== null) return DOC2_AUXILIAR_MEM.hoja ? DOC2_AUXILIAR_MEM : null;
+
+  var hoja = null;
+  try {
+    hoja = docSpreadsheet_().getSheetByName(DOC2_SHEET.AUXILIAR);
+  } catch (e) {
+    hoja = null;
+  }
+  if (!hoja) {
+    DOC2_AUXILIAR_MEM = { hoja: null, indice: {}, valores: [] };
+    return null;
+  }
+
+  var indice = doc2IndiceCabecerasAuxiliar_(hoja);
+  var filas = Math.max(hoja.getMaxRows(), 1);
+  var ancho = Math.max(hoja.getMaxColumns(), 1);
+  var valores = filas < 2 ? [] : hoja.getRange(2, 1, filas - 1, ancho).getValues();
+  docCount_('hojasLeidas');
+  docCount_('filasLeidas', valores.length);
+
+  DOC2_AUXILIAR_MEM = { hoja: hoja, indice: indice, valores: valores };
+  return DOC2_AUXILIAR_MEM;
 }
 
 /**
@@ -528,6 +574,7 @@ function doc2AgregarAuxiliar_(columna, valores) {
   docCount_('filasEscritas', bloque.length);
 
   doc2CacheInvalidar_([DOC2_CACHE.AUXILIAR, DOC2_CACHE.CATALOGO]);
+  doc2AuxiliarMemReset_();
   return { columna: columna, agregados: nuevos, total: crudos.length + nuevos.length };
 }
 
@@ -538,9 +585,21 @@ function doc2AgregarAuxiliar_(columna, valores) {
  * Es lo que permite añadir un valor DEBAJO de todo lo escrito sin pisar nada.
  */
 function doc2UltimaFilaDeColumna_(hoja, indice) {
+  /* Se reutiliza el bloque ya leído de la petición cuando está disponible: esta
+     función se llama una vez por columna al añadir valores, y sin la memoria
+     volvía a leer mil filas por cada una. */
+  var bloque = doc2BloqueAuxiliar_();
+  var valores;
+  if (bloque && bloque.hoja === hoja && bloque.valores.length && indice <= bloque.valores[0].length) {
+    var ultimaMem = 0;
+    for (var m = 0; m < bloque.valores.length; m++) {
+      if (String(docUntext_(bloque.valores[m][indice - 1])).trim()) ultimaMem = m + 1;
+    }
+    return ultimaMem;
+  }
   var filas = Math.max(hoja.getMaxRows(), 1);
   if (filas < 2) return 0;
-  var valores = hoja.getRange(2, indice, filas - 1, 1).getValues();
+  valores = hoja.getRange(2, indice, filas - 1, 1).getValues();
   var ultima = 0;
   for (var r = 0; r < valores.length; r++) {
     if (String(docUntext_(valores[r][0])).trim()) ultima = r + 1;

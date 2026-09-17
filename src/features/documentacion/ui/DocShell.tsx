@@ -211,7 +211,7 @@ export function DocShell({
           className={`${menuAbierto ? "block" : "hidden"} doc-no-print w-full shrink-0 lg:block lg:w-56`}
           aria-label="Secciones del módulo de Documentación"
         >
-          <div className="glass rounded-3xl p-2 lg:sticky lg:top-4 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
+          <div className="doc-scroll glass rounded-3xl p-2 lg:sticky lg:top-4 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto">
             {grupos.map((grupo) => (
               <div key={grupo.id} className="mb-1 last:mb-0">
                 <p className="doc-nav-group-label" id={`${idMenu}-${grupo.id}`}>

@@ -803,12 +803,18 @@ function ListaTarjetas({
 }) {
   if (!expedientes.length) return <>{vacio}</>;
   return (
-    <ul className="doc-list-long grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <ul className="doc-list-fichas grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {expedientes.map((expediente) => {
         const incidencia = incidenciaDe(expediente);
         return (
           <li key={expediente.expedienteId}>
-            <article className="doc-surface doc-print-keep flex h-full flex-col gap-2 p-3.5" style={nombreDeVistaSeguro(expediente.expedienteId)}>
+            {/* `doc-elevable`: la tarjeta se levanta 2 px al pasar el puntero.
+                Es la señal de que se puede abrir, y se compone en la GPU
+                (`translate3d`) sin volver a medir la rejilla. */}
+            <article
+              className="doc-surface doc-elevable doc-print-keep flex h-full flex-col gap-2 p-3.5"
+              style={nombreDeVistaSeguro(expediente.expedienteId)}
+            >
               <header className="min-w-0">
                 <TextoCompleto texto={expediente.nombre} className="text-sm font-semibold text-[color:var(--doc-text)]" />
                 <p className="doc-metric mt-0.5 truncate text-[11px] text-[color:var(--doc-text-faint)]">

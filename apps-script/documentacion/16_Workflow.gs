@@ -282,9 +282,17 @@ function doc2ProrrogaVista_(fila) {
   };
 }
 
-/** Nombre visible de un código de documento. */
-function doc2NombreDeCodigo_(codigo) {
+/**
+ * Nombre visible de un código de documento.
+ *
+ * Con `fila` delante se resuelve el nombre EFECTIVO —el personalizado gana—, que
+ * es el que la persona escribió. Sin ella se contesta con el catálogo: es lo
+ * correcto cuando la pregunta es «cómo se llama este requisito» y no «cómo se
+ * llama en este expediente».
+ */
+function doc2NombreDeCodigo_(codigo, fila) {
   var def = doc2CatalogoItem_(codigo);
+  if (fila) return doc2NombreEfectivoRequisito_(fila, def);
   return (def && def.nombre_visible) || String(codigo || '');
 }
 

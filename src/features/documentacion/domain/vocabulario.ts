@@ -330,6 +330,12 @@ export const TIPOS_FUNCIONARIO: TipoRama[] = [
   { codigo: "COMERCIAL", etiqueta: "Funcionario comercial", activo: true, descripcion: "Añade la garantía comercial según el tipo elegido." },
   { codigo: "AUDITORIA", etiqueta: "Auditoría interna", activo: true, descripcion: "Añade la declaración de impedimento para ser auditor." },
   { codigo: "CUMPLIMIENTO", etiqueta: "Cumplimiento / UIF", activo: true, descripcion: "Añade la acreditación LGI/FT y el examen de la UIF." },
+  {
+    codigo: "ADMINISTRATIVO",
+    etiqueta: "Funcionario área administrativa",
+    activo: true,
+    descripcion: "Solo los requisitos generales: esta rama no añade documentación adicional.",
+  },
   { codigo: "EJECUTIVO", etiqueta: "Funcionario ejecutivo", activo: false, descripcion: "En construcción: la lista de requisitos está en definición." },
   { codigo: "DIRECTORIO", etiqueta: "Directorio", activo: false, descripcion: "En construcción: la lista de requisitos está en definición." },
 ];

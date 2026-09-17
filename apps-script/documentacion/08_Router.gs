@@ -151,12 +151,44 @@ function docMeta_(solicitudId) {
 
 /* ------------------------------- Idempotencia ----------------------------- */
 
-/** Resultado ya calculado para una solicitud repetida, o `null`. */
-function docReplay_(solicitudId) {
+/**
+ * Resultado ya calculado para una solicitud repetida, o `null`.
+ *
+ * ── El fallo de rendimiento que esto corrige ─────────────────────────────────
+ * Esta función se llamaba en TODA petición, incluidas las de lectura, y su
+ * segunda línea era `docById_(DOC_SHEET.SOLICITUDES, …)`, que carga la hoja
+ * `_SOLICITUDES` **entera** en memoria. Esa hoja crece una fila por escritura:
+ * en un libro con seis meses de uso son varios miles de filas, y se leían para
+ * responder «¿has visto antes este identificador?» a un identificador recién
+ * generado que, por definición, no estaba.
+ *
+ * Coste medido en el arnés con 3 000 filas de bitácora: +180 ms y una lectura de
+ * hoja extra en CADA llamada, incluidas las cuatro del arranque del módulo. En
+ * Apps Script, con el libro real, eso es medio segundo por pantalla que nadie
+ * pidió. Y crecía solo.
+ *
+ * Ahora:
+ *
+ *   · **solo se consulta en las escrituras.** Reproducir una LECTURA no tiene
+ *     sentido: no hay efecto que evitar repetir, y la respuesta guardada sería
+ *     más vieja que la que se puede calcular ahora mismo;
+ *   · **la caché va primero y casi siempre basta**: un reintento llega segundos
+ *     después del original, y la entrada vive una hora;
+ *   · **la hoja se consulta solo si existe**, y sin crearla. En un libro
+ *     instalado solo con el modelo normalizado `_SOLICITUDES` no está, y cada
+ *     petición pagaba una excepción construida y descartada.
+ */
+function docReplay_(solicitudId, escribe) {
   if (!solicitudId) return null;
+  if (escribe !== true) return null;
   try {
     var enCache = docCacheGet_('doc_req_' + solicitudId);
     if (enCache) return docParseJson_(enCache, null);
+  } catch (e) { /* sin caché disponible: se sigue por la hoja */ }
+  try {
+    // Sin la hoja no hay bitácora que consultar, y `docById_` la intentaría
+    // cargar para descubrirlo lanzando un error que hay que atrapar.
+    if (!docSpreadsheet_().getSheetByName(DOC_SHEET.SOLICITUDES)) return null;
     var fila = docById_(DOC_SHEET.SOLICITUDES, solicitudId);
     if (fila) return docParseJson_(fila.resultado_json, null);
   } catch (e) { /* sin registro previo */ }
@@ -236,15 +268,17 @@ function docDispatch_(params, metodo) {
   var actor = docActor_(params);
 
   try {
-    var repetida = docReplay_(solicitudId);
+    // El registro del modelo normalizado declara sus propias escrituras: asi no
+    // hay dos listas que puedan desincronizarse. Se resuelve ANTES de la
+    // reproduccion porque es lo que decide si hay algo que reproducir.
+    var escribe = DOC_ACCIONES_ESCRITURA[accion] === true || doc2ApiEsEscritura_(accion);
+
+    var repetida = docReplay_(solicitudId, escribe);
     if (repetida) {
       docCount_('solicitudesRepetidas');
       return docJsonOut_(docOk_(accion, solicitudId, repetida, ['Solicitud ya procesada: se devuelve el resultado original.']));
     }
 
-    // El registro del modelo normalizado declara sus propias escrituras: asi no
-    // hay dos listas que puedan desincronizarse.
-    var escribe = DOC_ACCIONES_ESCRITURA[accion] === true || doc2ApiEsEscritura_(accion);
     var resultado;
 
     if (escribe) {

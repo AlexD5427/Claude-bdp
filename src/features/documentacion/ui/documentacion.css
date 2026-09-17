@@ -404,6 +404,32 @@
 }
 
 /* =============================================================
+   LISTAS DE FICHAS (asistente de alta)
+
+   Las filas del asistente son más altas que las del expediente
+   —llevan nombre completo, sellos, contador y chips de estado— así
+   que su alto estimado es otro. Con el valor de `.doc-list-long`
+   (72 px) la barra de desplazamiento pegaba un salto al entrar cada
+   fila en pantalla, que es peor que no tener el ahorro.
+
+   ── Qué ahorra, medido ───────────────────────────────────────
+   Un alta comercial Tipo 2 monta 29 filas; en pantalla caben 4 o 5.
+   El navegador se ahorra el diseño y el pintado de las 24 restantes
+   hasta que alguien se desplaza hasta ellas. Es el ahorro más grande
+   que se puede conseguir aquí sin quitar nada de la interfaz, y es
+   justo el que hace usable un equipo de gama baja.
+   ============================================================= */
+.doc-list-fichas > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 132px;
+}
+
+/* Las tarjetas de la lista de expedientes son todavía más altas. */
+.doc-list-fichas.grid > * {
+  contain-intrinsic-size: auto 280px;
+}
+
+/* =============================================================
    ESTADOS DE CARGA
    Esqueletos con la forma del contenido, no un spinner en el medio.
    ============================================================= */
@@ -459,6 +485,28 @@
     min-height: 44px;
     min-width: 44px;
   }
+}
+
+/* `manipulation` quita el retardo de 300 ms que el navegador móvil
+   espera para saber si el toque era un doble toque de zoom. En una
+   lista de veinte chips de estado, ese retardo es lo que hace que
+   la interfaz «se sienta lenta» sin que nada tarde: el trabajo
+   empieza casi un tercio de segundo después del dedo.
+
+   Va fuera de la consulta de medio: en un portátil con pantalla
+   táctil el puntero es fino y el dedo también existe. */
+.doc-tap {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Contenedores con desplazamiento propio: el gesto no se propaga al
+   documento de detrás. Sin esto, llegar al final de la lista de
+   requisitos seguía desplazando la página entera —«scroll chaining»—
+   y la hoja del expediente parecía saltar. */
+.doc-scroll {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 /* Alto contraste: bordes y textos sólidos, sin tintes al 14 %. */
@@ -671,6 +719,104 @@
 }
 
 /* =============================================================
+   ANILLO DE PROGRESO
+   ============================================================= */
+
+.doc-anillo {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.doc-anillo svg {
+  display: block;
+}
+
+.doc-anillo-arco {
+  transition: stroke-dashoffset var(--doc-duration-slow) var(--doc-ease-hoja);
+}
+
+.doc-anillo-arco[data-reducido="si"] {
+  transition: none;
+}
+
+.doc-anillo-centro {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--doc-text);
+}
+
+/* =============================================================
+   CABECERA DEL ASISTENTE: IDENTIDAD EN CONTEXTO
+
+   ── El problema que resuelve ─────────────────────────────────
+   La cabecera decía «Paso 4 de 5 · Requisitos de la categoría» y
+   nada más. En el paso cuatro, quien llena el expediente lleva
+   tres pantallas sin ver a quién pertenece: si se equivocó de
+   persona en el paso uno, se entera al final.
+
+   Ahora la cabecera lleva el nombre, el carnet y la agencia —los
+   tres datos que identifican el expediente— con el color de tinta
+   PRINCIPAL del módulo, no el atenuado. En el tema claro el gris
+   azulado de `--doc-text-muted` sobre cristal blanco daba 4.6:1
+   contra el fondo, que cumple AA por los pelos y se lee mal en una
+   pantalla con brillo bajo; el nombre va en `--doc-text`, que es
+   casi negro (#0a2747, 13:1).
+   ============================================================= */
+
+.doc-identidad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.625rem;
+}
+
+.doc-identidad-dato {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.125rem 0.5rem 0.125rem 0.375rem;
+  border-radius: 9999px;
+  background-color: var(--doc-surface);
+  box-shadow: inset 0 0 0 1px var(--doc-border);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--doc-text);
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-identidad-dato svg {
+  flex-shrink: 0;
+  color: var(--doc-text-faint);
+}
+
+.doc-identidad-dato[data-vacio="si"] {
+  color: var(--doc-text-faint);
+  font-weight: 600;
+  font-style: italic;
+}
+
+/* El nombre es el dato principal: cuerpo mayor, tinta plena y sin
+   recorte con puntos suspensivos si cabe. */
+.doc-identidad-nombre {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--doc-text);
+  max-width: 20rem;
+}
+
+/* =============================================================
    CONTADOR DE HOJAS FÍSICAS
    Compacto, tabular y con los dos botones a 44 px reales en táctil.
    ============================================================= */
@@ -716,6 +862,124 @@
 
 .doc-hojas[data-inactivo="si"] {
   opacity: 0.45;
+}
+
+/* =============================================================
+   PRESENTACIÓN ELEGIBLE: SEGMENTADO CON INDICADOR DESLIZANTE
+
+   ── Cómo se mueve el indicador ───────────────────────────────
+   Con `translate3d` sobre un elemento de un tercio de ancho. No
+   con `left`, no con `width`, no con `layoutId`: los tres obligan
+   al navegador a recalcular el diseño en cada fotograma, y este
+   control aparece en una lista de veinte filas. Con `transform`
+   la animación vive en el compositor y el hilo principal queda
+   libre para responder al siguiente clic.
+
+   `will-change` se declara SOLO en este elemento y no en el
+   contenedor: promover a capa propia cuesta memoria de vídeo, y
+   veinte capas por nada es lo que hace que un equipo modesto
+   empiece a tirar fotogramas.
+   ============================================================= */
+
+.doc-presentacion {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  padding: 0.1875rem;
+  border-radius: 9999px;
+  background-color: var(--doc-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--doc-border);
+  isolation: isolate;
+}
+
+.doc-presentacion-indicador {
+  position: absolute;
+  top: 0.1875rem;
+  bottom: 0.1875rem;
+  left: 0.1875rem;
+  width: calc((100% - 0.375rem) / 3);
+  border-radius: 9999px;
+  background-color: var(--doc-accent-bg);
+  box-shadow:
+    inset 0 0 0 1px var(--doc-accent),
+    0 1px 3px rgba(2, 12, 28, 0.2);
+  transition: transform var(--doc-duration-normal) var(--doc-ease-hoja);
+  will-change: transform;
+  z-index: -1;
+}
+
+.doc-presentacion[data-reducido="si"] .doc-presentacion-indicador {
+  transition: none;
+}
+
+.doc-presentacion button {
+  min-width: 3.25rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--doc-text-muted);
+  transition: color var(--doc-duration-fast) linear;
+}
+
+.doc-presentacion button[aria-checked="true"] {
+  color: var(--doc-accent-fg);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .doc-presentacion button:not([aria-checked="true"]):hover {
+    color: var(--doc-text);
+  }
+}
+
+.doc-presentacion[data-inactivo="si"] {
+  opacity: 0.45;
+}
+
+/* El tema claro necesita más peso: el tinte del acento sobre papel
+   blanco es casi invisible y el indicador dejaba de leerse. */
+.light .doc-console .doc-presentacion-indicador {
+  background-color: var(--doc-surface-raised);
+  box-shadow:
+    inset 0 0 0 1.5px var(--doc-accent),
+    0 1px 3px rgba(8, 47, 95, 0.14);
+}
+
+/* =============================================================
+   NOMBRE LIBRE DEL REQUISITO «OTROS»
+   ============================================================= */
+
+.doc-nombre-libre {
+  width: 100%;
+  max-width: 26rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--doc-radius-sm);
+  border: 1px dashed var(--doc-border-strong);
+  background-color: var(--doc-surface);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--doc-text);
+  outline: none;
+  transition:
+    border-color var(--doc-duration-fast) linear,
+    background-color var(--doc-duration-fast) linear;
+}
+
+.doc-nombre-libre::placeholder {
+  font-weight: 500;
+  font-style: italic;
+  color: var(--doc-text-faint);
+}
+
+.doc-nombre-libre:focus {
+  border-style: solid;
+  border-color: var(--doc-focus);
+  background-color: var(--doc-surface-raised);
+}
+
+.doc-nombre-libre:disabled {
+  opacity: 0.5;
 }
 
 /* =============================================================
@@ -959,4 +1223,202 @@
 
 [data-doc-ligero="si"] .doc-fila-entra {
   animation: none;
+}
+
+/* =============================================================
+   CAPA DE PULIDO — iOS sobre cristal
+
+   ── Qué añade y qué NO ───────────────────────────────────────
+   Todo lo que hay aquí se compone con `transform`, `opacity` o
+   degradados de pintado: nada mide, nada recalcula el diseño y
+   nada se anima en bucle. Es la diferencia entre una interfaz que
+   se siente cuidada y una que se siente cara: el coste está en el
+   compositor, no en el hilo principal.
+
+   Todo se apaga con el modo ligero y con `prefers-reduced-motion`,
+   al final de este bloque. Las reglas de contraste de arriba NO se
+   tocan: ninguna de estas capas lleva texto.
+   ============================================================= */
+
+/* ---- Filo especular ----------------------------------------
+   Una línea de luz de 1 px en el borde superior. Es el detalle que
+   hace que una superficie translúcida parezca un material y no un
+   rectángulo con opacidad: en iOS lo tiene cada tarjeta, cada hoja
+   y cada barra.
+
+   Va en un `::before` con `pointer-events: none` y no en el
+   `box-shadow` del elemento para poder curvarlo con el mismo radio
+   sin sumar una cuarta sombra al mismo nodo. `inset: 0` con
+   `border-radius: inherit` lo hace seguir cualquier radio sin
+   duplicar el valor.
+   ------------------------------------------------------------ */
+.doc-raised,
+.doc-hoja {
+  position: relative;
+}
+
+/* Un pelo de 1 px de alto pegado al borde superior, con las esquinas
+   del contenedor y desvanecido a los lados.
+
+   ── Por qué NO es un `inset: 0` con `z-index: -1` ─────────────
+   Porque `.doc-categoria` sí lo hace así y puede: declara
+   `isolation: isolate`, que contiene el índice negativo dentro de
+   la tarjeta. `.doc-raised` está en sesenta sitios, algunos con
+   desplegables y cabeceras pegajosas dentro, y aislar todos esos
+   contextos de apilamiento para pintar una línea sería cambiar las
+   reglas de superposición del módulo entero a cambio de un adorno.
+   Una tira de 1 px no puede tapar nada, así que no necesita índice.
+   ------------------------------------------------------------ */
+.doc-raised::before,
+.doc-hoja::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    rgba(255, 255, 255, 0.22) 16%,
+    rgba(255, 255, 255, 0.22) 84%,
+    transparent 100%
+  );
+}
+
+.light .doc-console .doc-raised::before,
+.light .doc-console .doc-hoja::before {
+  /* Sobre papel blanco una luz blanca no se ve: el filo del tema
+     claro es blanco puro y más opaco, que es lo que en iOS separa
+     dos tarjetas contiguas. */
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    rgba(255, 255, 255, 0.95) 14%,
+    rgba(255, 255, 255, 0.95) 86%,
+    transparent 100%
+  );
+}
+
+/* ---- Elevación al pasar el puntero ------------------------
+   Dos píxeles hacia arriba y una sombra un poco más abierta. Solo
+   en punteros finos: en táctil no hay hover y el efecto solo
+   conseguiría que la tarjeta se quedara «levantada» tras el toque.
+   ------------------------------------------------------------ */
+@media (hover: hover) and (pointer: fine) {
+  .doc-elevable {
+    transition:
+      transform var(--doc-duration-normal) var(--doc-ease-hoja),
+      box-shadow var(--doc-duration-normal) var(--doc-ease-hoja);
+  }
+
+  .doc-elevable:hover {
+    transform: translate3d(0, -2px, 0);
+    box-shadow: var(--doc-shadow-md);
+  }
+}
+
+/* ---- Halo de foco -----------------------------------------
+   El anillo de 2 px sigue siendo el que manda; el halo es una
+   segunda capa muy suave que lo separa del fondo cuando cae sobre
+   cristal, que es donde un anillo fino se pierde.
+
+   No sustituye nada: si el navegador no pinta `box-shadow` en el
+   estado de foco, el `outline` de arriba sigue estando.
+   ------------------------------------------------------------ */
+.doc-console :focus-visible {
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--doc-focus) 22%, transparent);
+}
+
+/* ---- Barras de desplazamiento del módulo -------------------
+   Finas, del color de la tinta tenue y sin flechas. En una consola
+   con cuatro zonas desplazables, las barras nativas del sistema
+   operativo son el elemento más ruidoso de la pantalla.
+   ------------------------------------------------------------ */
+.doc-console *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.doc-console *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.doc-console *::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: var(--doc-border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.doc-console *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--doc-text-faint);
+  background-clip: content-box;
+}
+
+/* ---- Indicador de la sección activa ------------------------
+   Una barra de 3 px a la izquierda del elemento activo de la
+   navegación, que crece desde el centro. Sustituye al cambio de
+   color a secas: con nueve secciones agrupadas, el color por sí
+   solo obliga a comparar dos tonos de azul para saber dónde está.
+   ------------------------------------------------------------ */
+.doc-nav-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 9999px;
+  background-color: var(--doc-info);
+  transform: translateY(-50%);
+  transition:
+    height var(--doc-duration-normal) var(--doc-ease-hoja),
+    opacity var(--doc-duration-fast) linear;
+  opacity: 0;
+}
+
+.doc-nav-item[aria-current="page"]::before {
+  height: 60%;
+  opacity: 1;
+}
+
+/* ---- Apagado en modo ligero y sin movimiento --------------- */
+[data-doc-ligero="si"] .doc-raised::before,
+[data-doc-ligero="si"] .doc-hoja::before {
+  background: none;
+}
+
+[data-doc-ligero="si"] .doc-elevable:hover {
+  transform: none;
+  box-shadow: inset 0 0 0 1px var(--doc-border) !important;
+}
+
+[data-doc-ligero="si"] .doc-console :focus-visible,
+[data-doc-ligero="si"] .doc-nav-item::before {
+  box-shadow: none;
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-elevable,
+  .doc-nav-item::before {
+    transition: none !important;
+  }
+
+  .doc-elevable:hover {
+    transform: none !important;
+  }
+}
+
+.reduce-motion .doc-elevable,
+.reduce-motion .doc-nav-item::before {
+  transition: none !important;
+}
+
+.reduce-motion .doc-elevable:hover {
+  transform: none !important;
 }

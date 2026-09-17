@@ -299,10 +299,15 @@ const retirados = harness.read("doc2CodigosRetirados_()");
 const generales = semilla.filter((d) => d.seccion === "generales");
 const generalesVigentes = generales.filter((d) => d.retirado !== true);
 
-/* Los 16 generales de la lista que entregó el área, en su orden y con su
+/* Los 20 generales de la lista que entregó el área, en su orden y con su
    redacción. La comprobación es por CÓDIGO: renombrar un código rompería los
    expedientes guardados, así que lo que se verifica es que la lista vigente sea
-   exactamente esta y en este orden. */
+   exactamente esta y en este orden.
+
+   Los cuatro últimos son los del legajo administrativo (catálogo v4) y van AL
+   FINAL a propósito: el `orden` sale de la posición en la semilla, así que
+   ponerlos al final es lo que hace que aparezcan después de los dieciséis
+   originales sin renumerar nada. */
 const GENERALES_VIGENTES = [
   "foto-4x4",
   "antecedentes-felcc",
@@ -320,15 +325,19 @@ const GENERALES_VIGENTES = [
   "seguro-accidentes",
   "seguro-vida",
   "carnet-heredero",
+  "manual-funciones",
+  "memorandum-designacion",
+  "comunicacion-interna",
+  "otros-documento",
 ];
 const ordenGenerales = generalesVigentes.map((d) => d.codigo);
 if (ordenGenerales.join("|") !== GENERALES_VIGENTES.join("|")) {
   fallo(
-    "Los 16 documentos generales no coinciden con la lista del área",
+    "Los 20 documentos generales no coinciden con la lista del área",
     `Esperado: ${GENERALES_VIGENTES.join(", ")}. Encontrado: ${ordenGenerales.join(", ")}.`,
   );
 } else {
-  ok("16 documentos generales vigentes, en el orden de la lista del área");
+  ok("20 documentos generales vigentes, en el orden de la lista del área");
 }
 
 const RETIRADOS_ESPERADOS = ["cert-trabajo", "rc-iva"];
@@ -342,22 +351,23 @@ if (RETIRADOS_ESPERADOS.some((c) => !retirados.includes(c)) || retirados.length 
   ok("cert-trabajo y rc-iva están retirados, no borrados");
 }
 
-if (semilla.length !== 39) {
-  fallo("El catálogo no tiene 39 documentos", `Tiene ${semilla.length}.`);
+if (semilla.length !== 43) {
+  fallo("El catálogo no tiene 43 documentos", `Tiene ${semilla.length}.`);
 } else {
-  ok("39 documentos en el catálogo canónico (37 vigentes + 2 retirados)");
+  ok("43 documentos en el catálogo canónico (41 vigentes + 2 retirados)");
 }
 
 /* Recuentos por rama. Es la comprobación que impide que un cambio de
    aplicabilidad pase inadvertido: el asistente, el visor y los reportes leen
    todos de aquí, así que si esto se mueve se mueve el módulo entero. */
 const RAMAS_ESPERADAS = [
-  ["GENERAL", "NINGUNA", 16],
-  ["COMERCIAL", "COMERCIAL_1", 21],
-  ["COMERCIAL", "COMERCIAL_2", 25],
-  ["COMERCIAL", "COMERCIAL_3", 21],
-  ["AUDITORIA", "NINGUNA", 17],
-  ["CUMPLIMIENTO", "NINGUNA", 19],
+  ["GENERAL", "NINGUNA", 20],
+  ["ADMINISTRATIVO", "NINGUNA", 20],
+  ["COMERCIAL", "COMERCIAL_1", 25],
+  ["COMERCIAL", "COMERCIAL_2", 29],
+  ["COMERCIAL", "COMERCIAL_3", 25],
+  ["AUDITORIA", "NINGUNA", 21],
+  ["CUMPLIMIENTO", "NINGUNA", 23],
 ];
 const desviaciones = [];
 for (const [funcionario, garantia, esperado] of RAMAS_ESPERADAS) {
@@ -367,7 +377,7 @@ for (const [funcionario, garantia, esperado] of RAMAS_ESPERADAS) {
 if (desviaciones.length) {
   fallo("Los recuentos por rama no son los acordados con el área", desviaciones.join("; "));
 } else {
-  ok("recuentos por rama: General 16 · T1 21 · T2 25 · T3 21 · Auditoría 17 · Cumplimiento 19");
+  ok("recuentos por rama: General 20 · Administrativo 20 · T1 25 · T2 29 · T3 25 · Auditoría 21 · Cumplimiento 23");
 }
 
 /* Subsecciones: el caso del documento compartido entre Tipo 1 y Tipo 3 es la
@@ -387,13 +397,21 @@ if (subT1 === subT3 || !subT1 || !subT3) {
   ok(`garante-inmueble cambia de subsección por rama ("${subT1}" / "${subT3}")`);
 }
 
-/* Contador de hojas: solo los físicos, y exactamente los nueve acordados. */
+/* Contador de hojas: exactamente los doce acordados con el área.
+   `seguro-accidentes` SALIÓ de la lista (pasó a solo digital: no llega papel al
+   legajo) y entraron los tres generales administrativos, el «Otros»
+   personalizable y `garante-folio`, el folio real del bien inmueble, que es el
+   único documento de garantía que se archiva en papel. */
 const CON_CONTEO_ESPERADO = [
   "antecedentes-felcc",
   "rejap",
   "titulo-legalizado",
-  "seguro-accidentes",
   "seguro-vida",
+  "manual-funciones",
+  "memorandum-designacion",
+  "comunicacion-interna",
+  "otros-documento",
+  "garante-folio",
   "impedimento-auditor",
   "djj-prohibiciones-cumplimiento",
   "lgi-ft",
@@ -410,10 +428,10 @@ if (sobran.length || faltanConteo.length) {
       sobran.length ? `sobran: ${sobran.join(", ")}` : "",
     ]
       .filter(Boolean)
-      .join(" · ") + ". Los de garantía nunca llevan contador.",
+      .join(" · "),
   );
 } else {
-  ok(`${conConteo.length} documentos físicos con contador de hojas, ninguno de garantía`);
+  ok(`${conConteo.length} documentos con contador de hojas, y el seguro de accidentes ya no lleva`);
 }
 
 /* Coherencia de la presentación: nada puede ser ni físico ni digital. */
@@ -561,6 +579,178 @@ const motivos = harness.read("DOC2_MOTIVOS_REVISION").map((m) => m.codigo);
 const faltanMotivos = motivos.filter((m) => !vocabulario.includes(`"${m}"`));
 if (faltanMotivos.length) fallo("Faltan motivos de revisión en el cliente", faltanMotivos.join(", "));
 else ok(`${motivos.length} motivos de revisión compartidos`);
+
+/* ------------------------------------------------------------------ */
+/* 7. Rendimiento de pintado                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Auditoría estática de la capa visual.
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────
+ * Las sondas de navegador miden el coste real, pero necesitan Playwright y no
+ * corren en todas las máquinas. Estas seis comprobaciones no miden nada: revisan
+ * INVARIANTES que, si se rompen, garantizan que el coste va a subir. Son las
+ * reglas que este módulo aprendió a base de medir, escritas de forma que un
+ * cambio futuro no las pueda deshacer sin que alguien se entere.
+ *
+ * Es el mismo razonamiento que los recuentos del catálogo: no comprueban que el
+ * módulo sea correcto, comprueban que sigue siendo el que se acordó.
+ */
+
+seccion("Rendimiento de pintado");
+
+const DIR_UI = join(raiz, "src", "features", "documentacion", "ui");
+const CSS_MODULO = readdirSync(DIR_UI)
+  .filter((f) => f.endsWith(".css"))
+  .map((f) => ({ nombre: f, texto: leer(join(DIR_UI, f)) }));
+
+if (!CSS_MODULO.length) fallo("No se encontró la capa CSS del módulo", DIR_UI);
+else ok(`${CSS_MODULO.length} hojas de estilo del módulo presentes`);
+
+/* 1 · Ningún fotograma clave anima una propiedad de DISEÑO.
+   Animar `width`, `height` o `top` obliga al navegador a recalcular el diseño
+   en cada fotograma de la animación, y a repintar todo lo que haya debajo. Con
+   `transform` y `opacity` el trabajo lo hace el compositor. Es la diferencia
+   entre 60 fps y 20 en un equipo sin GPU decente. */
+const PROPIEDADES_DE_DISENO = [
+  "width",
+  "height",
+  "top",
+  "left",
+  "right",
+  "bottom",
+  "margin",
+  "padding",
+  "font-size",
+  "line-height",
+];
+const keyframesCaros = [];
+for (const hoja of CSS_MODULO) {
+  const bloques = hoja.texto.match(/@keyframes\s+([\w-]+)\s*\{[\s\S]*?\n\}/g) ?? [];
+  for (const bloque of bloques) {
+    const nombre = (bloque.match(/@keyframes\s+([\w-]+)/) ?? [])[1] ?? "?";
+    for (const propiedad of PROPIEDADES_DE_DISENO) {
+      // Se busca la propiedad como DECLARACIÓN (`width:`), no dentro de otra
+      // (`max-width`, `border-top-left-radius`).
+      if (new RegExp(`(?:^|[;{\\s])${propiedad}\\s*:`, "m").test(bloque)) {
+        keyframesCaros.push(`${hoja.nombre} · @keyframes ${nombre} anima ${propiedad}`);
+      }
+    }
+  }
+}
+if (keyframesCaros.length) {
+  fallo(
+    "Hay animaciones que recalculan el diseño en cada fotograma",
+    `${keyframesCaros.join("; ")}. Use transform/opacity: el compositor las resuelve sin tocar el hilo principal.`,
+  );
+} else {
+  ok("ninguna animación CSS del módulo anima una propiedad de diseño");
+}
+
+/* 2 · Ninguna transición usa `all`.
+   `transition: all` anima también las propiedades que cambien por accidente
+   —incluida alguna de diseño— y deja al navegador vigilándolas todas. */
+const conTransitionAll = CSS_MODULO.filter((h) => /transition:\s*all\b/.test(h.texto)).map((h) => h.nombre);
+if (conTransitionAll.length) {
+  fallo("Hay transiciones declaradas con `all`", `${conTransitionAll.join(", ")}. Enumere las propiedades que cambian.`);
+} else {
+  ok("ninguna transición del módulo usa `all`");
+}
+
+/* 3 · `content-visibility: auto` siempre con su alto estimado.
+   Sin `contain-intrinsic-size`, el navegador da altura cero a lo que no se ve y
+   la barra de desplazamiento salta cada vez que una fila entra en pantalla. El
+   ahorro es real y la experiencia, peor que sin él. */
+const cvSinTamano = [];
+for (const hoja of CSS_MODULO) {
+  const reglas = hoja.texto.match(/[^}]*\{[^}]*content-visibility\s*:\s*auto[^}]*\}/g) ?? [];
+  for (const regla of reglas) {
+    if (!/contain-intrinsic-size/.test(regla)) {
+      cvSinTamano.push(`${hoja.nombre}: ${regla.split("{")[0].trim()}`);
+    }
+  }
+}
+if (cvSinTamano.length) {
+  fallo("Hay `content-visibility: auto` sin alto estimado", `${cvSinTamano.join("; ")}. Añada contain-intrinsic-size.`);
+} else {
+  const cuantos = CSS_MODULO.reduce(
+    (n, h) => n + (h.texto.match(/content-visibility\s*:\s*auto/g) ?? []).length,
+    0,
+  );
+  ok(`${cuantos} listas con salto de diseño diferido, todas con alto estimado`);
+}
+
+/* 4 · El modo ligero apaga TODOS los desenfoques del módulo.
+   Un `backdrop-filter` que se olvida en la lista es el caso que ya pasó una
+   vez: la cabecera pegajosa de la tabla —diez celdas desenfocando contenido en
+   movimiento, el caso más caro que existe— no estaba, y el modo ligero no
+   ahorraba nada. */
+const selectoresConDesenfoque = new Set();
+for (const hoja of CSS_MODULO) {
+  const reglas = hoja.texto.match(/[^{}]*\{[^}]*backdrop-filter[^}]*\}/g) ?? [];
+  for (const regla of reglas) {
+    const selector = regla.split("{")[0].trim();
+    if (/data-doc-ligero/.test(selector)) continue;
+    for (const parte of selector.split(",")) {
+      const limpio = parte.trim();
+      if (limpio) selectoresConDesenfoque.add(limpio);
+    }
+  }
+}
+const apagadosEnLigero = CSS_MODULO.map((h) => h.texto).join("\n");
+const sinApagar = [...selectoresConDesenfoque].filter((selector) => {
+  const clase = (selector.match(/\.[\w-]+/g) ?? []).slice(-1)[0];
+  if (!clase) return false;
+  return !new RegExp(`\\[data-doc-ligero="si"\\][^{]*\\${clase}`).test(apagadosEnLigero);
+});
+if (sinApagar.length) {
+  fallo("El modo ligero no apaga todos los desenfoques", sinApagar.join(", "));
+} else {
+  ok(`${selectoresConDesenfoque.size || "los"} desenfoques del módulo se apagan en modo ligero`);
+}
+
+/* 5 · `will-change` solo donde hay algo que va a cambiar.
+   Promover un elemento a capa propia cuesta memoria de vídeo. Declararlo «por
+   si acaso» en un contenedor que aparece veinte veces es cómo un equipo modesto
+   empieza a tirar fotogramas sin que nada se mueva. */
+const willChangeHuerfano = [];
+for (const hoja of CSS_MODULO) {
+  const reglas = hoja.texto.match(/[^{}]*\{[^}]*will-change[^}]*\}/g) ?? [];
+  for (const regla of reglas) {
+    if (/will-change\s*:\s*auto/.test(regla)) continue;
+    if (!/(transition|animation)\s*:/.test(regla)) {
+      const selector = regla.split("{")[0].trim();
+      /* Se admite que la transición esté en la regla base y el `will-change` en
+         la misma clase: se busca la clase en todo el archivo. */
+      const clase = (selector.match(/\.[\w-]+/g) ?? []).slice(-1)[0];
+      if (clase && new RegExp(`\\${clase}[^{]*\\{[^}]*(transition|animation)\\s*:`).test(hoja.texto)) continue;
+      willChangeHuerfano.push(`${hoja.nombre}: ${selector}`);
+    }
+  }
+}
+if (willChangeHuerfano.length) {
+  fallo(
+    "Hay `will-change` sin una animación que lo justifique",
+    `${willChangeHuerfano.join("; ")}. Promover una capa que nunca se mueve solo gasta memoria de vídeo.`,
+  );
+} else {
+  ok("todo `will-change` del módulo acompaña a una animación real");
+}
+
+/* 6 · Los controles táctiles no esperan el doble toque.
+   `touch-action: manipulation` quita el retardo de 300 ms que el navegador móvil
+   reserva para distinguir un doble toque de zoom. Sin él, cada chip de estado
+   responde un tercio de segundo tarde y la interfaz «se siente lenta» sin que
+   nada tarde. */
+if (!/\.doc-tap\s*\{[^}]*touch-action\s*:\s*manipulation/.test(apagadosEnLigero)) {
+  fallo(
+    "Los controles táctiles no declaran `touch-action: manipulation`",
+    "Sin él, cada toque en móvil responde 300 ms tarde.",
+  );
+} else {
+  ok("los controles táctiles responden al primer toque (sin retardo de doble toque)");
+}
 
 /* ------------------------------------------------------------------ */
 /* 7. Higiene                                                          */

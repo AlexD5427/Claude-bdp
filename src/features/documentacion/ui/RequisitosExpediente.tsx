@@ -52,7 +52,17 @@ import {
 } from "../domain/progreso";
 import { categoriaDe, estiloCategoria } from "../domain/categorias";
 import { diasDesdeHoy, fechaLegible } from "./CampoFecha";
-import { ContadorHojas, LeyendaCondicional, SelloPresentacion } from "./ContadorHojas";
+import {
+  CampoNombreLibre,
+  ContadorHojas,
+  ContadorHojasRevelado,
+  LeyendaCondicional,
+  SelectorPresentacion,
+  SelloPresentacion,
+  modoDesdePresentacion,
+  modoLlevaHojas,
+  type ModoPresentacion,
+} from "./ContadorHojas";
 import { AreaTexto, BarraAvance, Boton, Campo, ChipEstado, TONO } from "./piezas";
 import { CURVA, DURACION, useMovimientoReducido } from "./DocMotion";
 import { Cifra } from "./DocTexto";
@@ -101,11 +111,40 @@ export interface BorradorRequisito {
   estado?: EstadoDocumento;
   observaciones?: string;
   hojasFisicas?: number;
+  /** Solo en los requisitos de nombre libre. */
+  nombrePersonalizado?: string;
+  /** Solo en los requisitos de presentación editable. */
+  presentacion?: ModoPresentacion;
+}
+
+/**
+ * Presentación EFECTIVA de un requisito, con el borrador aplicado.
+ *
+ * Es el espejo de `doc2PresentacionEfectiva_` del backend. Vive aquí porque la
+ * pantalla tiene que responder en el mismo fotograma en que se toca el chip, sin
+ * esperar la respuesta del libro; `backend.expedientes.test.ts` comprueba que
+ * las dos implementaciones dan lo mismo.
+ */
+function modoDe(r: RequisitoVista, borrador?: BorradorRequisito): ModoPresentacion {
+  if (borrador?.presentacion) return borrador.presentacion;
+  return modoDesdePresentacion(r.presentacionFisica, r.presentacionDigital);
+}
+
+/** ¿Hay que mostrar el contador de hojas de este requisito, aquí y ahora? */
+function pideHojas(r: RequisitoVista, borrador?: BorradorRequisito): boolean {
+  if (r.presentacionEditable) return modoLlevaHojas(modoDe(r, borrador));
+  return r.requiereConteoHojas;
 }
 
 /** ¿Es un documento físico entregado al que le falta el conteo de hojas? */
-function faltaContar(r: RequisitoVista, hojas: number, estado: EstadoDocumento): boolean {
-  return r.requiereConteoHojas && estado !== "NO_APLICA" && hojas <= 0;
+function faltaContar(r: RequisitoVista, hojas: number, estado: EstadoDocumento, borrador?: BorradorRequisito): boolean {
+  return pideHojas(r, borrador) && estado !== "NO_APLICA" && hojas <= 0;
+}
+
+/** Nombre efectivo con el borrador aplicado. */
+function nombreDe(r: RequisitoVista, borrador?: BorradorRequisito): string {
+  const propio = (borrador?.nombrePersonalizado ?? r.nombrePersonalizado ?? "").trim();
+  return propio || r.nombre;
 }
 
 /* ------------------------------------------------------------------ */
@@ -156,7 +195,7 @@ export function RequisitosExpediente({
       observados: activos.filter(esObservado).length,
       prorroga: activos.filter((r) => Boolean(prorrogaVigente(r))).length,
       entregados: conEstado.filter(({ estado }) => estado === "ENTREGADO").length,
-      sinContar: conEstado.filter(({ r, estado }) => faltaContar(r, hojasDe(r), estado)).length,
+      sinContar: conEstado.filter(({ r, estado }) => faltaContar(r, hojasDe(r), estado, borrador[r.expedienteDocumentoId])).length,
     } as Record<FiltroId, number>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datos.requisitos, borrador]);
@@ -165,7 +204,11 @@ export function RequisitosExpediente({
     if (soloObligatorios && !r.obligatorio) return false;
     if (consulta.trim()) {
       const q = normalizar(consulta);
-      if (!normalizar(`${r.nombre} ${r.descripcion ?? ""} ${r.codigo}`).includes(q)) return false;
+      /* Se busca también por el nombre PERSONALIZADO: un «Otros» llamado
+         «Certificación del colegio» tiene que encontrarse escribiendo
+         «colegio», que es lo que la persona recuerda. */
+      const heno = `${nombreDe(r, borrador[r.expedienteDocumentoId])} ${r.nombre} ${r.descripcion ?? ""} ${r.codigo}`;
+      if (!normalizar(heno).includes(q)) return false;
     }
     const estado = estadoDe(r);
     switch (filtro) {
@@ -178,7 +221,7 @@ export function RequisitosExpediente({
       case "entregados":
         return estado === "ENTREGADO";
       case "sinContar":
-        return faltaContar(r, hojasDe(r), estado);
+        return faltaContar(r, hojasDe(r), estado, borrador[r.expedienteDocumentoId]);
       default:
         return true;
     }
@@ -345,6 +388,7 @@ export function RequisitosExpediente({
                           hojas={hojasDe(requisito)}
                           sucio={Boolean(borrador[requisito.expedienteDocumentoId])}
                           observacionBorrador={borrador[requisito.expedienteDocumentoId]?.observaciones}
+                          borradorFila={borrador[requisito.expedienteDocumentoId]}
                           enFoco={foco === requisito.expedienteDocumentoId}
                           puedeEditar={puedeEditar}
                           puedeRevisar={puedeRevisar}
@@ -378,6 +422,7 @@ function FilaRequisito({
   hojas,
   sucio,
   observacionBorrador,
+  borradorFila,
   enFoco,
   puedeEditar,
   puedeRevisar,
@@ -394,6 +439,8 @@ function FilaRequisito({
   hojas: number;
   sucio: boolean;
   observacionBorrador?: string;
+  /** El borrador entero de esta fila: hace falta para la presentación efectiva. */
+  borradorFila?: BorradorRequisito;
   enFoco: boolean;
   puedeEditar: boolean;
   puedeRevisar: boolean;
@@ -408,6 +455,10 @@ function FilaRequisito({
   const observado = esObservado(requisito);
   const tonoEstado = TONO[INTENCION_DOCUMENTO[estado]];
   const mostrarObs = enFoco || Boolean(requisito.observaciones) || observacionBorrador !== undefined;
+  const modo = modoDe(requisito, borradorFila);
+  const conHojas = pideHojas(requisito, borradorFila);
+  const nombreVisible = nombreDe(requisito, borradorFila);
+  const nombreLibre = borradorFila?.nombrePersonalizado ?? requisito.nombrePersonalizado ?? "";
 
   const destinos = ESTADOS_DOCUMENTO.filter(
     (d) => puedeTransitar(TRANSICIONES_DOCUMENTO, requisito.estado, d) && (d !== "NO_APLICA" || requisito.permiteNoAplica),
@@ -437,40 +488,104 @@ function FilaRequisito({
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <p className="doc-prose doc-wrap-name text-sm text-[color:var(--doc-text)]">
-              {requisito.nombre}
-              {requisito.obligatorio && (
-                <span className="ml-1.5 align-super text-[10px]" style={{ color: "var(--doc-danger)" }} title="Documento obligatorio">
-                  *
-                </span>
-              )}
-              {sucio && (
-                <span className="ml-2 text-[10px] font-semibold uppercase" style={{ color: TONO.aviso.texto }}>
-                  sin guardar
-                </span>
-              )}
-            </p>
+            {requisito.permiteNombreLibre && puedeEditar ? (
+              /* Requisito de nombre libre: el nombre se puede corregir desde el
+                 expediente, no solo al crearlo. Es lo que evita el caso de
+                 «Otros» registrado con una errata que nadie puede arreglar. */
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-[color:var(--doc-text-faint)]">
+                  {requisito.nombreCatalogo ?? requisito.nombre}
+                  {sucio && (
+                    <span className="ml-2 normal-case" style={{ color: TONO.aviso.texto }}>
+                      sin guardar
+                    </span>
+                  )}
+                </p>
+                <CampoNombreLibre
+                  valor={nombreLibre}
+                  onChange={(v) => {
+                    /**
+                     * Escribir el nombre pone el requisito en uso, igual que en
+                     * el asistente de alta.
+                     *
+                     * Sin esto, el campo quedaba disponible y los chips de
+                     * estado y el contador seguían apagados por el «no aplica»
+                     * con el que nace: la persona escribía el nombre y tenía que
+                     * adivinar que primero hay que pulsar «Pendiente». Las dos
+                     * pantallas se comportan igual a propósito.
+                     */
+                    const patch: BorradorRequisito = { nombrePersonalizado: v };
+                    if (v.trim() && estado === "NO_APLICA") patch.estado = "PENDIENTE";
+                    onBorrador(requisito.expedienteDocumentoId, patch);
+                    onFoco(requisito.expedienteDocumentoId);
+                  }}
+                />
+              </div>
+            ) : (
+              <p className="doc-prose doc-wrap-name text-sm text-[color:var(--doc-text)]">
+                {nombreVisible}
+                {requisito.obligatorio && (
+                  <span className="ml-1.5 align-super text-[10px]" style={{ color: "var(--doc-danger)" }} title="Documento obligatorio">
+                    *
+                  </span>
+                )}
+                {sucio && (
+                  <span className="ml-2 text-[10px] font-semibold uppercase" style={{ color: TONO.aviso.texto }}>
+                    sin guardar
+                  </span>
+                )}
+              </p>
+            )}
             {requisito.descripcion && (
               <p className="doc-prose mt-0.5 text-[11px] text-[color:var(--doc-text-faint)]">{requisito.descripcion}</p>
             )}
 
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <SelloPresentacion fisica={requisito.presentacionFisica} digital={requisito.presentacionDigital} />
-              {/* Contador de hojas: SOLO en los requisitos que el catálogo marca
-                  como físicos. Los digitales no lo llevan ni oculto. Si el
-                  documento se marca «no aplica» se deshabilita pero conserva el
-                  valor, por si se revierte la decisión. */}
-              {requisito.requiereConteoHojas && (
-                <ContadorHojas
-                  valor={hojas}
-                  onChange={(v) => {
-                    onBorrador(requisito.expedienteDocumentoId, { hojasFisicas: v });
+              {requisito.presentacionEditable && puedeEditar ? (
+                <SelectorPresentacion
+                  valor={modo}
+                  onChange={(m) => {
+                    onBorrador(requisito.expedienteDocumentoId, { presentacion: m });
                     onFoco(requisito.expedienteDocumentoId);
                   }}
-                  deshabilitado={!puedeEditar || estado === "NO_APLICA"}
-                  nombreDocumento={requisito.nombre}
-                  condicional={requisito.presentacionFisica === "CONDICIONAL"}
+                  nombreDocumento={nombreVisible}
+                  reducido={reducido}
                 />
+              ) : (
+                <SelloPresentacion fisica={requisito.presentacionFisica} digital={requisito.presentacionDigital} />
+              )}
+              {/* Contador de hojas: SOLO en los requisitos que presentan papel.
+                  Los digitales no lo llevan ni oculto. Si el documento se marca
+                  «no aplica» se deshabilita pero conserva el valor, por si se
+                  revierte la decisión. En los requisitos de presentación
+                  editable aparece y desaparece con una transición, porque su
+                  presencia es consecuencia de un clic de la persona. */}
+              {requisito.presentacionEditable ? (
+                <ContadorHojasRevelado visible={conHojas} reducido={reducido}>
+                  <ContadorHojas
+                    valor={hojas}
+                    onChange={(v) => {
+                      onBorrador(requisito.expedienteDocumentoId, { hojasFisicas: v });
+                      onFoco(requisito.expedienteDocumentoId);
+                    }}
+                    deshabilitado={!puedeEditar || estado === "NO_APLICA"}
+                    nombreDocumento={nombreVisible}
+                    condicional={false}
+                  />
+                </ContadorHojasRevelado>
+              ) : (
+                conHojas && (
+                  <ContadorHojas
+                    valor={hojas}
+                    onChange={(v) => {
+                      onBorrador(requisito.expedienteDocumentoId, { hojasFisicas: v });
+                      onFoco(requisito.expedienteDocumentoId);
+                    }}
+                    deshabilitado={!puedeEditar || estado === "NO_APLICA"}
+                    nombreDocumento={nombreVisible}
+                    condicional={requisito.presentacionFisica === "CONDICIONAL"}
+                  />
+                )
               )}
               {requisito.heredado && (
                 <span

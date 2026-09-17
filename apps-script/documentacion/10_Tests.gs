@@ -92,7 +92,7 @@ function docTestManifiesto_() {
   }
   docCheckEq_('no hay claves internas repetidas', repetidas.length, 0);
 
-  docCheckEq_('el catalogo heredado trae 39 documentos', DOC_CATALOGO_SEMILLA.length, 39);
+  docCheckEq_('el catalogo heredado trae 43 documentos', DOC_CATALOGO_SEMILLA.length, 43);
   docCheckEq_('docColumnByKey_ encuentra la columna', docColumnByKey_('rejap').encabezado, 'REJAP');
   docCheck_('docYearColumnPosition_ ubica el identificador', docYearColumnPosition_('id') === 24);
 }
@@ -223,29 +223,39 @@ function docTestModelo_() {
   }
   docCheckEq_('ninguna hoja del modelo repite nombre', duplicadas, 0);
 
-  docCheckEq_('el catalogo canonico trae 39 documentos', DOC2_CATALOGO_SEMILLA.length, 39);
+  docCheckEq_('el catalogo canonico trae 43 documentos', DOC2_CATALOGO_SEMILLA.length, 43);
   docCheckEq_('dos generales estan retirados', doc2CodigosRetirados_().length, 2);
-  docCheckEq_('un funcionario general sin garantia exige 16',
-    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 16);
-  docCheckEq_('comercial tipo 1 exige 21',
-    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 21);
-  docCheckEq_('comercial tipo 2 exige 25',
-    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_2').length, 25);
-  docCheckEq_('comercial tipo 3 exige 21',
-    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_3').length, 21);
-  docCheckEq_('auditoria exige 17',
-    doc2AplicablesDeSemilla_('AUDITORIA', 'NINGUNA').length, 17);
-  docCheckEq_('cumplimiento exige 19',
-    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 19);
+  docCheckEq_('un funcionario general sin garantia exige 20',
+    doc2AplicablesDeSemilla_('GENERAL', 'NINGUNA').length, 20);
+  docCheckEq_('el area administrativa exige exactamente los generales',
+    doc2AplicablesDeSemilla_('ADMINISTRATIVO', 'NINGUNA').length, 20);
+  docCheckEq_('comercial tipo 1 exige 25',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_1').length, 25);
+  docCheckEq_('comercial tipo 2 exige 29',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_2').length, 29);
+  docCheckEq_('comercial tipo 3 exige 25',
+    doc2AplicablesDeSemilla_('COMERCIAL', 'COMERCIAL_3').length, 25);
+  docCheckEq_('auditoria exige 21',
+    doc2AplicablesDeSemilla_('AUDITORIA', 'NINGUNA').length, 21);
+  docCheckEq_('cumplimiento exige 23',
+    doc2AplicablesDeSemilla_('CUMPLIMIENTO', 'NINGUNA').length, 23);
   docCheckEq_('la garantia sola no anade documentos a un general',
-    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 16);
+    doc2AplicablesDeSemilla_('GENERAL', 'COMERCIAL_1').length, 20);
   docCheckEq_('el bien inmueble cambia de subseccion segun la rama',
     doc2ResolverSubseccion_(doc2SemillaPorCodigo_('garante-inmueble').subseccion, 'COMERCIAL_3'),
     'Postulante con inmueble propio');
   docCheckEq_('y en tipo 1 pertenece a la del garante',
     doc2ResolverSubseccion_(doc2SemillaPorCodigo_('garante-inmueble').subseccion, 'COMERCIAL_1'),
     '1 Garante con Bien Inmueble');
-  docCheckEq_('nueve requisitos llevan conteo de hojas', doc2ConConteoDeHojasEnSemilla_().length, 9);
+  docCheckEq_('trece requisitos llevan conteo de hojas', doc2ConConteoDeHojasEnSemilla_().length, 13);
+  docCheck_('el seguro de accidentes ya no lleva conteo',
+    doc2SemillaPorCodigo_('seguro-accidentes').requiereConteoHojas !== true);
+  docCheck_('el folio real del bien inmueble si lo lleva',
+    doc2SemillaPorCodigo_('garante-folio').requiereConteoHojas === true);
+  docCheckEq_('un solo requisito admite nombre libre', doc2CodigosPersonalizables_().length, 1);
+  docCheckEq_('y es el de "Otros"', doc2CodigosPersonalizables_()[0], 'otros-documento');
+  docCheckEq_('"Otros" nace fuera del calculo de avance',
+    doc2SemillaPorCodigo_('otros-documento').estadoInicial, 'NO_APLICA');
 
   docCheck_('de BORRADOR se puede pasar a EN_RECOLECCION',
     doc2TransicionPermitida_('expediente', DOC2_ESTADO_EXPEDIENTE.BORRADOR, DOC2_ESTADO_EXPEDIENTE.EN_RECOLECCION));
@@ -266,7 +276,7 @@ function docTestModelo_() {
   docCheck_('un rol inventado cae en invitado',
     doc2CapacidadesDe_('duenio-del-banco').length === doc2CapacidadesDe_('invitado').length);
 
-  docCheckEq_('hay cinco migraciones declaradas', DOC2_MIGRACIONES.length, 5);
+  docCheckEq_('hay seis migraciones declaradas', DOC2_MIGRACIONES.length, 6);
   docCheckEq_('y la primera es la estructural', DOC2_MIGRACIONES[0].version, '4.0.0-estructura');
 }
 

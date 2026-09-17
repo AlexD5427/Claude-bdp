@@ -140,7 +140,7 @@ describe("consola de Documentación · integración con el backend", () => {
        presente en el mismo fotograma que la cabecera. */
     await waitFor(() => expect(within(panel).getByText("Documentos generales")).toBeInTheDocument(), { timeout: 12000 });
     expect(within(panel).getByText("Curriculum Vitae actualizado.")).toBeInTheDocument();
-    expect(within(panel).getByRole("tab", { name: /Requisitos\s*16/ })).toBeInTheDocument();
+    expect(within(panel).getByRole("tab", { name: /Requisitos\s*20/ })).toBeInTheDocument();
   }, 20000);
 
   it("marcar un requisito no escribe hasta guardar el bloque", async () => {

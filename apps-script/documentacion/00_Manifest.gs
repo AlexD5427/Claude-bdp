@@ -397,7 +397,7 @@ function docColumnSpec_(sheetName, columnName) {
 /* ------------------------- Catálogo de documentos ------------------------- */
 
 /**
- * Los 38 documentos que hoy exige el proceso, con el mismo `id` que usa el
+ * Los documentos que hoy exige el proceso, con el mismo `id` que usa el
  * frontend (`src/lib/docTemplate.ts`). Se siembran en la hoja `_CATALOGO` la
  * primera vez y a partir de ahí manda la hoja: si el equipo añade, quita o
  * renombra un documento allí, el módulo lo respeta sin tocar código.
@@ -419,6 +419,15 @@ var DOC_CATALOGO_SEMILLA = [
   { id: 'seguro-accidentes', etiqueta: 'Seguro de Accidentes Personales', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'seguros_alianza' },
   { id: 'seguro-vida', etiqueta: 'Seguro de Vida Individual', grupo: 'personal', prorroga: false, obligatorio: true, columna: 'crediseguro' },
   { id: 'carnet-heredero', etiqueta: 'Fotocopia de carnet de heredero de contrato', grupo: 'personal', prorroga: false, obligatorio: false },
+
+  /* Legajo administrativo (catalogo v4). Se declaran tambien aqui para que la
+     hoja heredada `_CATALOGO` y la vista local del frontend los conozcan: el
+     espejo es derivado, pero la SEMILLA heredada es la que se usa cuando alguien
+     instala solo la capa antigua. */
+  { id: 'manual-funciones', etiqueta: 'Manual de Funciones del cargo', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'memorandum-designacion', etiqueta: 'Memorandum de Designacion', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'comunicacion-interna', etiqueta: 'Comunicacion Interna', grupo: 'personal', prorroga: false, obligatorio: true },
+  { id: 'otros-documento', etiqueta: 'Otros documentos (especificar)', grupo: 'personal', prorroga: false, obligatorio: false },
 
   /* Retirados de la lista vigente. Se conservan porque los expedientes antiguos
      los referencian por este mismo codigo; `activo: false` los deja fuera de un
