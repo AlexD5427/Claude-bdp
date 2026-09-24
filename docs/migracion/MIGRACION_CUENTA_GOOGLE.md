@@ -116,6 +116,13 @@ Verá la lista completa de direcciones que el sistema usa y de dónde salió cad
 una. Haga una captura de pantalla: es el estado «antes» y sirve para volver
 atrás.
 
+![Inventario de recursos en la cuenta de Google](01-inventario.png)
+
+Cuando una dirección viene de una variable del despliegue, la etiqueta lo dice; y
+una variable mal escrita aparece como aviso en lugar de romper la aplicación:
+
+![Inventario con una variable del despliegue y un aviso](02-inventario-variable.png)
+
 **2.** En la misma pantalla, pulse **«Ejecutar diagnóstico»** y luego **«Copiar
 informe»**. Pegue el texto en un documento. Anote el número de postulantes y de
 competencias que declara: son las cifras que tendrán que coincidir al final.
@@ -669,6 +676,19 @@ estén trabajando a la vez sobre libros distintos.
 | El postulante ve la pantalla de inicio de sesión de Google | El despliegue de Evaluaciones no es «Cualquier usuario» | Paso 39 |
 | Dejaron de llegar avisos de prórroga | El disparador diario no se instaló en la cuenta nueva | Paso 32 |
 | El punto del dock está rojo | No hay conexión con el backend: lo que se ve es una copia local | Diagnóstico de Configuración → Integraciones |
+
+### Los dos síntomas que más confunden
+
+**La URL de Documentación es la del talento.** El módulo lo dice con estas
+palabras, y el remedio está en la misma pantalla:
+
+![Documentación apuntando al backend general](03-documentacion-backend-general.png)
+
+**Evaluaciones en modo demostración.** Significa que ESTE navegador no tiene la
+conexión configurada. Lo que se publique aquí no existe para nadie más, así que
+los enlaces que se envíen no abrirán:
+
+![Evaluaciones en modo demostración](04-evaluaciones-demostracion.png)
 
 ---
 
