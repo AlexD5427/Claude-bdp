@@ -184,6 +184,7 @@ npm test           # suite de pruebas (Vitest)
 npm run typecheck  # solo comprobación de tipos
 npm run check      # verificaciones estáticas del módulo Evaluaciones
 npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
+npm run migracion:verificar   # comprueba a qué cuenta de Google apunta todo
 ```
 
 > El módulo **Evaluaciones** usa su propio libro de Google Sheets y su propio
@@ -206,8 +207,27 @@ npm run visual-qa  # capturas de la matriz visual (requiere navegador local)
 
 ## 🔌 Backend
 
+> [!IMPORTANT]
+> **La base de datos de este sistema vive en una cuenta de Google.** Los libros
+> de Sheets son el almacén y los proyectos de Apps Script son el servidor, así
+> que el sistema está atado a la cuenta que creó esos archivos. Todas las
+> direcciones que dependen de ella están en un solo archivo,
+> [`src/config/google.ts`](src/config/google.ts), y se pueden ver desde
+> **Configuración → Integraciones → Recursos en la cuenta de Google**.
+>
+> Para cambiar de cuenta, el procedimiento completo —con sus dos estrategias, la
+> verificación de cada paso, el plan de reversión y una lista imprimible— está en
+> **[`docs/migracion/MIGRACION_CUENTA_GOOGLE.md`](docs/migracion/MIGRACION_CUENTA_GOOGLE.md)**,
+> y el inventario de lo que hay que mover en
+> [`docs/migracion/INVENTARIO.md`](docs/migracion/INVENTARIO.md).
+> `npm run migracion:verificar` comprueba el resultado sin escribir nada.
+>
+> El código del backend del talento **no está versionado**: solo existe dentro de
+> esa cuenta. Su contrato, y cómo rescatarlo, en
+> [`apps-script/talento/README.md`](apps-script/talento/README.md).
+
 El dashboard consume un único endpoint de Google Apps Script (definido en
-`src/constants.ts`):
+[`src/config/google.ts`](src/config/google.ts)):
 
 ```
 GET  →  { candidatos: [...], competencias: [...], arquetipos_disc: [...] }
@@ -288,6 +308,7 @@ src/
 │   ├── perfiles/    # Módulo Perfiles de Cargo: formulario, visor, imágenes, tarjeta
 │   ├── tools/       # Panel «Herramientas» (Quick Settings)
 │   └── form/        # Campos, velocímetro (GaugeInput), tags, list builders
+├── config/          # google.ts: TODAS las direcciones de la cuenta de Google
 ├── content/locale/  # Catálogo de textos es-MX + formateadores
 ├── context/         # useTalentData + useTheme (Context API)
 ├── design-system/   # Tokens semánticos, motion y primitivas Liquid Glass
@@ -301,12 +322,14 @@ src/
 └── index.css        # sistema de diseño Liquid Glass (dual-theme + print)
 
 apps-script/
-├── evaluations/     # backend de Evaluaciones listo para copiar a Apps Script
-└── documentacion/   # backend de Documentación: libro anual + modelo normalizado
+├── evaluaciones/    # backend de Evaluaciones listo para copiar a Apps Script
+├── documentacion/   # backend de Documentación: libro anual + modelo normalizado
+└── talento/         # contrato del backend del talento (su código NO está versionado)
 scripts/
 ├── check-evaluations.mjs        # verificaciones estáticas (npm run check)
 ├── documentacion-backend.mjs    # arnés que ejecuta los .gs de Documentación en Node
 ├── documentacion-backend-check.mjs  # coherencia backend ↔ frontend (npm run doc:check)
+├── migracion-verificar.mjs      # a qué cuenta de Google apunta todo (npm run migracion:verificar)
 ├── run-apps-script.mjs          # arnés que ejecuta los .gs en Node (pruebas)
 └── visual-qa.mjs                # capturas reproducibles de la matriz visual
 ```
