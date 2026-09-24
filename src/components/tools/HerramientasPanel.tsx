@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useToolsOpen, closeTools } from "../../lib/toolsStore";
 import { DrawIcon } from "../DrawIcon";
+import { UTILIDADES } from "../../config/google";
 
 interface Tool {
   label: string;
@@ -25,53 +26,65 @@ interface Tool {
 }
 
 /**
- * The six external tools. Each opens in a new tab; the URLs are embedded here
- * and never shown as raw text (only their names surface in the UI).
+ * Apariencia de cada utilidad: icono, degradado y resplandor.
+ *
+ * Las DIRECCIONES no están aquí. Viven en `src/config/google.ts` con el resto de
+ * lo que depende de la cuenta de Google, porque son exactamente el tipo de cosa
+ * que una migración de cuenta olvida: son un sitio de Google, dos formularios y
+ * tres aplicaciones web que el área ya usaba, y el día que la cuenta antigua se
+ * cierre dejan de abrir sin que el panel pueda saberlo. Aquí queda solo lo que
+ * es de esta pantalla, emparejado por la clave estable de cada utilidad.
  */
-const TOOLS: Tool[] = [
-  {
-    label: "Página Principal de Reclutamiento",
-    url: "https://sites.google.com/view/mireclutamiento/p%C3%A1gina-principal",
+const APARIENCIA: Record<string, Omit<Tool, "label" | "url">> = {
+  sitio: {
     icon: Globe,
     gradient: "from-[#00b0d8] to-[#005baa]",
     glow: "shadow-[0_0_28px_rgba(0,176,216,0.55)]",
   },
-  {
-    label: "Registro de Postulantes",
-    url: "https://script.google.com/macros/s/AKfycbwzX-rgRuE9BXWUIdONNw2iiiUZBc7of4IEwv8UZhFUBlmFbRhBG7w2_6JwQcVi7II6QQ/exec",
+  "registro-postulantes": {
     icon: UserPlus,
     gradient: "from-emerald-400 to-teal-600",
     glow: "shadow-[0_0_28px_rgba(16,185,129,0.5)]",
   },
-  {
-    label: "Seguimiento de Procesos",
-    url: "https://docs.google.com/forms/d/e/1FAIpQLSekw8uI4n-LPPFYN4o5JqYHHhDK98BKYfATN68Dhq8iIkvm3g/viewform",
+  "seguimiento-procesos": {
     icon: Route,
     gradient: "from-indigo-400 to-violet-600",
     glow: "shadow-[0_0_28px_rgba(129,140,248,0.5)]",
   },
-  {
-    label: "Buscador · Perfiles de Evaluar.com y GenomaWork",
-    url: "https://script.google.com/macros/s/AKfycbwuF7dmipp-5L3-ZOHqJxoRY-MKg8zRPREgRkPPaqneMPjG-rIc6pfnZ2FCFInQlxw2Mg/exec",
+  "buscador-perfiles": {
     icon: ScanSearch,
     gradient: "from-fuchsia-400 to-purple-600",
     glow: "shadow-[0_0_28px_rgba(217,70,239,0.45)]",
   },
-  {
-    label: "Buscador · Datos de Funcionarios",
-    url: "https://script.google.com/macros/s/AKfycbzDk_133xWJqFH0jDtR07x002gUScHvOLQI7ubmX_yo1IxMiQzjG-OZdamFgURjQnhg/exec",
+  "buscador-funcionarios": {
     icon: UsersRound,
     gradient: "from-amber-400 to-orange-600",
     glow: "shadow-[0_0_28px_rgba(251,146,60,0.5)]",
   },
-  {
-    label: "Registro de Lista Negra",
-    url: "https://docs.google.com/forms/d/e/1FAIpQLSdo58qB0CAH-p0SNCfnGnDjBfwtdRCYWpzcDH0h6Zt9Vwu9nQ/viewform",
+  "lista-negra": {
     icon: ShieldBan,
     gradient: "from-rose-400 to-red-600",
     glow: "shadow-[0_0_28px_rgba(244,63,94,0.5)]",
   },
-];
+};
+
+/** Aspecto de una utilidad que el inventario trae y esta pantalla no conoce. */
+const APARIENCIA_NEUTRA: Omit<Tool, "label" | "url"> = {
+  icon: Globe,
+  gradient: "from-slate-400 to-slate-600",
+  glow: "shadow-[0_0_28px_rgba(148,163,184,0.45)]",
+};
+
+/**
+ * Las utilidades externas listas para pintar. Cada una abre en una pestaña nueva
+ * y su dirección nunca se muestra como texto: en la interfaz solo aparece el
+ * nombre.
+ */
+const TOOLS: Tool[] = UTILIDADES.map((u) => ({
+  label: u.etiqueta,
+  url: u.url,
+  ...(APARIENCIA[u.clave] ?? APARIENCIA_NEUTRA),
+}));
 
 /**
  * "Herramientas" — an iOS-style Quick Settings panel.
