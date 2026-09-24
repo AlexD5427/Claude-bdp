@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "backend:check": "node scripts/evaluaciones-backend-check.mjs",
     "doc:check": "node scripts/documentacion-backend-check.mjs",
+    "migracion:verificar": "node scripts/migracion-verificar.mjs",
     "doc:qa": "node qa/visual-documentacion.mjs"
   },
   "dependencies": {
