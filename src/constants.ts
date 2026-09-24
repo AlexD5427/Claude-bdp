@@ -14,12 +14,12 @@ import type { DrawableIcon } from "./components/DrawIcon";
 import type { ModuleId } from "./types";
 
 /**
- * Single source of truth — the Google Apps Script endpoint.
- * Every fetch to this URL MUST pass `{ redirect: "follow" }` so Google's 302
- * redirect is followed in production (Vercel), otherwise it 404s.
+ * El endpoint de Apps Script ya no vive aquí: está en `src/config/google.ts`
+ * junto al resto de lo que depende de la cuenta de Google (el backend de
+ * Documentación, el despliegue de Evaluaciones y las seis utilidades del panel
+ * de Herramientas). Se juntaron para poder migrar de cuenta cambiando un solo
+ * archivo. Ver `docs/migracion/MIGRACION_CUENTA_GOOGLE.md`.
  */
-export const SCRIPT_URL =
-  "https://script.google.com/macros/s/AKfycby5iqFsfvuL6movHAfZ46CZZuND22M1J-R-D3BLv2mx-a8lmRa_AePbmV59jPRTA-hczQ/exec";
 
 export interface DockItem {
   id: ModuleId;

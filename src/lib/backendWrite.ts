@@ -37,7 +37,7 @@
  * lugar del «se guardó localmente» que sonaba a que algo se había salvado.
  */
 
-import { SCRIPT_URL } from "../constants";
+import { SCRIPT_URL } from "../config/google";
 
 /** Por qué falló una escritura. Determina el mensaje y el remedio. */
 export type WriteFailure =

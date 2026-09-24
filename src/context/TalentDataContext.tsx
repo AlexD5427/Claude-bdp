@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { SCRIPT_URL } from "../constants";
+import { SCRIPT_URL } from "../config/google";
 import { getConfig, subscribeConfig } from "../lib/configStore";
 import { normaliseCandidates } from "../lib/candidates";
 import { postToBackend, type WriteResult } from "../lib/backendWrite";

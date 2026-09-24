@@ -25,7 +25,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { leer } from "../api/transport";
-import { DESPLIEGUE_POR_OMISION } from "../api/despliegue";
+import { DESPLIEGUE_EVALUACIONES } from "../../../config/google";
 import {
   conexionEsDeEnlace,
   conexionStore,
@@ -248,6 +248,6 @@ describe("evaluaciones · el respaldo del repositorio", () => {
     // Si algún día se rellena, será una decisión consciente de esa instalación.
     // Dejarlo escrito en el repositorio compartido apuntaría a los enlaces de una
     // instalación hacia el libro de otra.
-    expect(DESPLIEGUE_POR_OMISION).toBe("");
+    expect(DESPLIEGUE_EVALUACIONES).toBe("");
   });
 });

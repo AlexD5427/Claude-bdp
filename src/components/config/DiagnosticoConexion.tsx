@@ -10,7 +10,7 @@ import {
   Wifi,
   XCircle,
 } from "lucide-react";
-import { SCRIPT_URL } from "../../constants";
+import { SCRIPT_URL } from "../../config/google";
 import { storageStatus } from "../../lib/safeStorage";
 import { useTalentData } from "../../context/TalentDataContext";
 

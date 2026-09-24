@@ -30,7 +30,7 @@
  * googleusercontent, así que la redirección hay que seguirla.
  */
 
-import { SCRIPT_URL } from "../../../constants";
+import { SCRIPT_URL, URL_DOCUMENTACION } from "../../../config/google";
 
 /* ------------------------------------------------------------------ */
 /* Tipos del sobre                                                     */
@@ -232,8 +232,17 @@ export function accionesDeclaradas(): string[] {
  *
  * La URL propia se guarda en los ajustes locales (`bdp-documentacion`) y se lee
  * aquí al arrancar, para que el cliente apunte al backend correcto desde la
- * primera llamada —incluso antes de que la consola monte y la reconfigure—. Si no
- * hay ninguna configurada, se cae con elegancia a `SCRIPT_URL`.
+ * primera llamada —incluso antes de que la consola monte y la reconfigure—.
+ *
+ * El orden de preferencia es: lo que esta persona guardó en ESTE equipo, y si no
+ * hay nada, `URL_DOCUMENTACION` del inventario del repositorio. Solo cuando
+ * tampoco hay eso se recae en `SCRIPT_URL`, que es el backend del talento y no
+ * conoce estas acciones; la consola detecta ese caso y lo dice por su nombre.
+ *
+ * El escalón del medio es el que hace que una migración de cuenta no obligue a
+ * las cinco personas del área a pegar la URL nueva a mano en su navegador: se
+ * pone una vez en `src/config/google.ts` (o en `VITE_DOCUMENTACION_URL`) y todo
+ * equipo que no tenga preferencia propia la toma sola.
  */
 const CLAVE_AJUSTES = "bdp-documentacion";
 
@@ -250,7 +259,7 @@ function urlPersistidaDoc(): string {
   }
 }
 
-let urlActiva = urlPersistidaDoc() || SCRIPT_URL;
+let urlActiva = urlPersistidaDoc() || URL_DOCUMENTACION || SCRIPT_URL;
 let actorActivo = "";
 let rolActivo = "";
 let contadorSecuencia = 0;
@@ -259,7 +268,7 @@ let contadorSecuencia = 0;
 const enVuelo = new Map<string, Promise<unknown>>();
 
 export function configurarCliente(opciones: { url?: string; actor?: string; rol?: string }): void {
-  if (opciones.url !== undefined) urlActiva = (opciones.url || "").trim() || SCRIPT_URL;
+  if (opciones.url !== undefined) urlActiva = (opciones.url || "").trim() || URL_DOCUMENTACION || SCRIPT_URL;
   if (opciones.actor !== undefined) actorActivo = opciones.actor;
   if (opciones.rol !== undefined) rolActivo = opciones.rol;
 }
@@ -600,7 +609,7 @@ export function mensajeDeError(error: unknown): { mensaje: string; pista: string
 export function __reiniciarClienteParaPruebas(): void {
   enVuelo.clear();
   contadorSecuencia = 0;
-  urlActiva = SCRIPT_URL;
+  urlActiva = URL_DOCUMENTACION || SCRIPT_URL;
   actorActivo = "";
   rolActivo = "";
   muestras.length = 0;
