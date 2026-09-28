@@ -19,7 +19,7 @@
  *    tarde.
  */
 
-import { SCRIPT_URL } from "../../constants"
+import { SCRIPT_URL } from "../../config/google"
 
 /* --------------------------------- Tipos ---------------------------------- */
 

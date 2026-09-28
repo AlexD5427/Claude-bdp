@@ -25,7 +25,7 @@
 
 import { createStore } from "../../../shared/store";
 import { newId } from "../../../shared/ids";
-import { DESPLIEGUE_POR_OMISION, DOMINIO_POR_OMISION } from "./despliegue";
+import { DESPLIEGUE_EVALUACIONES, DOMINIO_EVALUACIONES } from "../../../config/google";
 import { existeEnDemostracion } from "./demoBackend";
 
 export type ModoBackend = "apps-script" | "demostracion";
@@ -69,11 +69,11 @@ function porOmision(): Conexion {
   const url = env("VITE_EVALUACIONES_URL");
   const llave = env("VITE_EVALUACIONES_LLAVE");
   // Orden: variable de compilación, y si no hay, el despliegue escrito en el
-  // repositorio (`api/despliegue.ts`). El segundo existe para que los enlaces
+  // repositorio (`src/config/google.ts`). El segundo existe para que los enlaces
   // compartidos ANTES de que los enlaces llevaran su referencia dentro sigan
   // abriendo, sin depender de variables de entorno.
-  const desdeRepositorio = DESPLIEGUE_POR_OMISION
-    ? urlDeDespliegue({ id: DESPLIEGUE_POR_OMISION, dominio: DOMINIO_POR_OMISION })
+  const desdeRepositorio = DESPLIEGUE_EVALUACIONES
+    ? urlDeDespliegue({ id: DESPLIEGUE_EVALUACIONES, dominio: DOMINIO_EVALUACIONES })
     : "";
   const urlValida = esUrlAbsoluta(url) ? url : desdeRepositorio;
   return {

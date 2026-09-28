@@ -23,9 +23,10 @@ import { TextField, SegmentedField, SelectField } from "../components/form/Field
 import { Toggle, RangeField, StepperField } from "../components/form/Controls";
 import { EmailTemplateEditor } from "../components/config/EmailTemplateEditor";
 import { DiagnosticoConexion } from "../components/config/DiagnosticoConexion";
+import { InventarioGoogle } from "../components/config/InventarioGoogle";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useTheme } from "../context/ThemeContext";
-import { SCRIPT_URL } from "../constants";
+import { SCRIPT_URL } from "../config/google";
 import {
   useConfig,
   setConfig,
@@ -346,6 +347,11 @@ export function Configuracion() {
               <DiagnosticoConexion />
             </div>
           </div>
+
+          {/* Qué apunta a la cuenta de Google. Lo usa la migración de cuenta
+              para comprobar, sin abrir el repositorio, que no queda nada
+              apuntando a la anterior. */}
+          <InventarioGoogle />
         </div>
       </Section>
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { SCRIPT_URL } from "../constants";
+import { SCRIPT_URL } from "../config/google";
 
 /**
  * Monthly KPI snapshot store.

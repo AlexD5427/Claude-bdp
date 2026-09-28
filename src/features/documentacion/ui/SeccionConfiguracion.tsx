@@ -41,7 +41,7 @@ import { SelectorPresentacion, modoDesdePresentacion, modoLlevaHojas } from "./C
 import { useDatos } from "./useDatos";
 import { DocSettingsModal } from "../../../components/doc/DocSettingsModal";
 import { setSettings, useDocStore } from "../../../lib/docStore";
-import { SCRIPT_URL } from "../../../constants";
+import { SCRIPT_URL } from "../../../config/google";
 
 interface Props {
   avisar: (intencion: Notita["intencion"], texto: string, pista?: string) => void;

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { SCRIPT_URL } from "../constants";
+import { SCRIPT_URL } from "../config/google";
 import {
   getConfig,
   setConfig,

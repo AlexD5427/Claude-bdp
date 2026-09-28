@@ -12,7 +12,7 @@
  * No secrets are read or logged here — the endpoint URL is the only config.
  */
 
-import { SCRIPT_URL } from "../../../constants";
+import { SCRIPT_URL } from "../../../config/google";
 import { appError, err, ok, type Result } from "../../../shared/result";
 import { fromLegacy, type ResponseEnvelope } from "../../../shared/envelope";
 
