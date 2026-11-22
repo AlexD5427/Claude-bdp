@@ -1,5 +1,12 @@
-import { Fragment, useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  AnimatePresence,
+  motion,
+  useMotionValue,
+  useSpring,
+  useTransform,
+  type MotionValue,
+} from "framer-motion";
 import { Moon, Sun, ChevronRight, ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { DOCK_ITEMS } from "../constants";
 import { useTheme } from "../context/ThemeContext";
@@ -9,6 +16,8 @@ import { useToolsOpen, toggleTools } from "../lib/toolsStore";
 import { HerramientasIcon } from "./icons/CustomIcons";
 import { DrawIcon } from "./DrawIcon";
 import { DockProfileChip } from "./DockProfileChip";
+import { cambiarTemaConRevelado } from "../lib/themeTransition";
+import { useCalmMotion } from "../hooks/useCalmMotion";
 import type { ModuleId } from "../types";
 
 interface FloatingDockProps {
@@ -81,6 +90,47 @@ function useViewport() {
   return vp;
 }
 
+/** Hasta dónde llega la magnificación del dock, en píxeles desde el centro de un icono. */
+const ALCANCE_IMAN = 120;
+
+/**
+ * Magnificación tipo dock de macOS, limitada al glifo: el icono crece cuanto
+ * más cerca pasa el puntero por el eje del dock y vuelve con un resorte. Solo
+ * escala el dibujo dentro de su placa —no la placa ni el botón—, así el dock no
+ * cambia de tamaño, no se reflowea nada y no aparece desplazamiento interno.
+ *
+ * `puntero` es la coordenada del ratón sobre el eje del dock (x en horizontal,
+ * y en vertical); `Infinity` significa «fuera del dock».
+ */
+function DockMagnet({
+  puntero,
+  vertical,
+  disabled,
+  children,
+}: {
+  puntero: MotionValue<number>;
+  vertical: boolean;
+  disabled: boolean;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const distancia = useTransform(puntero, (p: number) => {
+    const el = ref.current;
+    if (disabled || !el || !Number.isFinite(p)) return ALCANCE_IMAN;
+    const r = el.getBoundingClientRect();
+    const centro = vertical ? r.top + r.height / 2 : r.left + r.width / 2;
+    return p - centro;
+  });
+  const objetivo = useTransform(distancia, [-ALCANCE_IMAN, 0, ALCANCE_IMAN], [1, 1.38, 1]);
+  const scale = useSpring(objetivo, { stiffness: 320, damping: 22, mass: 0.35 });
+
+  return (
+    <motion.span ref={ref} style={{ scale }} className="relative grid place-items-center">
+      {children}
+    </motion.span>
+  );
+}
+
 /**
  * iOS-style floating dock — fully adjustable, collapsible and context-aware.
  *
@@ -110,12 +160,21 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
   const override = useDockOverride();
   const toolsOpen = useToolsOpen();
   const vp = useViewport();
+  const calm = useCalmMotion();
+  // Coordenada del ratón sobre el eje del dock para la magnificación.
+  const pointerAxis = useMotionValue(Number.POSITIVE_INFINITY);
 
   // The override only takes effect if it differs from the user's own choice.
   const position: DockPosition = override ?? dockPosition;
   const vertical = position === "left" || position === "right";
   const sz = SIZE[dockSize];
   const showLabels = !vertical && vp.w >= 640;
+
+  // Al plegar, desplegar o mover el dock (o al pedir calma) la magnificación
+  // se apaga: un dock recién montado no hereda una posición vieja del puntero.
+  useEffect(() => {
+    pointerAxis.set(Number.POSITIVE_INFINITY);
+  }, [pointerAxis, position, dockCollapsed, calm]);
 
   const setCollapsed = (v: boolean) => setConfig({ dockCollapsed: v });
 
@@ -151,7 +210,7 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
           key={`collapsed-${position}`}
           {...navMotion}
           className={[
-            "glass-heavy no-print fixed z-[100] flex items-center gap-1.5 rounded-[1.5rem] p-2",
+            "glass-heavy dock-glass no-print fixed z-[100] flex items-center gap-1.5 rounded-[1.5rem] p-2",
             vertical ? "flex-col" : "flex-row",
             ANCHOR[position],
           ].join(" ")}
@@ -175,8 +234,13 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
         <motion.nav
           key={`expanded-${position}`}
           {...navMotion}
+          onPointerMove={(e) => {
+            if (calm || e.pointerType !== "mouse") return;
+            pointerAxis.set(vertical ? e.clientY : e.clientX);
+          }}
+          onPointerLeave={() => pointerAxis.set(Number.POSITIVE_INFINITY)}
           className={[
-            "glass-heavy no-print fixed z-[100] flex items-center rounded-[1.75rem]",
+            "glass-heavy dock-glass no-print fixed z-[100] flex items-center rounded-[1.75rem]",
             vertical ? "flex-col gap-1.5 overflow-y-auto px-2 py-2.5" : "flex-row gap-1.5 overflow-x-auto px-2.5 py-2 sm:gap-2 sm:px-3",
             ANCHOR[position],
           ].join(" ")}
@@ -223,20 +287,22 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
                             <motion.span
                               layoutId={`${orbId}-tools`}
                               transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                              className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+                              className="dock-orb absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
                             />
                           )}
-                          <DrawIcon
-                            icon={HerramientasIcon}
-                            active={toolsOpen}
-                            redrawOnHover
-                            className={[
-                              sz.icon,
-                              "relative transition-colors duration-300",
-                              toolsOpen ? "text-white drop-shadow-md" : "text-ink-soft",
-                            ].join(" ")}
-                            strokeWidth={toolsOpen ? 2.4 : 2}
-                          />
+                          <DockMagnet puntero={pointerAxis} vertical={vertical} disabled={calm}>
+                            <DrawIcon
+                              icon={HerramientasIcon}
+                              active={toolsOpen}
+                              redrawOnHover
+                              className={[
+                                sz.icon,
+                                "relative transition-colors duration-300",
+                                toolsOpen ? "text-white drop-shadow-md" : "text-ink-soft",
+                              ].join(" ")}
+                              strokeWidth={toolsOpen ? 2.4 : 2}
+                            />
+                          </DockMagnet>
                         </span>
                         {showLabels && (
                           <span
@@ -282,7 +348,7 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
                             <motion.span
                               layoutId={orbId}
                               transition={{ type: "spring", stiffness: 360, damping: 28 }}
-                              className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+                              className="dock-orb absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
                             />
                             <motion.span
                               key={`burst-${active}`}
@@ -294,16 +360,18 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
                             />
                           </>
                         )}
-                        <DrawIcon
-                          icon={Icon}
-                          active={isActive}
-                          className={[
-                            sz.icon,
-                            "relative transition-colors duration-300",
-                            isActive ? "text-white drop-shadow-md" : "text-ink-soft",
-                          ].join(" ")}
-                          strokeWidth={isActive ? 2.4 : 2}
-                        />
+                        <DockMagnet puntero={pointerAxis} vertical={vertical} disabled={calm}>
+                          <DrawIcon
+                            icon={Icon}
+                            active={isActive}
+                            className={[
+                              sz.icon,
+                              "relative transition-colors duration-300",
+                              isActive ? "text-white drop-shadow-md" : "text-ink-soft",
+                            ].join(" ")}
+                            strokeWidth={isActive ? 2.4 : 2}
+                          />
+                        </DockMagnet>
                       </span>
                       {showLabels && (
                         <span
@@ -325,10 +393,14 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
 
           <Divider vertical={vertical} />
 
-          {/* Theme toggle */}
+          {/* Theme toggle: el tema nuevo se revela en círculo desde el botón
+              (View Transitions; cambio directo donde no hay soporte). */}
           <button
             type="button"
-            onClick={toggle}
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              cambiarTemaConRevelado({ x: r.left + r.width / 2, y: r.top + r.height / 2 }, toggle);
+            }}
             aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
             title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
             className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl fill-softer text-ink ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-95`}

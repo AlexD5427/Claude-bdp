@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { MeshBackground } from "./components/MeshBackground";
 import { ThreeBackground } from "./components/ThreeBackground";
 import { CursorSpotlight } from "./components/CursorSpotlight";
+import { LiquidPointer } from "./components/LiquidPointer";
+import { ScrollProgress } from "./components/ScrollProgress";
+import { ModuleTransition } from "./components/ModuleTransition";
+import { AnimatedTitle } from "./components/AnimatedTitle";
 import { FloatingDock } from "./components/FloatingDock";
 import { BrandHeader } from "./components/BrandHeader";
 import { KpiBar } from "./components/KpiBar";
@@ -122,12 +126,16 @@ function AppShell() {
   }, [active]);
 
   const meta = DOCK_ITEMS.find((d) => d.id === active)!;
+  const numeroModulo = String(DOCK_ITEMS.findIndex((d) => d.id === active) + 1).padStart(2, "0");
+  const totalModulos = String(DOCK_ITEMS.length).padStart(2, "0");
 
   return (
     <div className="relative min-h-screen">
       <MeshBackground />
       <ThreeBackground />
       <CursorSpotlight />
+      <ScrollProgress />
+      <ModuleTransition moduleKey={active} />
       <FloatingDock active={active} onSelect={setActive} synced={synced} offline={offline} />
       <RefreshButton />
 
@@ -149,21 +157,40 @@ function AppShell() {
           </div>
         )}
 
+        {/* Encabezado del módulo: el título se materializa letra a letra, el
+            subtítulo llega detrás y una línea de luz se dibuja debajo. Todo se
+            vuelve a reproducir al cambiar de módulo (las piezas van con `key`). */}
         <header className="print-scope-hide mb-5 mt-8">
-          <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-cyan-400 no-print">
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-glow-cyan" />
+          <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-accent no-print">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-glow-cyan" />
+            </span>
             Módulo
+            <span className="tabular-nums text-ink-faint">
+              {numeroModulo} / {totalModulos}
+            </span>
           </p>
-          <motion.h2
-            key={active}
-            initial={{ opacity: 0, y: 8 }}
+          <h2 className="text-2xl font-black tracking-tight text-ink sm:text-3xl">
+            <AnimatedTitle key={active} text={meta.label} />
+          </h2>
+          <motion.p
+            key={`subtitulo-${active}`}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.175, 0.885, 0.32, 1.275] }}
-            className="text-2xl font-black tracking-tight text-ink sm:text-3xl"
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: 0.18 }}
+            className="mt-1 text-sm text-ink-soft"
           >
-            {meta.label}
-          </motion.h2>
-          <p className="mt-1 text-sm text-ink-soft">{SUBTITLES[active]}</p>
+            {SUBTITLES[active]}
+          </motion.p>
+          <motion.span
+            key={`linea-${active}`}
+            aria-hidden
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
+            className="aurora-line mt-3 block h-px w-full max-w-md origin-left no-print"
+          />
         </header>
 
         {/* A keyed entrance animation — NOT wrapped in <AnimatePresence
@@ -176,9 +203,9 @@ function AppShell() {
         <ErrorBoundary key={active}>
           <motion.section
             key={active}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: [0.175, 0.885, 0.32, 1.275] }}
+            initial={{ opacity: 0, y: 22, scale: 0.985 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 210, damping: 26, mass: 0.9 }}
           >
             {active === "dashboard" && <Dashboard />}
             {active === "tablero" && <Tablero />}
@@ -244,28 +271,38 @@ function useCodigoEvaluacion(): string {
 
 export default function App() {
   const codigoEvaluacion = useCodigoEvaluacion();
+  // «Reducir movimiento» (Configuración) manda sobre Framer Motion en toda la
+  // aplicación; sin él, se respeta la preferencia del sistema operativo.
+  const { reduceMotion } = useConfig();
+  const politicaMovimiento = reduceMotion ? "always" : "user";
 
   // El runner vive fuera del acceso al ATS y sin el dock ni los paneles internos:
   // es una página para alguien de fuera de la organización.
   if (codigoEvaluacion) {
     return (
-      <ThemeProvider>
-        <div className="relative min-h-screen">
-          <MeshBackground />
-          <Suspense fallback={<LoadingState />}>
-            <EvaluacionRunner codigo={codigoEvaluacion} />
-          </Suspense>
-          <ToastViewport />
-        </div>
-      </ThemeProvider>
+      <MotionConfig reducedMotion={politicaMovimiento}>
+        <ThemeProvider>
+          <div className="relative min-h-screen">
+            <MeshBackground />
+            <LiquidPointer />
+            <Suspense fallback={<LoadingState />}>
+              <EvaluacionRunner codigo={codigoEvaluacion} />
+            </Suspense>
+            <ToastViewport />
+          </div>
+        </ThemeProvider>
+      </MotionConfig>
     );
   }
 
   return (
-    <ThemeProvider>
-      <TalentDataProvider>
-        <Shell />
-      </TalentDataProvider>
-    </ThemeProvider>
+    <MotionConfig reducedMotion={politicaMovimiento}>
+      <ThemeProvider>
+        <LiquidPointer />
+        <TalentDataProvider>
+          <Shell />
+        </TalentDataProvider>
+      </ThemeProvider>
+    </MotionConfig>
   );
 }
