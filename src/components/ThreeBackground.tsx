@@ -12,9 +12,15 @@ import { useConfig, type ThreeQuality } from "../lib/configStore";
  *      pixel ratio is capped by the chosen quality, the loop pauses when the tab
  *      is hidden, and Three.js is *code-split* (dynamic import) so it never
  *      weighs down first paint. This comfortably holds ~60 fps.
+ *
+ *      Liquid Glass 2: el campo es un difuminado suave, así que se dibuja a menor
+ *      resolución (el navegador lo escala sin que se note) y con un tope de
+ *      fotogramas — 60 por segundo, 30 en calidad «baja» —. En pantallas de
+ *      120/144 Hz eso evita dibujar el doble de veces lo mismo.
  *   2. **Theme-true.** Colours are pulled from the corporate palette per theme,
  *      so it reads as a deep Midnight in dark mode and an airy Daylight in light
- *      mode — always sober and corporate.
+ *      mode — always sober and corporate. Al cambiar de tema la paleta se funde
+ *      en unos cientos de milisegundos en lugar de saltar de golpe.
  *   3. **Graceful.** If WebGL is unavailable, the engine is disabled in
  *      Configuración, or the user prefers reduced motion, it renders nothing and
  *      the CSS {@link ./MeshBackground} remains as the fallback.
@@ -71,7 +77,9 @@ export function ThreeBackground() {
         uBase: { value: new THREE.Vector3() },
         uAlpha: { value: 0.9 },
       };
-      applyPalette(themeRef.current, uniforms);
+      // La paleta visible se acerca a la del tema en cada fotograma.
+      const paleta = copiarPaleta(palettes[themeRef.current]);
+      applyPalette(paleta, uniforms);
 
       const material = new THREE.ShaderMaterial({
         uniforms,
@@ -105,6 +113,7 @@ export function ThreeBackground() {
       const onContextRestored = () => {
         if (!running) {
           running = true;
+          last = 0;
           raf = requestAnimationFrame(loop);
         }
       };
@@ -121,22 +130,31 @@ export function ThreeBackground() {
 
       let raf = 0;
       let running = true;
-      let lastTheme = themeRef.current;
       const start = performance.now();
+      // Tope de fotogramas con holgura: a 60 Hz se dibujan todos; a 120/144 Hz,
+      // uno de cada dos. En calidad «baja», unos 30 por segundo.
+      const minDt = quality === "baja" ? 1000 / 40 : 1000 / 75;
+      let last = 0;
 
-      const loop = () => {
+      const loop = (now: number) => {
         if (!running) return;
-        const now = performance.now();
+        raf = requestAnimationFrame(loop);
+        // El primer fotograma se dibuja siempre; después, como mucho uno por
+        // cada `minDt` milisegundos.
+        if (last !== 0 && now - last < minDt) return;
+        const dt = last === 0 ? 16.7 : now - last;
+        last = now;
+        // Factor de suavizado independiente de los fotogramas por segundo.
+        const paso = Math.min(dt, 100) / 16.7;
         uniforms.uTime.value = (now - start) / 1000;
-        current.lerp(target, 0.045);
+        current.lerp(target, 1 - Math.pow(1 - 0.045, paso));
         uniforms.uPointer.value.copy(current);
-        // Cheap theme-change detection without re-initialising the renderer.
-        if (themeRef.current !== lastTheme) {
-          lastTheme = themeRef.current;
-          applyPalette(lastTheme, uniforms);
+        // Cheap theme-change handling without re-initialising the renderer:
+        // the palette glides towards the new theme.
+        if (mezclarPaleta(paleta, palettes[themeRef.current], 1 - Math.pow(1 - 0.14, paso))) {
+          applyPalette(paleta, uniforms);
         }
         renderer.render(scene, camera);
-        raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop);
 
@@ -146,6 +164,7 @@ export function ThreeBackground() {
           cancelAnimationFrame(raf);
         } else if (!running) {
           running = true;
+          last = 0;
           raf = requestAnimationFrame(loop);
         }
       };
@@ -184,16 +203,21 @@ export function ThreeBackground() {
 
 /* ------------------------------------------------------------------ */
 
+/**
+ * Tope de resolución del lienzo. El campo es un difuminado sin bordes, así que
+ * dibujarlo a menos píxeles y dejar que el navegador lo escale no se distingue
+ * y reduce el trabajo de la GPU a la mitad o menos.
+ */
 function pixelRatioCap(quality: ThreeQuality): number {
   switch (quality) {
     case "baja":
-      return 0.75;
+      return 0.5;
     case "media":
-      return 1;
+      return 0.75;
     case "alta":
-      return 2;
+      return 1.5;
     default:
-      return 1.5; // auto — a balanced default for crisp yet cheap rendering
+      return 1; // auto — a balanced default for crisp yet cheap rendering
   }
 }
 
@@ -205,25 +229,69 @@ type Uniforms = {
   uAlpha: { value: number };
 };
 
-function rgb(hex: number): [number, number, number] {
+type Rgb = [number, number, number];
+
+type Palette = { base: Rgb; a: Rgb; b: Rgb; c: Rgb; alpha: number };
+
+function rgb(hex: number): Rgb {
   return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 }
 
-/** Load the corporate palette for the given theme into the shader uniforms. */
-function applyPalette(theme: "dark" | "light", u: Uniforms) {
-  if (theme === "light") {
-    u.uBase.value.set(...rgb(0xeaf1fb));
-    u.uColorA.value.set(...rgb(0xbfd9f5));
-    u.uColorB.value.set(...rgb(0x8fd3ec));
-    u.uColorC.value.set(...rgb(0xafd0f2));
-    u.uAlpha.value = 0.72;
-  } else {
-    u.uBase.value.set(...rgb(0x04122a));
-    u.uColorA.value.set(...rgb(0x005baa));
-    u.uColorB.value.set(...rgb(0x00b0d8));
-    u.uColorC.value.set(...rgb(0x0090c5));
-    u.uAlpha.value = 0.92;
+/** The corporate palette per theme. */
+const palettes: Record<"dark" | "light", Palette> = {
+  light: {
+    base: rgb(0xeaf1fb),
+    a: rgb(0xbfd9f5),
+    b: rgb(0x8fd3ec),
+    c: rgb(0xafd0f2),
+    alpha: 0.72,
+  },
+  dark: {
+    base: rgb(0x04122a),
+    a: rgb(0x005baa),
+    b: rgb(0x00b0d8),
+    c: rgb(0x0090c5),
+    alpha: 0.92,
+  },
+};
+
+const COLOR_KEYS = ["base", "a", "b", "c"] as const;
+
+function copiarPaleta(p: Palette): Palette {
+  const copia = (c: Rgb): Rgb => [c[0], c[1], c[2]];
+  return { base: copia(p.base), a: copia(p.a), b: copia(p.b), c: copia(p.c), alpha: p.alpha };
+}
+
+/**
+ * Acerca `actual` a `destino` una fracción `k`. Devuelve `false` cuando ya
+ * coinciden, para no volver a subir los mismos valores a la GPU.
+ */
+function mezclarPaleta(actual: Palette, destino: Palette, k: number): boolean {
+  let cambio = Math.abs(destino.alpha - actual.alpha) > 0.001;
+  actual.alpha = cambio ? actual.alpha + (destino.alpha - actual.alpha) * k : destino.alpha;
+  for (const clave of COLOR_KEYS) {
+    const de = actual[clave];
+    const a = destino[clave];
+    for (let i = 0; i < 3; i++) {
+      const diferencia = a[i] - de[i];
+      if (Math.abs(diferencia) > 0.001) {
+        de[i] += diferencia * k;
+        cambio = true;
+      } else {
+        de[i] = a[i];
+      }
+    }
   }
+  return cambio;
+}
+
+/** Load a palette into the shader uniforms. */
+function applyPalette(p: Palette, u: Uniforms) {
+  u.uBase.value.set(...p.base);
+  u.uColorA.value.set(...p.a);
+  u.uColorB.value.set(...p.b);
+  u.uColorC.value.set(...p.c);
+  u.uAlpha.value = p.alpha;
 }
 
 const VERT = /* glsl */ `
@@ -259,12 +327,15 @@ const FRAG = /* glsl */ `
     );
   }
 
+  // Rotating every octave hides the axis-aligned grid of value noise.
+  const mat2 ROT = mat2(0.8, 0.6, -0.6, 0.8);
+
   float fbm(vec2 p) {
     float v = 0.0;
     float a = 0.5;
     for (int i = 0; i < 4; i++) {
       v += a * noise(p);
-      p *= 2.0;
+      p = ROT * p * 2.02;
       a *= 0.5;
     }
     return v;
@@ -272,7 +343,14 @@ const FRAG = /* glsl */ `
 
   void main() {
     vec2 aspect = vec2(uRes.x / max(uRes.y, 1.0), 1.0);
-    vec2 p = vUv * aspect * 1.4;
+    vec2 uv = vUv * aspect;
+    vec2 toP = uv - uPointer * aspect;
+    float pd = length(toP);
+
+    // Liquid lens: the flow bulges gently around the cursor, like a drop of
+    // water resting on the glass.
+    float lens = exp(-pd * pd * 9.0);
+    vec2 p = uv * 1.4 - toP * lens * 0.22;
     float t = uTime * 0.05;
 
     // Domain warping for an organic, liquid flow.
@@ -287,13 +365,23 @@ const FRAG = /* glsl */ `
     col = mix(col, uColorC, clamp(length(r) * 0.6, 0.0, 1.0));
     col = mix(uBase, col, 0.82);
 
-    // A soft light that trails the cursor, echoing the CSS spotlight.
-    float d = distance(vUv * aspect, uPointer * aspect);
-    col += uColorC * smoothstep(0.55, 0.0, d) * 0.12;
+    // Light on the crests where the flow folds, plus thin filaments, like the
+    // caustics cast by water.
+    float crest = smoothstep(0.6, 0.85, f);
+    float filament = 1.0 - smoothstep(0.0, 0.03, abs(f - 0.56));
+    col += uColorB * (crest * 0.07 + filament * 0.045);
+
+    // A soft light that trails the cursor, echoing the CSS spotlight, and the
+    // brighter core of the lens.
+    col += uColorC * smoothstep(0.55, 0.0, pd) * 0.10;
+    col += uColorB * lens * 0.06;
 
     // Gentle vignette to keep the edges calm and text legible.
     float vig = smoothstep(1.25, 0.25, length(vUv - 0.5));
     col *= 0.86 + 0.14 * vig;
+
+    // Half-level dithering: removes banding from the slow gradients.
+    col += (hash(gl_FragCoord.xy) - 0.5) / 255.0;
 
     gl_FragColor = vec4(col, uAlpha);
   }
