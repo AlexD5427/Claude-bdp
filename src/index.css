@@ -139,6 +139,42 @@
     /* Selección de texto dentro del editor enriquecido: translúcida para que
        el texto con formato que se pinta debajo siga viéndose. */
     --rt-selection: rgba(56, 189, 248, 0.34);
+
+    /* ---- Liquid Glass Aurora (tema oscuro) ------------------------------
+       Parámetros del vidrio y del fondo aurora. El desenfoque baja de 64 px a
+       24 px: sobre un fondo de degradados suaves se ve igual y la GPU trabaja
+       mucho menos en cada fotograma. La saturación devuelve la viveza que el
+       vidrio de Apple obtiene de lo que tiene detrás.
+       -------------------------------------------------------------------- */
+    --glass-blur: 24px;
+    --glass-blur-heavy: 34px;
+    --glass-saturate: 170%;
+    --glass-saturate-heavy: 185%;
+    --glass-tint: linear-gradient(
+      140deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(255, 255, 255, 0) 42%,
+      rgba(0, 176, 216, 0.05) 100%
+    );
+    --glass-rim: rgba(255, 255, 255, 0.12);
+    --glass-depth: rgba(0, 176, 216, 0.3);
+    --glass-caustic: rgba(125, 211, 252, 0.1);
+    --glass-hl-rgb: 186 230 253;
+    --glass-hl-a: 0.16;
+
+    --aurora-1: rgba(0, 176, 216, 0.34);
+    --aurora-2: rgba(79, 124, 255, 0.26);
+    --aurora-3: rgba(45, 212, 191, 0.14);
+    --aurora-vignette: rgba(1, 6, 18, 0.6);
+    --aurora-text-1: #67e8f9;
+    --aurora-text-2: #38bdf8;
+    --aurora-text-3: #a5b4fc;
+    --glint-color: rgba(255, 255, 255, 0.85);
+
+    --sweep-color: rgba(125, 211, 252, 0.2);
+    --sweep-core: rgba(255, 255, 255, 0.3);
+    --dock-sheen: rgba(255, 255, 255, 0.2);
+    --progress-glow: rgba(0, 176, 216, 0.65);
   }
 
   /* ---- LIGHT THEME ("Daylight" · institutional) ------------ */
@@ -255,6 +291,37 @@
     --tone-acento-dot: #6366f1;
 
     --rt-selection: rgba(8, 145, 178, 0.24);
+
+    /* ---- Liquid Glass Aurora (tema claro) ------------------------------- */
+    --glass-blur: 22px;
+    --glass-blur-heavy: 30px;
+    --glass-saturate: 160%;
+    --glass-saturate-heavy: 175%;
+    --glass-tint: linear-gradient(
+      140deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0) 45%,
+      rgba(0, 91, 170, 0.04) 100%
+    );
+    --glass-rim: rgba(255, 255, 255, 0.85);
+    --glass-depth: rgba(0, 91, 170, 0.12);
+    --glass-caustic: rgba(0, 176, 216, 0.07);
+    --glass-hl-rgb: 255 255 255;
+    --glass-hl-a: 0.7;
+
+    --aurora-1: rgba(0, 176, 216, 0.22);
+    --aurora-2: rgba(79, 124, 255, 0.16);
+    --aurora-3: rgba(45, 212, 191, 0.1);
+    --aurora-vignette: rgba(120, 150, 190, 0.18);
+    --aurora-text-1: #0e7490;
+    --aurora-text-2: #005baa;
+    --aurora-text-3: #4338ca;
+    --glint-color: rgba(255, 255, 255, 0.95);
+
+    --sweep-color: rgba(0, 176, 216, 0.1);
+    --sweep-core: rgba(255, 255, 255, 0.5);
+    --dock-sheen: rgba(255, 255, 255, 0.6);
+    --progress-glow: rgba(0, 91, 170, 0.45);
   }
 
   html,
@@ -327,51 +394,107 @@
      .glass — the Liquid Glass base utility.
      --------------------------------------------------------------- */
   .glass {
-    @apply relative isolate overflow-hidden backdrop-blur-3xl;
+    @apply relative isolate overflow-hidden;
+    /* Se escribe sobre las variables de Tailwind para que una utilidad
+       `backdrop-*` añadida en un componente siga combinándose con el vidrio. */
+    --tw-backdrop-blur: blur(var(--glass-blur));
+    --tw-backdrop-saturate: saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-saturate);
+    backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-saturate);
     background-color: var(--glass-bg);
+    background-image: var(--glass-tint);
     border: 1px solid var(--glass-border);
     box-shadow:
       var(--glass-shadow),
-      inset 0 1px 1px var(--glass-inset-top),
-      inset 0 -1px 1px rgba(255, 255, 255, 0.06),
+      inset 0 1px 0 0 var(--glass-inset-top),
+      inset 1px 0 0 0 var(--glass-rim),
+      inset 0 -14px 28px -24px var(--glass-depth),
       0 0 0 1px var(--glass-ring);
   }
 
-  /* Specular sheen — a soft highlight running across the top edge. */
-  .glass::before {
+  /* Reflejo especular + luz líquida que sigue al puntero.
+     Va DEBAJO del contenido (z-index -1 dentro del contexto aislado del
+     vidrio), así el texto queda nítido en vez de lavado por el brillo. La
+     posición de la luz llega por --glass-x / --glass-y (ver LiquidPointer) y
+     su intensidad se anima con --glass-lit, registrada con @property. */
+  .glass::before,
+  .glass-heavy::before {
     content: "";
-    @apply pointer-events-none absolute inset-x-0 top-0 h-1/2;
-    background: linear-gradient(
-      to bottom,
-      var(--glass-sheen) 0%,
-      rgba(255, 255, 255, 0.05) 45%,
-      transparent 100%
-    );
-    opacity: 0.8;
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: inherit;
+    --glass-x: inherit;
+    --glass-y: inherit;
+    transition: --glass-lit 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .glass::before {
+    background:
+      radial-gradient(
+        circle var(--glass-hl-size, 18rem) at var(--glass-x, 50%) var(--glass-y, 0%),
+        rgb(var(--glass-hl-rgb) / calc(var(--glass-lit, 0) * var(--glass-hl-a))),
+        transparent 70%
+      ),
+      linear-gradient(
+        to bottom,
+        var(--glass-sheen) 0%,
+        rgba(255, 255, 255, 0.05) 24%,
+        transparent 52%
+      ),
+      radial-gradient(120% 70% at 0% 0%, var(--glass-caustic), transparent 62%);
+    opacity: 0.85;
+  }
+  .glass[data-lit]::before,
+  .glass-heavy[data-lit]::before {
+    --glass-lit: 1;
   }
 
   /* .glass-heavy — the densest treatment for the floating dock. */
   .glass-heavy {
     @apply relative isolate overflow-hidden;
+    --tw-backdrop-blur: blur(var(--glass-blur-heavy));
+    --tw-backdrop-saturate: saturate(var(--glass-saturate-heavy));
+    -webkit-backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-saturate);
+    backdrop-filter: var(--tw-backdrop-blur) var(--tw-backdrop-saturate);
     background-color: var(--glass-bg-heavy);
+    background-image: var(--glass-tint);
     border: 1px solid var(--glass-border-heavy);
-    backdrop-filter: blur(40px) saturate(180%);
-    -webkit-backdrop-filter: blur(40px) saturate(180%);
     box-shadow:
       var(--glass-shadow-heavy),
-      inset 0 1px 1px var(--glass-inset-top),
+      inset 0 1px 0 0 var(--glass-inset-top),
+      inset 1px 0 0 0 var(--glass-rim),
       inset 0 -2px 4px rgba(0, 0, 0, 0.12),
+      inset 0 -18px 32px -26px var(--glass-depth),
       0 0 0 1px var(--glass-ring);
   }
   .glass-heavy::before {
-    content: "";
-    @apply pointer-events-none absolute inset-x-0 top-0 h-2/3;
-    background: linear-gradient(
-      to bottom,
-      var(--glass-sheen) 0%,
-      rgba(255, 255, 255, 0.04) 55%,
-      transparent 100%
-    );
+    background:
+      radial-gradient(
+        circle var(--glass-hl-size, 14rem) at var(--glass-x, 50%) var(--glass-y, 0%),
+        rgb(var(--glass-hl-rgb) / calc(var(--glass-lit, 0) * var(--glass-hl-a))),
+        transparent 70%
+      ),
+      linear-gradient(
+        to bottom,
+        var(--glass-sheen) 0%,
+        rgba(255, 255, 255, 0.04) 36%,
+        transparent 66%
+      ),
+      radial-gradient(120% 70% at 0% 0%, var(--glass-caustic), transparent 62%);
+  }
+
+  /* Vidrio dentro de vidrio: sin segundo desenfoque.
+     Lo que hay detrás de una superficie interior ya es el vidrio exterior
+     difuminado, así que un segundo `backdrop-filter` cuesta GPU en cada
+     dibujado y no cambia nada visible. Generaliza `.glass-flat` a toda la
+     aplicación conservando color, borde, sombra y reflejo. */
+  .glass .glass,
+  .glass .glass-heavy,
+  .glass-heavy .glass,
+  .glass-heavy .glass-heavy {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 
   /* ---------------------------------------------------------------
@@ -445,9 +568,11 @@
   }
 
   /* Semantic ink utilities — theme-aware text colours. */
+  /* `text-shadow` y no `filter: drop-shadow`: el filtro creaba una capa de
+     composición por cada texto (cientos en una tabla) para el mismo resultado. */
   .text-ink {
     color: var(--ink);
-    filter: drop-shadow(0 1px 1px var(--ink-shadow));
+    text-shadow: 0 1px 1px var(--ink-shadow);
   }
   .text-ink-soft {
     color: var(--ink-soft);
@@ -871,6 +996,7 @@
   .text-ink,
   .text-ink-soft {
     filter: none !important;
+    text-shadow: none !important;
   }
 
   .print-avoid-break {
@@ -1148,5 +1274,717 @@
   .cmp-grid .print-avoid-break {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+}
+
+/* =============================================================
+   LIQUID GLASS AURORA — materia, luz y movimiento.
+
+   Todo lo de este bloque está FUERA de las capas de Tailwind a
+   propósito: son clases que se escriben desde los componentes y
+   fotogramas que nadie más declara, y así ningún purgado las quita.
+
+   Reglas de la casa, en orden:
+     1. Solo `transform`, `opacity` y degradados. Nada que obligue a
+        recalcular el diseño en cada fotograma.
+     2. Nada decorativo en bucle sobre el hilo principal: lo que se
+        repite (fondo, halo del logo, anillo del dock) vive en el
+        compositor; lo que repinta (brillos sobre texto) se ejecuta
+        una vez y se queda quieto.
+     3. Todo se apaga con `prefers-reduced-motion`, con «Reducir
+        movimiento» de Configuración y al imprimir.
+   ============================================================= */
+
+/* Variables animables del vidrio líquido. `inherits: false` no es un
+   detalle: al mover el puntero solo se recalcula el estilo del vidrio
+   iluminado, no el de los cientos de nodos que lleva dentro. */
+@property --glass-lit {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+@property --glass-x {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 50%;
+}
+@property --glass-y {
+  syntax: "<length-percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
+/* ---- Fondo aurora (CSS) -------------------------------------
+   Sustituye a las manchas con `blur(120–140px)`: un desenfoque de
+   ese radio sobre capas de 700 px que se mueven es de lo más caro
+   que puede pedirse a una GPU. Un degradado radial que se funde en
+   transparente da la misma mancha suave sin ningún filtro.
+   ------------------------------------------------------------ */
+.aurora-root {
+  background-color: var(--mesh-base);
+  contain: strict;
+}
+
+.aurora-blob {
+  position: absolute;
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 9999px;
+  will-change: transform;
+  animation: aurora-drift 26s ease-in-out infinite alternate;
+}
+.aurora-blob-1 {
+  top: -24vmax;
+  left: -18vmax;
+  background: radial-gradient(closest-side, var(--mesh-1), 45%, transparent);
+}
+.aurora-blob-2 {
+  top: 6vh;
+  right: -26vmax;
+  background: radial-gradient(closest-side, var(--mesh-2), 45%, transparent);
+  animation-duration: 31s;
+  animation-delay: -9s;
+}
+.aurora-blob-3 {
+  bottom: -34vmax;
+  left: 14vw;
+  width: 72vmax;
+  height: 72vmax;
+  background: radial-gradient(closest-side, var(--mesh-3), 45%, transparent);
+  animation-duration: 37s;
+  animation-delay: -17s;
+}
+.aurora-blob-4 {
+  top: 28vh;
+  left: 32vw;
+  width: 44vmax;
+  height: 44vmax;
+  background: radial-gradient(closest-side, var(--mesh-4), 45%, transparent);
+  animation-duration: 23s;
+  animation-delay: -5s;
+}
+
+@keyframes aurora-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(6vmax, -4vmax, 0) scale(1.12);
+  }
+  66% {
+    transform: translate3d(-4vmax, 5vmax, 0) scale(0.92);
+  }
+  100% {
+    transform: translate3d(3vmax, 2vmax, 0) scale(1.05);
+  }
+}
+
+/* Cortina de aurora: tres elipses de luz en diagonal que se mecen. */
+.aurora-ribbon {
+  position: absolute;
+  left: -25%;
+  right: -25%;
+  top: 2%;
+  height: 48%;
+  background:
+    radial-gradient(46% 30% at 28% 52%, var(--aurora-1), transparent 70%),
+    radial-gradient(38% 24% at 60% 42%, var(--aurora-2), transparent 70%),
+    radial-gradient(32% 22% at 84% 60%, var(--aurora-3), transparent 70%);
+  transform: rotate(-11deg);
+  will-change: transform;
+  animation: aurora-sway 24s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-sway {
+  0% {
+    transform: translate3d(-4%, 0, 0) rotate(-11deg) scaleY(1);
+  }
+  50% {
+    transform: translate3d(3%, 3%, 0) rotate(-8deg) scaleY(1.18);
+  }
+  100% {
+    transform: translate3d(5%, -2%, 0) rotate(-13deg) scaleY(0.9);
+  }
+}
+
+.aurora-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(130% 90% at 50% 38%, transparent 55%, var(--aurora-vignette) 100%);
+}
+
+/* Grano fino: evita las bandas de los degradados grandes. Es una sola
+   imagen de 160 px repetida, sin animación. */
+.aurora-grain {
+  position: absolute;
+  inset: 0;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+/* Con el motor WebGL pintando encima, la aurora CSS queda tapada: se
+   congela para no gastar compositor en algo que no se ve. */
+html[data-webgl] .aurora-blob,
+html[data-webgl] .aurora-ribbon {
+  animation-play-state: paused;
+}
+
+/* El lienzo WebGL aparece con un fundido cuando ya pintó su primer
+   fotograma, nunca como un rectángulo vacío. */
+.three-canvas {
+  opacity: 0;
+  transition: opacity 1.4s ease;
+}
+
+/* ---- Revelado al desplazar ----------------------------------
+   Las tarjetas de vidrio suben y se asientan al entrar en pantalla.
+   Lo mueve el propio desplazamiento (scroll-driven animations), sin
+   JavaScript ni observadores, y corre en el compositor.
+
+   Especificidad CERO (`:where`): cualquier animación propia de un
+   componente gana siempre. Solo `translate` y `scale` —propiedades
+   independientes de `transform`—, así que se suman a las de Framer
+   Motion en lugar de pisarlas. Sin opacidad: si un navegador no
+   llegara a resolver la línea de tiempo, la tarjeta se queda
+   visible, nunca transparente.
+
+   Fuera: vidrio anidado, superficies fijas, pegajosas o absolutas
+   (menús, desplegables), diálogos, la rejilla del comparador y la
+   consola de Documentación, que tiene su propio lenguaje de
+   movimiento.
+   ------------------------------------------------------------ */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    :where(html:not(.reduce-motion))
+      :where(main)
+      :where(
+        .glass:not(
+            .glass .glass,
+            .glass-heavy .glass,
+            .cmp-grid .glass,
+            .doc-console .glass,
+            .fixed .glass,
+            .sticky .glass,
+            [role="dialog"] .glass,
+            .absolute,
+            .fixed,
+            .sticky,
+            [role="menu"],
+            [role="listbox"],
+            [role="tooltip"]
+          )
+      ) {
+      animation: glass-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 240px;
+      animation-range: entry 0% entry min(100%, 240px);
+    }
+  }
+}
+
+@keyframes glass-reveal {
+  from {
+    translate: 0 30px;
+    scale: 0.97;
+  }
+  to {
+    translate: none;
+    scale: none;
+  }
+}
+
+/* ---- Cambio de tema con revelado circular -------------------
+   El tema nuevo se abre en círculo desde el botón del dock (View
+   Transitions API). Solo actúa mientras dura el cambio de tema: las
+   transiciones de vista de Documentación no se tocan.
+   ------------------------------------------------------------ */
+html.theme-vt::view-transition-old(root),
+html.theme-vt::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+html.theme-vt::view-transition-old(root) {
+  z-index: 1;
+}
+html.theme-vt::view-transition-new(root) {
+  z-index: 2;
+}
+/* Durante el revelado los colores saltan directamente a su valor final:
+   así el círculo descubre el tema terminado y no una mezcla a medias. */
+html.theme-vt *,
+html.theme-vt *::before,
+html.theme-vt *::after {
+  transition: none !important;
+}
+
+/* ---- Texto aurora ------------------------------------------- */
+.aurora-text {
+  color: var(--accent-fg);
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .aurora-text {
+    background-image: linear-gradient(
+      100deg,
+      var(--aurora-text-1) 0%,
+      var(--aurora-text-2) 35%,
+      var(--aurora-text-3) 65%,
+      var(--aurora-text-1) 100%
+    );
+    background-size: 220% 100%;
+    background-position: 0% 50%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    text-shadow: none;
+    /* Dos pasadas y quieto: un brillo sobre texto repinta en cada
+       fotograma, así que no se deja en bucle. */
+    animation: aurora-pan 7s cubic-bezier(0.45, 0, 0.25, 1) 1.1s 2 alternate both;
+  }
+}
+@keyframes aurora-pan {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+/* Destello que recorre el título del módulo cuando las letras ya se
+   asentaron. Una sola vez por cambio de módulo. */
+.title-glint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+  background-image: linear-gradient(
+    105deg,
+    transparent 38%,
+    var(--glint-color) 50%,
+    transparent 62%
+  );
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  background-position: 105% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: title-glint 1.5s cubic-bezier(0.4, 0, 0.2, 1) var(--glint-delay, 0.6s) both;
+}
+@keyframes title-glint {
+  from {
+    background-position: 105% 0;
+  }
+  to {
+    background-position: -5% 0;
+  }
+}
+
+/* Línea luminosa bajo el título del módulo. */
+.aurora-line {
+  position: relative;
+  overflow: hidden;
+  border-radius: 9999px;
+  background-image: linear-gradient(
+    90deg,
+    var(--accent-fg) 0%,
+    rgba(0, 176, 216, 0.45) 38%,
+    transparent 100%
+  );
+}
+.aurora-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(90deg, transparent, var(--glint-color), transparent);
+  background-size: 30% 100%;
+  background-repeat: no-repeat;
+  background-position: -45% 0;
+  animation: line-glint 1.6s cubic-bezier(0.4, 0, 0.2, 1) 0.55s both;
+}
+@keyframes line-glint {
+  from {
+    background-position: -45% 0;
+  }
+  to {
+    background-position: 145% 0;
+  }
+}
+
+/* Barra de progreso de lectura (la escala la mueve Framer Motion). */
+.scroll-progress {
+  border-radius: 0 9999px 9999px 0;
+  background-image: linear-gradient(90deg, #005baa 0%, #00b0d8 55%, #a5f3fc 100%);
+  box-shadow: 0 0 14px var(--progress-glow);
+}
+
+/* Barrido de luz al cambiar de módulo. Fundido normal, sin modos de
+   mezcla: una capa fija a pantalla completa con `mix-blend-mode`
+   obligaría a recomponer la ventana en cada fotograma del scroll. */
+.module-sweep {
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: 0;
+  width: 42vw;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--sweep-color) 30%,
+    var(--sweep-core) 50%,
+    var(--sweep-color) 70%,
+    transparent 100%
+  );
+}
+
+/* ---- Dock ---------------------------------------------------- */
+.dock-glass {
+  --glass-hl-size: 8rem;
+}
+/* Un reflejo que cruza el dock al aparecer (y al expandirlo o moverlo
+   de borde). Se anima la posición del fondo, no un `transform`: el
+   dock tiene desplazamiento propio y un elemento trasladado ampliaría
+   su área desplazable. */
+.dock-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image: linear-gradient(
+    105deg,
+    transparent 40%,
+    var(--dock-sheen) 50%,
+    transparent 60%
+  );
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  background-position: 120% 0;
+  animation: dock-sheen 2.2s cubic-bezier(0.4, 0, 0.2, 1) 0.7s both;
+}
+@keyframes dock-sheen {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+
+/* Anillo que «respira» alrededor del módulo activo: transform y
+   opacidad, en el compositor. En reposo es invisible. */
+.dock-orb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.6);
+  opacity: 0;
+  animation: orb-ring 3.2s cubic-bezier(0.22, 1, 0.36, 1) 0.4s infinite;
+}
+@keyframes orb-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.75;
+  }
+  60%,
+  100% {
+    /* 1.3 y no más: el dock vertical en tamaño grande solo tiene 8 px de
+       margen lateral y un anillo mayor generaría desplazamiento horizontal. */
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+/* ---- KPI ----------------------------------------------------- */
+.kpi-orb::before {
+  content: "";
+  position: absolute;
+  inset: 1px 1px 46% 1px;
+  border-radius: inherit;
+  border-bottom-left-radius: 40% 30%;
+  border-bottom-right-radius: 40% 30%;
+  pointer-events: none;
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0));
+}
+.kpi-orb::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: 1.25rem;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px rgba(103, 232, 249, 0.5),
+    0 0 20px rgba(0, 176, 216, 0.45);
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    opacity 0.35s ease,
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.kpi-card:hover .kpi-orb::after,
+.kpi-card:focus-visible .kpi-orb::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ---- Halo del logotipo ----------------------------------------
+   Un degradado cónico que gira detrás de la placa del logo. Gira el
+   pseudoelemento (compositor) dentro de un marco redondeado que lo
+   recorta, así la forma del halo nunca se tuerce.
+   ------------------------------------------------------------ */
+.brand-halo-ring {
+  overflow: hidden;
+  pointer-events: none;
+  box-shadow: 0 0 22px rgba(0, 176, 216, 0.28);
+}
+.brand-halo-ring::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    rgba(0, 176, 216, 0.9) 60deg,
+    rgba(165, 180, 252, 0.75) 120deg,
+    transparent 180deg,
+    transparent 220deg,
+    rgba(103, 232, 249, 0.85) 290deg,
+    transparent 360deg
+  );
+  animation: halo-spin 7s linear infinite;
+}
+@keyframes halo-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* ---- Cargador líquido --------------------------------------- */
+.liquid-loader {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 4.5rem;
+  height: 4.5rem;
+}
+.liquid-loader-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0% 22%,
+    rgba(0, 176, 216, 0.18) 40%,
+    #00b0d8 76%,
+    #a5f3fc 100%
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 3px));
+  animation: liquid-spin 1.1s linear infinite;
+}
+.liquid-loader-core {
+  position: relative;
+  width: 2.9rem;
+  height: 2.9rem;
+  overflow: hidden;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(160deg, #00b0d8, #005baa);
+  box-shadow:
+    inset 0 -6px 12px rgba(0, 30, 70, 0.35),
+    inset 0 2px 3px rgba(255, 255, 255, 0.45),
+    0 8px 24px -6px rgba(0, 176, 216, 0.55);
+}
+/* La ola: un cuadrado redondeado enorme que gira; su borde superior
+   ondula sobre la línea de llenado. */
+.liquid-loader-core::before {
+  content: "";
+  position: absolute;
+  left: -50%;
+  top: 48%;
+  width: 200%;
+  height: 200%;
+  border-radius: 42%;
+  background: rgba(165, 243, 252, 0.38);
+  animation: liquid-spin 3.4s linear infinite;
+}
+.liquid-loader-core::after {
+  content: "";
+  position: absolute;
+  top: 12%;
+  left: 20%;
+  width: 34%;
+  height: 22%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0));
+  transform: rotate(-22deg);
+}
+@keyframes liquid-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+.liquid-loader-dots {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+.liquid-loader-dots > span {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 9999px;
+  background-color: var(--accent-fg);
+  animation: liquid-dot 1.2s ease-in-out infinite;
+}
+.liquid-loader-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.liquid-loader-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes liquid-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* ---- Estados (vacío / error) -------------------------------
+   Entrada solo en CSS y con `backwards`: al terminar no deja ningún
+   `transform` fijado que pise el de Framer Motion.
+   ------------------------------------------------------------ */
+.state-rise {
+  animation: state-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes state-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.state-float {
+  animation: state-float 5s ease-in-out 0.6s 2;
+}
+@keyframes state-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+.state-shake {
+  animation: state-shake 0.7s cubic-bezier(0.36, 0.07, 0.19, 0.97) 0.35s backwards;
+}
+@keyframes state-shake {
+  0%,
+  100% {
+    transform: none;
+  }
+  20% {
+    transform: translateX(-3px) rotate(-4deg);
+  }
+  40% {
+    transform: translateX(3px) rotate(4deg);
+  }
+  60% {
+    transform: translateX(-2px) rotate(-2deg);
+  }
+  80% {
+    transform: translateX(2px) rotate(2deg);
+  }
+}
+
+/* Velo de los modales: un resplandor cian desde arriba sobre el
+   oscurecido de siempre. */
+.modal-backdrop {
+  background-image: radial-gradient(120% 85% at 50% 0%, rgba(0, 176, 216, 0.14), transparent 60%);
+}
+
+/* ---- Menos transparencia / sin desenfoque -------------------
+   Quien pide menos transparencia —o un navegador que no sabe
+   desenfocar— recibe vidrio opaco con la misma forma, borde y luz.
+   ------------------------------------------------------------ */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  .dark {
+    --glass-bg: rgba(16, 33, 64, 0.94);
+    --glass-bg-heavy: rgba(16, 33, 64, 0.97);
+  }
+  .light {
+    --glass-bg: rgba(255, 255, 255, 0.96);
+    --glass-bg-heavy: rgba(255, 255, 255, 0.98);
+  }
+  .glass,
+  .glass-heavy {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root,
+  .dark {
+    --glass-bg: rgba(16, 33, 64, 0.94);
+    --glass-bg-heavy: rgba(16, 33, 64, 0.97);
+  }
+  .light {
+    --glass-bg: rgba(255, 255, 255, 0.96);
+    --glass-bg-heavy: rgba(255, 255, 255, 0.98);
+  }
+}
+
+/* ---- Impresión: nada de esto llega al papel ----------------- */
+@media print {
+  .aurora-root,
+  .three-canvas,
+  .title-glint,
+  .module-sweep,
+  .scroll-progress,
+  .brand-halo-ring {
+    display: none !important;
+  }
+  .dock-glass::after,
+  .dock-orb::after,
+  .kpi-orb::after,
+  .aurora-line::after {
+    display: none !important;
+  }
+  .glass,
+  .glass-heavy {
+    animation: none !important;
+    translate: none !important;
+    scale: none !important;
+  }
+  .aurora-text {
+    background: none !important;
+    color: #005baa !important;
+    -webkit-text-fill-color: currentColor !important;
+    animation: none !important;
+  }
+  .state-rise,
+  .state-float,
+  .state-shake,
+  .liquid-loader-ring,
+  .liquid-loader-core::before,
+  .liquid-loader-dots > span {
+    animation: none !important;
   }
 }
