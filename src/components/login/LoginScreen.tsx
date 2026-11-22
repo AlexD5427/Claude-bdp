@@ -75,7 +75,9 @@ export function LoginScreen() {
                             setFocusedId(profile.id);
                           }}
                         >
-                          <span aria-hidden="true"><ProfileAvatar nombre={profile.nombre} avatar={profile.avatar} size="lg" staticMode={staticAvatars || calm} /></span>
+                          <span className="mb-2 mt-4" aria-hidden="true">
+                            <ProfileAvatar nombre={profile.nombre} avatar={profile.avatar} size="md" staticMode={staticAvatars || calm} />
+                          </span>
                           <strong>{profile.nombre}</strong>
                           <small>{profile.cargo}</small>
                         </button>
