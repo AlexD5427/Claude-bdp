@@ -1,4 +1,4 @@
-name: Aurora · escritura temporal de cambios (entrega 1)
+name: Aurora · escritura temporal de cambios (entrega 2)
 
 on:
   push:
@@ -18,1071 +18,826 @@ concurrency:
 # y solo entonces los publica en la rama; después compila y ejecuta las pruebas.
 # Al terminar, este archivo vuelve a ser el flujo «Validar frontend BDP».
 #
-#@ archivo src/hooks/useCalmMotion.ts 4b8b50cc11935bbfb5e3239caf70b9bb8fd1acc3
-#|import { useReducedMotion } from "framer-motion";
-#|import { useConfig } from "../lib/configStore";
+#@ archivo src/components/ThreeBackground.tsx 71dc57efec0bc5079151848081b22f6d590c696a
+#|import { useEffect, useRef } from "react";
+#|import { useTheme } from "../context/ThemeContext";
+#|import { useConfig, type ThreeQuality } from "../lib/configStore";
+#|
+#|/** Densidad de píxeles mínima a la que puede bajar el ajuste automático. */
+#|const MIN_DPR = 0.5;
+#|/** Fotogramas que se promedian antes de decidir si hay que aligerar. */
+#|const MUESTRAS_RENDIMIENTO = 90;
+#|/** Duración de la onda que deja un clic, en segundos. */
+#|const VIDA_ONDA = 2.6;
 #|
 #|/**
-#| * «Movimiento sereno»: verdadero cuando el sistema operativo pide menos
-#| * movimiento o cuando se activó «Reducir movimiento» en Configuración.
+#| * El motor visual Three.js: una capa WebGL optimizada que lleva la estética
+#| * Liquid Glass a una profundidad real.
 #| *
-#| * Los efectos de la capa Liquid Glass Aurora (título por letras, magnificación
-#| * del dock, barrido entre módulos, inclinación de los KPI, luz que sigue al
-#| * puntero…) lo consultan para no montar siquiera sus escuchas: con movimiento
-#| * reducido no queda trabajo de fondo, no solo animaciones más cortas.
+#| * Objetivos, en orden:
+#| *   1. **Rendimiento primero.** Un único cuadro a pantalla completa (una sola
+#| *      llamada de dibujo) pinta un flujo «líquido» con deformación de dominio
+#| *      y dos cortinas de aurora. El coste es solo de relleno, así que:
+#| *        · la densidad de píxeles tiene un tope por calidad (más bajo que
+#| *          antes: el fondo es difuso y no gana nada con más resolución);
+#| *        · si los fotogramas reales tardan más de la cuenta, la resolución
+#| *          baja sola (×0.8 cada vez, hasta un mínimo) — se adapta al equipo;
+#| *        · en calidad «baja» se dibuja a 30 fps;
+#| *        · el bucle se detiene con la pestaña oculta y Three.js se carga
+#| *          aparte (import dinámico) para no pesar en la primera carga.
+#| *   2. **Fiel al tema.** Los colores salen de la paleta corporativa de cada
+#| *      tema: un Midnight profundo en oscuro y un Daylight aireado en claro.
+#| *   3. **Vivo pero sobrio.** Una luz suave sigue al puntero y cada clic deja
+#| *      una onda que se expande y se apaga.
+#| *   4. **Elegante al fallar.** Sin WebGL, con el motor apagado en
+#| *      Configuración o con movimiento reducido no pinta nada y queda el fondo
+#| *      aurora en CSS ({@link ./MeshBackground}). El lienzo aparece con un
+#| *      fundido solo cuando ya pintó su primer fotograma.
 #| */
-#|export function useCalmMotion(): boolean {
-#|  const prefersReduced = useReducedMotion();
-#|  const { reduceMotion } = useConfig();
-#|  return Boolean(prefersReduced) || reduceMotion;
-#|}
-#@ archivo src/lib/themeTransition.ts 3c42081d4c8a7fb55a3865591a9f273e2416a3a5
-#|import { flushSync } from "react-dom";
+#|export function ThreeBackground() {
+#|  const canvasRef = useRef<HTMLCanvasElement>(null);
+#|  const { theme } = useTheme();
+#|  const config = useConfig();
+#|  // El bucle de dibujo vive mucho: lee el tema vigente desde aquí.
+#|  const themeRef = useRef(theme);
+#|  themeRef.current = theme;
 #|
-#|/** Lo mínimo de la View Transitions API que se usa aquí. */
-#|interface TransicionDeVista {
-#|  ready: Promise<void>;
-#|  finished: Promise<void>;
-#|}
+#|  const prefersReduced =
+#|    typeof window !== "undefined" &&
+#|    typeof window.matchMedia === "function" &&
+#|    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 #|
-#|/** Duración del revelado circular del tema, en milisegundos. */
-#|const DURACION_REVELADO = 700;
-#|
-#|/**
-#| * Cambia el tema con un revelado circular que nace en `origen` (el centro del
-#| * botón pulsado), usando la View Transitions API.
-#| *
-#| * Cómo funciona: el navegador fotografía la página con el tema actual, se
-#| * aplica el tema nuevo de forma síncrona (`flushSync`, para que React lo pinte
-#| * dentro de la transición) y la captura nueva se descubre con un `clip-path`
-#| * circular que crece hasta cubrir la pantalla.
-#| *
-#| * Sin la API (Firefox antiguo, Safari < 18), con «Reducir movimiento» o con
-#| * `prefers-reduced-motion`, el tema cambia al instante como siempre. Cualquier
-#| * fallo de la API cae también al cambio directo: nunca deja el tema a medias.
-#| */
-#|export function cambiarTemaConRevelado(origen: { x: number; y: number }, cambiar: () => void): void {
-#|  const raiz = document.documentElement;
-#|  const api = document as unknown as {
-#|    startViewTransition?: (actualizar: () => void) => TransicionDeVista;
-#|  };
-#|
-#|  const prefiereCalma =
-#|    raiz.classList.contains("reduce-motion") ||
-#|    (typeof window.matchMedia === "function" &&
-#|      window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-#|
-#|  if (typeof api.startViewTransition !== "function" || prefiereCalma) {
-#|    cambiar();
-#|    return;
-#|  }
-#|
-#|  const { x, y } = origen;
-#|  const radio = Math.hypot(
-#|    Math.max(x, window.innerWidth - x),
-#|    Math.max(y, window.innerHeight - y),
-#|  );
-#|
-#|  // Mientras dura el revelado, sin transiciones CSS: el círculo descubre el
-#|  // tema ya terminado, no colores a mitad de camino.
-#|  raiz.classList.add("theme-vt");
-#|  const limpiar = () => raiz.classList.remove("theme-vt");
-#|
-#|  let transicion: TransicionDeVista;
-#|  try {
-#|    transicion = api.startViewTransition(() => {
-#|      flushSync(cambiar);
-#|    });
-#|  } catch {
-#|    limpiar();
-#|    cambiar();
-#|    return;
-#|  }
-#|
-#|  transicion.ready
-#|    .then(() => {
-#|      raiz.animate(
-#|        {
-#|          clipPath: [
-#|            `circle(0px at ${x}px ${y}px)`,
-#|            `circle(${radio}px at ${x}px ${y}px)`,
-#|          ],
-#|        },
-#|        {
-#|          duration: DURACION_REVELADO,
-#|          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-#|          pseudoElement: "::view-transition-new(root)",
-#|        },
-#|      );
-#|    })
-#|    .catch(() => {
-#|      /* La transición se omitió (otra empezó encima): el tema ya cambió. */
-#|    });
-#|
-#|  transicion.finished.then(limpiar, limpiar);
-#|}
-#@ archivo src/components/LiquidPointer.tsx 05c56e5e63870f445b3cc345cc50675c19c25c9b
-#|import { useEffect } from "react";
-#|import { useCalmMotion } from "../hooks/useCalmMotion";
-#|
-#|/** Superficies que reciben la luz líquida. */
-#|const SELECTOR_VIDRIO = ".glass, .glass-heavy";
-#|
-#|/**
-#| * Área máxima (px²) de un vidrio que se ilumina. Por encima —un panel de módulo
-#| * a pantalla completa— repintar el reflejo en cada movimiento del puntero
-#| * costaría más de lo que luce, así que esas superficies se quedan con su brillo
-#| * estático.
-#| */
-#|const AREA_MAXIMA = 420_000;
-#|
-#|/**
-#| * Luz líquida del vidrio.
-#| *
-#| * UN solo oyente para toda la aplicación, en lugar de un `onMouseMove` por
-#| * tarjeta: localiza el vidrio que hay bajo el puntero, le pone `data-lit` y le
-#| * pasa la posición en `--glass-x` / `--glass-y`. El CSS (`.glass::before`)
-#| * pinta el reflejo DEBAJO del contenido y lo enciende o apaga con una
-#| * transición de `--glass-lit`.
-#| *
-#| * Trabajo por fotograma: como mucho un `closest()` y un
-#| * `getBoundingClientRect()`, dentro de `requestAnimationFrame`. Las variables
-#| * están registradas con `inherits: false`, así que cambiarlas no recalcula el
-#| * estilo de lo que hay dentro de la tarjeta. Con movimiento reducido o en
-#| * pantallas táctiles no se monta nada.
-#| */
-#|export function LiquidPointer() {
-#|  const calm = useCalmMotion();
+#|  const active = config.enableThree && !config.reduceMotion && !prefersReduced;
+#|  const quality = config.threeQuality;
 #|
 #|  useEffect(() => {
-#|    if (calm) return;
-#|    const coincide = (consulta: string) =>
-#|      typeof window.matchMedia === "function" ? window.matchMedia(consulta).matches : false;
-#|    if (coincide("(hover: none)")) return;
-#|
-#|    let raf = 0;
-#|    let ultimoX = -1;
-#|    let ultimoY = -1;
-#|    /** Elemento bajo el puntero; `undefined` = hay que volver a buscarlo. */
-#|    let pendiente: Element | null | undefined = null;
-#|    let encendido: HTMLElement | null = null;
-#|
-#|    const apagar = () => {
-#|      if (encendido) {
-#|        encendido.removeAttribute("data-lit");
-#|        encendido = null;
-#|      }
-#|    };
-#|
-#|    const pintar = () => {
-#|      raf = 0;
-#|      if (ultimoX < 0) return;
-#|      const objetivo = pendiente === undefined ? document.elementFromPoint(ultimoX, ultimoY) : pendiente;
-#|      const vidrio = objetivo ? objetivo.closest<HTMLElement>(SELECTOR_VIDRIO) : null;
-#|      if (!vidrio) {
-#|        apagar();
-#|        return;
-#|      }
-#|      const caja = vidrio.getBoundingClientRect();
-#|      if (caja.width * caja.height > AREA_MAXIMA) {
-#|        apagar();
-#|        return;
-#|      }
-#|      if (encendido !== vidrio) {
-#|        apagar();
-#|        encendido = vidrio;
-#|        vidrio.setAttribute("data-lit", "");
-#|      }
-#|      vidrio.style.setProperty("--glass-x", `${Math.round(ultimoX - caja.left)}px`);
-#|      vidrio.style.setProperty("--glass-y", `${Math.round(ultimoY - caja.top)}px`);
-#|    };
-#|
-#|    const programar = () => {
-#|      if (!raf) raf = requestAnimationFrame(pintar);
-#|    };
-#|
-#|    const alMover = (e: PointerEvent) => {
-#|      if (e.pointerType !== "mouse") return;
-#|      ultimoX = e.clientX;
-#|      ultimoY = e.clientY;
-#|      pendiente = e.target instanceof Element ? e.target : null;
-#|      programar();
-#|    };
-#|
-#|    // Al desplazar, el puntero queda quieto pero el vidrio de debajo cambia.
-#|    const alDesplazar = () => {
-#|      if (ultimoX < 0) return;
-#|      pendiente = undefined;
-#|      programar();
-#|    };
-#|
-#|    const alSalir = () => {
-#|      ultimoX = -1;
-#|      ultimoY = -1;
-#|      pendiente = null;
-#|      if (raf) {
-#|        cancelAnimationFrame(raf);
-#|        raf = 0;
-#|      }
-#|      apagar();
-#|    };
-#|
+#|    if (!active) return;
+#|    const canvas = canvasRef.current;
+#|    if (!canvas) return;
 #|    const raiz = document.documentElement;
-#|    document.addEventListener("pointermove", alMover, { passive: true });
-#|    window.addEventListener("scroll", alDesplazar, { passive: true, capture: true });
-#|    raiz.addEventListener("mouseleave", alSalir);
-#|    window.addEventListener("blur", alSalir);
+#|
+#|    let disposed = false;
+#|    let cleanup = () => {};
+#|
+#|    void import("three").then((THREE) => {
+#|      if (disposed) return;
+#|
+#|      let renderer: import("three").WebGLRenderer;
+#|      try {
+#|        renderer = new THREE.WebGLRenderer({
+#|          canvas,
+#|          antialias: false,
+#|          alpha: true,
+#|          depth: false,
+#|          stencil: false,
+#|          powerPreference: "high-performance",
+#|        });
+#|      } catch {
+#|        return; // Sin WebGL: queda el fondo aurora en CSS.
+#|      }
+#|
+#|      const tope = pixelRatioCap(quality);
+#|      let escala = 1;
+#|      const aplicarDpr = () => {
+#|        const dpr = Math.min(window.devicePixelRatio || 1, tope) * escala;
+#|        renderer.setPixelRatio(Math.max(MIN_DPR, dpr));
+#|      };
+#|      aplicarDpr();
+#|      renderer.setClearColor(0x000000, 0);
+#|
+#|      const scene = new THREE.Scene();
+#|      const camera = new THREE.Camera(); // el vertex shader escribe en clip-space
+#|
+#|      const uniforms = {
+#|        uTime: { value: 0 },
+#|        uRes: { value: new THREE.Vector2(1, 1) },
+#|        uPointer: { value: new THREE.Vector2(0.5, 0.5) },
+#|        // x, y = origen de la onda (0..1); z = edad en segundos (-1 = inactiva).
+#|        uRipple: { value: new THREE.Vector3(0.5, 0.5, -1) },
+#|        uColorA: { value: new THREE.Vector3() },
+#|        uColorB: { value: new THREE.Vector3() },
+#|        uColorC: { value: new THREE.Vector3() },
+#|        uColorD: { value: new THREE.Vector3() },
+#|        uBase: { value: new THREE.Vector3() },
+#|        uAlpha: { value: 0.9 },
+#|        uGlow: { value: 0.3 },
+#|      };
+#|      applyPalette(themeRef.current, uniforms);
+#|
+#|      const geometry = new THREE.PlaneGeometry(2, 2);
+#|      const material = new THREE.ShaderMaterial({
+#|        uniforms,
+#|        vertexShader: VERT,
+#|        fragmentShader: FRAG,
+#|        transparent: true,
+#|        depthWrite: false,
+#|        depthTest: false,
+#|      });
+#|      const quad = new THREE.Mesh(geometry, material);
+#|      quad.frustumCulled = false;
+#|      scene.add(quad);
+#|
+#|      const resize = () => {
+#|        const w = window.innerWidth;
+#|        const h = window.innerHeight;
+#|        aplicarDpr();
+#|        renderer.setSize(w, h, false);
+#|        uniforms.uRes.value.set(w, h);
+#|      };
+#|      resize();
+#|      window.addEventListener("resize", resize, { passive: true });
+#|
+#|      // Luz que sigue al puntero y onda en cada clic (coordenadas de pantalla).
+#|      const objetivo = new THREE.Vector2(0.5, 0.5);
+#|      const actual = new THREE.Vector2(0.5, 0.5);
+#|      const onMove = (e: PointerEvent) => {
+#|        objetivo.set(e.clientX / window.innerWidth, 1 - e.clientY / window.innerHeight);
+#|      };
+#|      const onDown = (e: PointerEvent) => {
+#|        uniforms.uRipple.value.set(e.clientX / window.innerWidth, 1 - e.clientY / window.innerHeight, 0);
+#|      };
+#|      window.addEventListener("pointermove", onMove, { passive: true });
+#|      window.addEventListener("pointerdown", onDown, { passive: true });
+#|
+#|      let raf = 0;
+#|      let running = false;
+#|      let perdido = false;
+#|      let pintado = false;
+#|      let lastTheme = themeRef.current;
+#|      let ultimo = 0;
+#|      let tiempo = 0;
+#|      let acumulado = 0;
+#|      let muestras = 0;
+#|      // Presupuesto por fotograma: 60 fps, o 30 fps en calidad baja.
+#|      const presupuesto = quality === "baja" ? 1000 / 30 : 1000 / 60;
+#|      const intervaloMinimo = quality === "baja" ? 1000 / 30 - 2 : 0;
+#|
+#|      const loop = (ahora: number) => {
+#|        if (!running) return;
+#|        raf = requestAnimationFrame(loop);
+#|        if (ultimo === 0) ultimo = ahora;
+#|        const delta = ahora - ultimo;
+#|        if (intervaloMinimo > 0 && delta < intervaloMinimo) return;
+#|        ultimo = ahora;
+#|
+#|        const dt = Math.min(delta, 100) / 1000;
+#|        tiempo += dt;
+#|        uniforms.uTime.value = tiempo;
+#|        // Seguimiento suave e independiente de la frecuencia de refresco.
+#|        actual.lerp(objetivo, 1 - Math.pow(1 - 0.045, delta / (1000 / 60)));
+#|        uniforms.uPointer.value.copy(actual);
+#|
+#|        const onda = uniforms.uRipple.value;
+#|        if (onda.z >= 0) {
+#|          onda.z += dt;
+#|          if (onda.z > VIDA_ONDA) onda.z = -1;
+#|        }
+#|
+#|        // Cambio de tema sin reiniciar el renderizador.
+#|        if (themeRef.current !== lastTheme) {
+#|          lastTheme = themeRef.current;
+#|          applyPalette(lastTheme, uniforms);
+#|        }
+#|
+#|        renderer.render(scene, camera);
+#|
+#|        if (!pintado) {
+#|          pintado = true;
+#|          canvas.style.opacity = "1";
+#|          raiz.setAttribute("data-webgl", "");
+#|        }
+#|
+#|        // Ajuste automático: si el equipo no llega, menos píxeles.
+#|        if (delta > 0 && delta < 250) {
+#|          acumulado += delta;
+#|          muestras += 1;
+#|          if (muestras >= MUESTRAS_RENDIMIENTO) {
+#|            const media = acumulado / muestras;
+#|            acumulado = 0;
+#|            muestras = 0;
+#|            if (media > presupuesto * 1.4 && escala > MIN_DPR) {
+#|              escala = Math.max(MIN_DPR, escala * 0.8);
+#|              resize();
+#|            }
+#|          }
+#|        }
+#|      };
+#|
+#|      const start = () => {
+#|        if (running || perdido) return;
+#|        running = true;
+#|        ultimo = 0;
+#|        acumulado = 0;
+#|        muestras = 0;
+#|        raf = requestAnimationFrame(loop);
+#|      };
+#|      const stop = () => {
+#|        running = false;
+#|        cancelAnimationFrame(raf);
+#|      };
+#|
+#|      const onVisibility = () => {
+#|        if (document.hidden) stop();
+#|        else start();
+#|      };
+#|      document.addEventListener("visibilitychange", onVisibility);
+#|
+#|      // Un contexto WebGL de larga vida puede perderse (pestaña aparcada,
+#|      // suspensión). Se detiene el bucle limpiamente, el lienzo se desvanece y
+#|      // el fondo CSS vuelve a animarse; si el contexto vuelve, se reanuda.
+#|      const onContextLost = (e: Event) => {
+#|        e.preventDefault();
+#|        perdido = true;
+#|        stop();
+#|        pintado = false;
+#|        canvas.style.opacity = "0";
+#|        raiz.removeAttribute("data-webgl");
+#|      };
+#|      const onContextRestored = () => {
+#|        perdido = false;
+#|        pintado = false;
+#|        if (!document.hidden) start();
+#|      };
+#|      canvas.addEventListener("webglcontextlost", onContextLost, false);
+#|      canvas.addEventListener("webglcontextrestored", onContextRestored, false);
+#|
+#|      if (!document.hidden) start();
+#|
+#|      cleanup = () => {
+#|        stop();
+#|        window.removeEventListener("resize", resize);
+#|        window.removeEventListener("pointermove", onMove);
+#|        window.removeEventListener("pointerdown", onDown);
+#|        document.removeEventListener("visibilitychange", onVisibility);
+#|        canvas.removeEventListener("webglcontextlost", onContextLost, false);
+#|        canvas.removeEventListener("webglcontextrestored", onContextRestored, false);
+#|        raiz.removeAttribute("data-webgl");
+#|        canvas.style.opacity = "";
+#|        geometry.dispose();
+#|        material.dispose();
+#|        renderer.dispose();
+#|      };
+#|    });
 #|
 #|    return () => {
-#|      document.removeEventListener("pointermove", alMover);
-#|      window.removeEventListener("scroll", alDesplazar, { capture: true });
-#|      raiz.removeEventListener("mouseleave", alSalir);
-#|      window.removeEventListener("blur", alSalir);
-#|      if (raf) cancelAnimationFrame(raf);
-#|      apagar();
+#|      disposed = true;
+#|      cleanup();
 #|    };
-#|  }, [calm]);
+#|  }, [active, quality]);
 #|
-#|  return null;
-#|}
-#@ archivo src/components/ScrollProgress.tsx 6b81db295d7091a8add7edaed1644b5a257306b5
-#|import { motion, useScroll, useSpring } from "framer-motion";
-#|import { useCalmMotion } from "../hooks/useCalmMotion";
-#|
-#|/**
-#| * Hilo de luz que marca cuánto se ha leído del módulo.
-#| *
-#| * Los informes del comparador, los expedientes y los cuestionarios son largos;
-#| * la barra dice de un vistazo dónde se está sin mirar la barra de
-#| * desplazamiento. Se mueve solo con `transform: scaleX` (compositor) y un
-#| * resorte suave; con movimiento reducido sigue al desplazamiento sin resorte.
-#| */
-#|export function ScrollProgress() {
-#|  const calm = useCalmMotion();
-#|  const { scrollYProgress } = useScroll();
-#|  const suave = useSpring(scrollYProgress, {
-#|    stiffness: 160,
-#|    damping: 30,
-#|    mass: 0.35,
-#|    restDelta: 0.001,
-#|  });
+#|  if (!active) return null;
 #|
 #|  return (
-#|    <motion.div
+#|    <canvas
+#|      ref={canvasRef}
 #|      aria-hidden
-#|      className="scroll-progress pointer-events-none fixed inset-x-0 top-0 z-[98] h-[3px] origin-left no-print"
-#|      style={{ scaleX: calm ? scrollYProgress : suave }}
+#|      className="three-canvas pointer-events-none fixed inset-0 -z-10 h-full w-full no-print"
 #|    />
 #|  );
 #|}
-#@ archivo src/components/ModuleTransition.tsx b40b2f13fa413ab9b8432ba58b6655fe8532ce25
-#|import { useEffect, useRef, useState } from "react";
-#|import { motion } from "framer-motion";
-#|import { useCalmMotion } from "../hooks/useCalmMotion";
 #|
-#|/**
-#| * Barrido de luz que cruza la pantalla al cambiar de módulo.
-#| *
-#| * Marca el cambio de contexto sin retrasarlo: el módulo nuevo se monta al
-#| * instante y el barrido pasa por encima, sin bloquear clics
-#| * (`pointer-events: none`). La capa solo existe mientras dura el barrido; en
-#| * reposo no queda nada montado. Con movimiento reducido no aparece.
-#| */
-#|export function ModuleTransition({ moduleKey }: { moduleKey: string }) {
-#|  const calm = useCalmMotion();
-#|  const anterior = useRef(moduleKey);
-#|  const [pulso, setPulso] = useState(0);
-#|  const [visible, setVisible] = useState(false);
+#|/* ------------------------------------------------------------------ */
 #|
-#|  useEffect(() => {
-#|    if (anterior.current === moduleKey) return;
-#|    anterior.current = moduleKey;
-#|    setPulso((n) => n + 1);
-#|    setVisible(true);
-#|  }, [moduleKey]);
-#|
-#|  if (calm || !visible) return null;
-#|
-#|  return (
-#|    <div aria-hidden className="pointer-events-none fixed inset-0 z-[55] overflow-hidden no-print">
-#|      <motion.div
-#|        key={pulso}
-#|        className="module-sweep"
-#|        style={{ skewX: -16 }}
-#|        initial={{ x: "-110%", opacity: 0 }}
-#|        animate={{ x: "260%", opacity: [0, 1, 1, 0] }}
-#|        transition={{
-#|          x: { duration: 1.05, ease: [0.65, 0, 0.35, 1] },
-#|          opacity: { duration: 1.05, times: [0, 0.15, 0.7, 1], ease: "linear" },
-#|        }}
-#|        onAnimationComplete={() => setVisible(false)}
-#|      />
-#|    </div>
-#|  );
+#|/** Tope de densidad de píxeles por calidad. */
+#|function pixelRatioCap(quality: ThreeQuality): number {
+#|  switch (quality) {
+#|    case "baja":
+#|      return 0.6;
+#|    case "media":
+#|      return 0.85;
+#|    case "alta":
+#|      return 1.5;
+#|    default:
+#|      return 1.1; // auto: el fondo es difuso; más resolución no se aprecia
+#|  }
 #|}
-#@ archivo src/components/AnimatedTitle.tsx 3a635b3af143e435584d2804e68a59f4717bdcb1
-#|import { Fragment, type CSSProperties } from "react";
-#|import { motion, type Variants } from "framer-motion";
-#|import { useCalmMotion } from "../hooks/useCalmMotion";
 #|
-#|const contenedor: Variants = {
-#|  oculto: {},
-#|  visible: { transition: { staggerChildren: 0.03, delayChildren: 0.04 } },
+#|type Vec3Uniform = { value: { set: (x: number, y: number, z: number) => unknown } };
+#|
+#|type Uniforms = {
+#|  uColorA: Vec3Uniform;
+#|  uColorB: Vec3Uniform;
+#|  uColorC: Vec3Uniform;
+#|  uColorD: Vec3Uniform;
+#|  uBase: Vec3Uniform;
+#|  uAlpha: { value: number };
+#|  uGlow: { value: number };
 #|};
 #|
-#|const letra: Variants = {
-#|  oculto: { opacity: 0, y: 16, rotateX: -75, filter: "blur(6px)" },
-#|  visible: {
-#|    opacity: 1,
-#|    y: 0,
-#|    rotateX: 0,
-#|    filter: "blur(0px)",
-#|    // Sin filtro en reposo: el texto vuelve a ser texto plano y nítido.
-#|    transitionEnd: { filter: "none" },
-#|    transition: { type: "spring", stiffness: 380, damping: 24, mass: 0.7 },
-#|  },
-#|};
-#|
-#|type EstiloDestello = CSSProperties & Record<"--glint-delay", string>;
-#|
-#|/** Las palabras del título, cada una como bloque que no se parte por dentro. */
-#|function Palabras({ palabras, animadas }: { palabras: string[]; animadas: boolean }) {
-#|  return (
-#|    <>
-#|      {palabras.map((palabra, i) => (
-#|        <Fragment key={`${palabra}-${i}`}>
-#|          {i > 0 ? " " : null}
-#|          <span className="inline-block whitespace-nowrap [perspective:640px]">
-#|            {Array.from(palabra).map((caracter, j) =>
-#|              animadas ? (
-#|                <motion.span key={j} variants={letra} className="inline-block origin-bottom">
-#|                  {caracter}
-#|                </motion.span>
-#|              ) : (
-#|                <span key={j} className="inline-block">
-#|                  {caracter}
-#|                </span>
-#|              ),
-#|            )}
-#|          </span>
-#|        </Fragment>
-#|      ))}
-#|    </>
-#|  );
+#|function rgb(hex: number): [number, number, number] {
+#|  return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 #|}
 #|
-#|/**
-#| * Título que se materializa letra a letra: cada carácter cae girando desde
-#| * atrás, desenfocado, y se asienta con un resorte; al terminar, un destello de
-#| * luz recorre la palabra una sola vez.
-#| *
-#| * Accesibilidad: el texto real va en un `sr-only`; las letras sueltas y el
-#| * destello son decorativos (`aria-hidden`), así un lector de pantalla lee el
-#| * título de corrido y no carácter a carácter. Con movimiento reducido se pinta
-#| * el texto tal cual.
-#| *
-#| * Se usa con `key` = módulo activo, para que cada cambio de módulo lo vuelva a
-#| * montar y reproduzca la entrada.
-#| */
-#|export function AnimatedTitle({ text }: { text: string }) {
-#|  const calm = useCalmMotion();
-#|  if (calm) return <>{text}</>;
-#|
-#|  const palabras = text.split(/\s+/).filter(Boolean);
-#|  const letras = palabras.reduce((total, p) => total + Array.from(p).length, 0);
-#|  const estiloDestello: EstiloDestello = {
-#|    "--glint-delay": `${(0.35 + letras * 0.03).toFixed(2)}s`,
-#|  };
-#|
-#|  return (
-#|    <span className="relative inline-block">
-#|      <span className="sr-only">{text}</span>
-#|      <motion.span aria-hidden variants={contenedor} initial="oculto" animate="visible">
-#|        <Palabras palabras={palabras} animadas />
-#|      </motion.span>
-#|      <span aria-hidden className="title-glint" style={estiloDestello}>
-#|        <Palabras palabras={palabras} animadas={false} />
-#|      </span>
-#|    </span>
-#|  );
-#|}
-#@ archivo src/components/AnimatedValue.tsx f019ac6db471db5741233314f45f75979cfa6f2d
-#|import { useLayoutEffect, useRef } from "react";
-#|import { animate } from "framer-motion";
-#|import { useCalmMotion } from "../hooks/useCalmMotion";
-#|
-#|/**
-#| * Prefijo · signo · entero · (separador · 1–2 decimales) · sufijo.
-#| * Acepta «128», «72.5%», «-0.35», «4,2 pts». Lo que no encaja (texto, «N/A»,
-#| * más de dos decimales) se muestra tal cual, sin animar.
-#| */
-#|const PATRON = /^([^\d-]*)(-?)(\d+)(?:([.,])(\d{1,2}))?(\D*)$/;
-#|
-#|interface Partes {
-#|  prefijo: string;
-#|  numero: number;
-#|  decimales: number;
-#|  separador: string;
-#|  sufijo: string;
+#|/** Carga la paleta corporativa del tema en los uniforms del shader. */
+#|function applyPalette(theme: "dark" | "light", u: Uniforms) {
+#|  if (theme === "light") {
+#|    u.uBase.value.set(...rgb(0xeaf1fb));
+#|    u.uColorA.value.set(...rgb(0xbfd9f5));
+#|    u.uColorB.value.set(...rgb(0x8fd3ec));
+#|    u.uColorC.value.set(...rgb(0xafd0f2));
+#|    u.uColorD.value.set(...rgb(0x9ec5ff));
+#|    u.uAlpha.value = 0.72;
+#|    u.uGlow.value = 0.18;
+#|  } else {
+#|    u.uBase.value.set(...rgb(0x04122a));
+#|    u.uColorA.value.set(...rgb(0x005baa));
+#|    u.uColorB.value.set(...rgb(0x00b0d8));
+#|    u.uColorC.value.set(...rgb(0x0090c5));
+#|    u.uColorD.value.set(...rgb(0x4f7cff));
+#|    u.uAlpha.value = 0.92;
+#|    u.uGlow.value = 0.34;
+#|  }
 #|}
 #|
-#|function analizar(valor: string): Partes | null {
-#|  const m = PATRON.exec(valor.trim());
-#|  if (!m) return null;
-#|  const prefijo = m[1] ?? "";
-#|  const signo = m[2] ?? "";
-#|  const entero = m[3] ?? "0";
-#|  const separador = m[4] ?? ".";
-#|  const fraccion = m[5] ?? "";
-#|  const sufijo = m[6] ?? "";
-#|  const numero = Number(`${signo}${entero}${fraccion ? `.${fraccion}` : ""}`);
-#|  if (!Number.isFinite(numero)) return null;
-#|  return { prefijo, numero, decimales: fraccion.length, separador, sufijo };
-#|}
+#|const VERT = /* glsl */ `
+#|  varying vec2 vUv;
+#|  void main() {
+#|    vUv = uv;
+#|    gl_Position = vec4(position.xy, 0.0, 1.0);
+#|  }
+#|`;
 #|
-#|function formatear(partes: Partes, valor: number): string {
-#|  let texto = valor.toFixed(partes.decimales);
-#|  // Nunca «-0» ni «-0.0» a mitad de la cuenta.
-#|  if (/^-0(?:\.0+)?$/.test(texto)) texto = texto.slice(1);
-#|  if (partes.separador === ",") texto = texto.replace(".", ",");
-#|  return `${partes.prefijo}${texto}${partes.sufijo}`;
-#|}
+#|const FRAG = /* glsl */ `
+#|  precision highp float;
+#|  varying vec2 vUv;
+#|  uniform float uTime;
+#|  uniform vec2 uRes;
+#|  uniform vec2 uPointer;
+#|  uniform vec3 uRipple;
+#|  uniform vec3 uColorA;
+#|  uniform vec3 uColorB;
+#|  uniform vec3 uColorC;
+#|  uniform vec3 uColorD;
+#|  uniform vec3 uBase;
+#|  uniform float uAlpha;
+#|  uniform float uGlow;
 #|
-#|/**
-#| * Cifra que cuenta hasta su valor al aparecer y al cambiar (los filtros, una
-#| * recarga), con una curva que frena al final.
-#| *
-#| * El número se escribe directamente en el nodo dentro del fotograma de
-#| * animación —sin pasar por el estado de React—, así que contar no provoca
-#| * ningún renderizado. Los lectores de pantalla leen siempre el valor final (el
-#| * texto que cuenta es `aria-hidden`). Con movimiento reducido se muestra el
-#| * valor final sin animar.
-#| */
-#|export function AnimatedValue({ value }: { value: string }) {
-#|  const calm = useCalmMotion();
-#|  const nodo = useRef<HTMLSpanElement>(null);
-#|  const actual = useRef<number | null>(null);
+#|  // Rotación entre octavas: rompe la rejilla del ruido.
+#|  const mat2 ROT = mat2(0.8, -0.6, 0.6, 0.8);
 #|
-#|  useLayoutEffect(() => {
-#|    const el = nodo.current;
-#|    if (!el) return;
-#|    const partes = analizar(value);
-#|    if (calm || !partes) {
-#|      el.textContent = value;
-#|      actual.current = partes ? partes.numero : null;
-#|      return;
+#|  // Hash sin seno: estable en GPUs móviles de precisión media.
+#|  float hash(vec2 p) {
+#|    p = fract(p * vec2(123.34, 456.21));
+#|    p += dot(p, p + 45.32);
+#|    return fract(p.x * p.y);
+#|  }
+#|
+#|  float noise(vec2 p) {
+#|    vec2 i = floor(p);
+#|    vec2 f = fract(p);
+#|    vec2 u = f * f * (3.0 - 2.0 * f);
+#|    float a = hash(i);
+#|    float b = hash(i + vec2(1.0, 0.0));
+#|    float c = hash(i + vec2(0.0, 1.0));
+#|    float d = hash(i + vec2(1.0, 1.0));
+#|    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+#|  }
+#|
+#|  float fbm(vec2 p) {
+#|    float v = 0.0;
+#|    float a = 0.5;
+#|    for (int i = 0; i < 4; i++) {
+#|      v += a * noise(p);
+#|      p = ROT * p * 2.02;
+#|      a *= 0.5;
 #|    }
-#|    const desde = actual.current ?? 0;
-#|    if (desde === partes.numero) {
-#|      el.textContent = value;
-#|      return;
+#|    return v;
+#|  }
+#|
+#|  void main() {
+#|    vec2 aspect = vec2(uRes.x / max(uRes.y, 1.0), 1.0);
+#|    vec2 uv = vUv;
+#|    vec2 p = uv * aspect * 1.35;
+#|    float t = uTime * 0.045;
+#|
+#|    // Onda del último clic: un anillo que crece, deforma el líquido y se apaga.
+#|    float luzOnda = 0.0;
+#|    if (uRipple.z >= 0.0) {
+#|      vec2 haciaOnda = (uv - uRipple.xy) * aspect;
+#|      float anillo = length(haciaOnda) - uRipple.z * 0.55;
+#|      float fuerza = exp(-anillo * anillo * 160.0) * exp(-uRipple.z * 1.8);
+#|      p += normalize(haciaOnda + 1e-5) * fuerza * 0.06;
+#|      luzOnda = fuerza;
 #|    }
-#|    el.textContent = formatear(partes, desde);
-#|    const control = animate(desde, partes.numero, {
-#|      duration: 1.1,
-#|      ease: [0.16, 1, 0.3, 1],
-#|      onUpdate: (v: number) => {
-#|        actual.current = v;
-#|        el.textContent = formatear(partes, v);
-#|      },
-#|      onComplete: () => {
-#|        actual.current = partes.numero;
-#|        el.textContent = value;
-#|      },
-#|    });
-#|    return () => control.stop();
-#|  }, [value, calm]);
 #|
-#|  return (
-#|    <>
-#|      <span className="sr-only">{value}</span>
-#|      <span ref={nodo} aria-hidden />
-#|    </>
-#|  );
-#|}
-#@ archivo src/components/BrandHeader.tsx 0e90f4f7a87455eb62a00921b27e969e14591776
-#|import { motion, type Variants } from "framer-motion";
+#|    // Deformación de dominio en dos niveles: flujo orgánico, líquido.
+#|    vec2 q = vec2(fbm(p + vec2(0.0, t)), fbm(p + vec2(5.2, -t)));
+#|    vec2 r = vec2(
+#|      fbm(p + 3.6 * q + vec2(1.7, 9.2) + t * 0.6),
+#|      fbm(p + 3.6 * q + vec2(8.3, 2.8) - t * 0.4)
+#|    );
+#|    float f = fbm(p + 3.2 * r);
 #|
-#|/*
-#| * Coreografía de entrada de la cabecera: la placa del logo aparece con un
-#| * pequeño giro y rebote, el halo se enciende detrás y el nombre y el lema
-#| * llegan en cascada. Todo son variantes: el `header` dirige el escalonado y
-#| * cada pieza hereda «oculto»/«visible» sin repetir `initial`/`animate`.
-#| */
-#|const cabecera: Variants = {
-#|  oculto: { opacity: 0, y: -12 },
-#|  visible: {
-#|    opacity: 1,
-#|    y: 0,
-#|    transition: {
-#|      type: "spring",
-#|      stiffness: 200,
-#|      damping: 24,
-#|      staggerChildren: 0.08,
-#|      delayChildren: 0.05,
-#|    },
-#|  },
-#|};
+#|    vec3 col = mix(uColorA, uColorB, clamp(f * f * 1.8, 0.0, 1.0));
+#|    col = mix(col, uColorC, clamp(length(q) * 0.55, 0.0, 1.0));
+#|    col = mix(col, uColorD, clamp(r.y * r.y * 0.9, 0.0, 1.0) * 0.55);
 #|
-#|const placa: Variants = {
-#|  oculto: { opacity: 0, scale: 0.6, rotate: -8 },
-#|  visible: {
-#|    opacity: 1,
-#|    scale: 1,
-#|    rotate: 0,
-#|    transition: { type: "spring", stiffness: 260, damping: 16 },
-#|  },
-#|};
+#|    // Dos cortinas de aurora que ondulan en la mitad superior.
+#|    float w1 = noise(vec2(p.x * 0.9 + t * 1.6, t * 0.7)) * 0.22;
+#|    float y1 = uv.y - 0.7 - w1;
+#|    float banda1 = exp(-y1 * y1 * 70.0);
+#|    float w2 = noise(vec2(p.x * 1.3 - t * 1.2, 3.1 + t * 0.5)) * 0.18;
+#|    float y2 = uv.y - 0.36 - w2;
+#|    float banda2 = exp(-y2 * y2 * 120.0);
+#|    float cortina = 0.65 + 0.35 * sin(p.x * 34.0 + t * 9.0 + f * 6.0);
+#|    col += uColorB * banda1 * cortina * uGlow;
+#|    col += uColorD * banda2 * (0.6 + 0.4 * cortina) * uGlow * 0.6;
 #|
-#|const halo: Variants = {
-#|  oculto: { opacity: 0, scale: 0.7 },
-#|  visible: {
-#|    opacity: 1,
-#|    scale: 1,
-#|    transition: { duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.25 },
-#|  },
-#|};
+#|    col = mix(uBase, col, 0.84);
 #|
-#|const elemento: Variants = {
-#|  oculto: { opacity: 0, y: 10 },
-#|  visible: {
-#|    opacity: 1,
-#|    y: 0,
-#|    transition: { type: "spring", stiffness: 240, damping: 24 },
-#|  },
-#|};
+#|    // Destellos dispersos, como polvo de luz dentro del líquido.
+#|    float destello = smoothstep(0.84, 0.99, noise(p * 8.0 + t * 3.0));
+#|    col += vec3(destello * destello) * 0.06 * uGlow;
 #|
-#|const linea: Variants = {
-#|  oculto: { scaleX: 0 },
-#|  visible: { scaleX: 1, transition: { duration: 0.7, ease: [0.22, 1, 0.36, 1] } },
-#|};
+#|    // Luz suave que sigue al puntero (eco del foco CSS).
+#|    float dp = distance(uv * aspect, uPointer * aspect);
+#|    col += uColorC * (1.0 - smoothstep(0.0, 0.6, dp)) * 0.12;
 #|
-#|/**
-#| * Institutional brand lockup: the reconstructed BDP isotype + wordmark on a
-#| * crisp plate (so the corporate blues read in both themes), the full bank name
-#| * and the system tagline. Shown at the top of every screen and on printouts.
-#| *
-#| * La placa lleva detrás un halo cónico que gira despacio (solo CSS, en el
-#| * compositor; se detiene con movimiento reducido y no se imprime) y la sigla
-#| * del banco brilla con el degradado aurora de la interfaz.
-#| */
-#|export function BrandHeader() {
-#|  return (
-#|    <motion.header
-#|      variants={cabecera}
-#|      initial="oculto"
-#|      animate="visible"
-#|      className="mx-auto mb-6 flex w-full max-w-6xl items-center gap-4"
-#|    >
-#|      <div className="relative shrink-0">
-#|        <motion.span
-#|          aria-hidden
-#|          variants={halo}
-#|          className="brand-halo-ring absolute -inset-1.5 rounded-[1.35rem]"
-#|        />
-#|        <motion.div
-#|          variants={placa}
-#|          className="relative grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-white p-2.5 shadow-glass ring-1 ring-black/5 sm:h-[4.5rem] sm:w-[4.5rem]"
-#|        >
-#|          <img src="/logo-bdp.svg" alt="Logo BDP" className="h-full w-full object-contain" />
-#|        </motion.div>
-#|      </div>
-#|      <div className="min-w-0">
-#|        <motion.h1
-#|          variants={elemento}
-#|          className="text-lg font-black leading-tight tracking-tight text-ink sm:text-2xl"
-#|        >
-#|          Banco de Desarrollo Productivo{" "}
-#|          <span className="aurora-text">BDP – S.A.M.</span>
-#|        </motion.h1>
-#|        <motion.p
-#|          variants={elemento}
-#|          className="mt-0.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-ink-soft sm:text-sm"
-#|        >
-#|          <motion.span variants={linea} className="hidden h-px w-6 origin-left bg-cyan-400 sm:block" />
-#|          Sistema de Selección y Reclutamiento
-#|        </motion.p>
-#|      </div>
-#|    </motion.header>
-#|  );
-#|}
-#@ archivo src/components/CursorSpotlight.tsx 4216f28cbeb71ba4f7e4eb20de897e7d7129d3ab
-#|import { useEffect, useRef } from "react";
-#|import { useCalmMotion } from "../hooks/useCalmMotion";
+#|    // Brillo del anillo de la onda.
+#|    col += uColorB * luzOnda * 0.35;
 #|
-#|/** Fracción del camino que recorre la luz en cada fotograma: da la inercia. */
-#|const SEGUIMIENTO = 0.18;
+#|    // Viñeta: bordes tranquilos y texto legible.
+#|    float vig = 1.0 - smoothstep(0.25, 1.25, length(uv - 0.5));
+#|    col *= 0.86 + 0.14 * vig;
 #|
-#|/**
-#| * Una luz amplia que sigue al puntero con un poco de inercia, como si la
-#| * página fuera un líquido que reacciona al movimiento.
-#| *
-#| * Optimización: antes se movía cambiando la posición de un degradado que
-#| * ocupaba toda la ventana, lo que obligaba a repintar la pantalla entera en
-#| * cada movimiento del ratón. Ahora la luz es un disco fijo que se traslada con
-#| * `transform` —trabajo del compositor, sin repintado— y el bucle de animación
-#| * se detiene solo en cuanto la luz alcanza al puntero.
-#| *
-#| * No intercepta clics y no se monta con pantallas táctiles ni con movimiento
-#| * reducido (del sistema o de Configuración).
-#| */
-#|export function CursorSpotlight() {
-#|  const capaRef = useRef<HTMLDivElement>(null);
-#|  const luzRef = useRef<HTMLDivElement>(null);
-#|  const calm = useCalmMotion();
+#|    // Tramado mínimo contra las bandas de los degradados.
+#|    col += (hash(gl_FragCoord.xy + fract(uTime)) - 0.5) / 255.0;
 #|
-#|  useEffect(() => {
-#|    const capa = capaRef.current;
-#|    const luz = luzRef.current;
-#|    if (!capa || !luz || calm) return;
-#|
-#|    // Guardado igual que el resto del sistema: hay entornos que exponen la
-#|    // propiedad sin la función.
-#|    const coincide = (consulta: string) =>
-#|      typeof window.matchMedia === "function" ? window.matchMedia(consulta).matches : false;
-#|    if (coincide("(pointer: coarse)") || coincide("(hover: none)")) return;
-#|
-#|    let raf = 0;
-#|    let objetivoX = window.innerWidth / 2;
-#|    let objetivoY = window.innerHeight / 2;
-#|    let x = objetivoX;
-#|    let y = objetivoY;
-#|    let visible = false;
-#|
-#|    const colocar = () => {
-#|      luz.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) translate(-50%, -50%)`;
-#|    };
-#|
-#|    const paso = () => {
-#|      x += (objetivoX - x) * SEGUIMIENTO;
-#|      y += (objetivoY - y) * SEGUIMIENTO;
-#|      colocar();
-#|      raf = Math.abs(objetivoX - x) + Math.abs(objetivoY - y) > 0.5 ? requestAnimationFrame(paso) : 0;
-#|    };
-#|
-#|    const alMover = (e: PointerEvent) => {
-#|      if (e.pointerType !== "mouse") return;
-#|      objetivoX = e.clientX;
-#|      objetivoY = e.clientY;
-#|      if (!visible) {
-#|        // Al entrar, la luz aparece donde está el puntero, sin viajar.
-#|        visible = true;
-#|        x = objetivoX;
-#|        y = objetivoY;
-#|        colocar();
-#|        capa.style.opacity = "1";
-#|      }
-#|      if (!raf) raf = requestAnimationFrame(paso);
-#|    };
-#|
-#|    const alSalir = () => {
-#|      visible = false;
-#|      capa.style.opacity = "0";
-#|    };
-#|
-#|    const raiz = document.documentElement;
-#|    window.addEventListener("pointermove", alMover, { passive: true });
-#|    raiz.addEventListener("mouseleave", alSalir);
-#|    window.addEventListener("blur", alSalir);
-#|    return () => {
-#|      window.removeEventListener("pointermove", alMover);
-#|      raiz.removeEventListener("mouseleave", alSalir);
-#|      window.removeEventListener("blur", alSalir);
-#|      if (raf) cancelAnimationFrame(raf);
-#|      capa.style.opacity = "0";
-#|    };
-#|  }, [calm]);
-#|
-#|  return (
-#|    <div
-#|      ref={capaRef}
-#|      aria-hidden
-#|      className="pointer-events-none fixed inset-0 z-[60] overflow-hidden opacity-0 transition-opacity duration-500 no-print"
-#|      style={{ mixBlendMode: "screen" }}
-#|    >
-#|      <div
-#|        ref={luzRef}
-#|        className="absolute left-0 top-0 h-[52rem] w-[52rem] will-change-transform"
-#|        style={{
-#|          background: "radial-gradient(closest-side, var(--spotlight), transparent 60%)",
-#|          transform: "translate3d(50vw, 50vh, 0) translate(-50%, -50%)",
-#|        }}
-#|      />
-#|    </div>
-#|  );
-#|}
-#@ archivo src/components/KpiBar.tsx dd87c45141cb5d7826c3059d358564f41e8d06f0
-#|import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
-#|import { motion, useMotionValue, useSpring } from "framer-motion";
-#|import { Maximize2 } from "lucide-react";
-#|import { useTalentData } from "../context/TalentDataContext";
-#|import { useHiring } from "../lib/hiringStore";
-#|import { useDocStore } from "../lib/docStore";
-#|import { computeDocKpis } from "../lib/docReport";
-#|import { useCalmMotion } from "../hooks/useCalmMotion";
-#|import { computeAllKpiValues, getModuleKpis, type KpiSpec } from "../lib/kpis";
-#|import { useFilteredData } from "../lib/useFilteredData";
-#|import { deltaVsPrev, history, useKpiRecorder } from "../lib/kpiHistory";
-#|import { Sparkline, TrendBadge } from "./charts";
-#|import { KpiDetailModal } from "./KpiDetailModal";
-#|import { AnimatedValue } from "./AnimatedValue";
-#|import type { ModuleId } from "../types";
-#|
-#|/**
-#| * A module-aware row of KPI widgets. The classic four candidate metrics now
-#| * live only under "Lista de Postulantes"; every other module surfaces the
-#| * recruitment KPIs best suited to it. Each tile carries a sparkline + a
-#| * month-over-month trend, and opens a historical drill-down on click.
-#| * The Dashboard module renders its own hero KPIs, so the bar hides there.
-#| *
-#| * All values honour the universal filters (see {@link ../lib/filtersStore}).
-#| */
-#|export function KpiBar({ module }: { module: ModuleId }) {
-#|  const { competencias } = useTalentData();
-#|  const { candidatos, filteredIds, active } = useFilteredData();
-#|  const hiringAll = useHiring();
-#|  const docState = useDocStore();
-#|
-#|  const hiring = useMemo(
-#|    () =>
-#|      active
-#|        ? Object.fromEntries(Object.entries(hiringAll).filter(([id]) => filteredIds.has(id)))
-#|        : hiringAll,
-#|    [active, hiringAll, filteredIds],
-#|  );
-#|
-#|  const values = useMemo(
-#|    () => computeAllKpiValues(candidatos, competencias, hiring),
-#|    [candidatos, competencias, hiring],
-#|  );
-#|  useKpiRecorder(values);
-#|
-#|  // The Documentación KPIs come from the (separate) documentation store; merge
-#|  // them in so getModuleKpis can surface them like any other metric.
-#|  const merged = useMemo(() => {
-#|    if (module !== "documentacion") return values;
-#|    const k = computeDocKpis(Object.values(docState.dossiers), docState.settings.intervalDays);
-#|    return {
-#|      ...values,
-#|      doc_personas: k.personas,
-#|      doc_avance: k.avance_promedio,
-#|      doc_pendientes: k.docs_pendientes,
-#|      doc_alertas: k.alertas,
-#|    };
-#|  }, [module, values, docState]);
-#|
-#|  const specs = useMemo(() => getModuleKpis(module, merged), [module, merged]);
-#|
-#|  if (module === "dashboard" || specs.length === 0) return null;
-#|
-#|  return (
-#|    <div className="mx-auto grid w-full grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-#|      {specs.map((spec, i) => (
-#|        <KpiWidget key={spec.key} spec={spec} raw={merged[spec.key]} index={i} />
-#|      ))}
-#|    </div>
-#|  );
-#|}
-#|
-#|/** Inclinación máxima de una tarjeta bajo el puntero, en grados. */
-#|const INCLINACION_MAX = 7;
-#|const RESORTE_INCLINACION = { stiffness: 220, damping: 18, mass: 0.6 };
-#|
-#|/**
-#| * Tarjeta KPI de vidrio.
-#| *
-#| * - Entra en cascada (resorte) y su cifra cuenta hasta el valor.
-#| * - Con ratón, se inclina hacia el puntero como una lámina de vidrio
-#| *   (perspectiva en el contenedor, `rotateX`/`rotateY` con resorte) y la luz
-#| *   líquida del vidrio la sigue (ver LiquidPointer). En reposo no conserva
-#| *   ningún `transform`.
-#| * - Con movimiento reducido no hay inclinación ni elevación: solo el clic.
-#| */
-#|function KpiWidget({ spec, raw, index }: { spec: KpiSpec; raw: number | null; index: number }) {
-#|  const calm = useCalmMotion();
-#|  const [open, setOpen] = useState(false);
-#|  const series = history(spec.key, raw, 6).map((p) => p.value);
-#|  const delta = deltaVsPrev(spec.key, raw);
-#|
-#|  const inclinacionX = useMotionValue(0);
-#|  const inclinacionY = useMotionValue(0);
-#|  const rotateX = useSpring(inclinacionX, RESORTE_INCLINACION);
-#|  const rotateY = useSpring(inclinacionY, RESORTE_INCLINACION);
-#|
-#|  const inclinar = (e: ReactPointerEvent<HTMLButtonElement>) => {
-#|    if (calm || e.pointerType !== "mouse") return;
-#|    const r = e.currentTarget.getBoundingClientRect();
-#|    if (r.width === 0 || r.height === 0) return;
-#|    const px = (e.clientX - r.left) / r.width - 0.5;
-#|    const py = (e.clientY - r.top) / r.height - 0.5;
-#|    inclinacionX.set(-py * 2 * INCLINACION_MAX);
-#|    inclinacionY.set(px * 2 * INCLINACION_MAX);
-#|  };
-#|  const enderezar = () => {
-#|    inclinacionX.set(0);
-#|    inclinacionY.set(0);
-#|  };
-#|
-#|  return (
-#|    <>
-#|      <motion.div
-#|        className="h-full [perspective:900px]"
-#|        initial={{ y: 24, opacity: 0, scale: 0.92 }}
-#|        animate={{ y: 0, opacity: 1, scale: 1 }}
-#|        transition={{ type: "spring", stiffness: 240, damping: 20, delay: 0.05 + index * 0.07 }}
-#|      >
-#|        <motion.button
-#|          type="button"
-#|          onClick={() => setOpen(true)}
-#|          onPointerMove={inclinar}
-#|          onPointerLeave={enderezar}
-#|          whileHover={calm ? undefined : { y: -4 }}
-#|          whileTap={{ scale: 0.97 }}
-#|          transition={{ type: "spring", stiffness: 380, damping: 26 }}
-#|          style={{ rotateX, rotateY }}
-#|          className="kpi-card glass liquid-streak group relative flex h-full w-full flex-col gap-2 rounded-3xl px-4 py-3 text-left"
-#|        >
-#|          <div className="flex items-center gap-3">
-#|            <div className={`kpi-orb relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${spec.accent} shadow-glass ring-1 ring-white/30`}>
-#|              <span className="relative text-sm font-black text-white drop-shadow-md">
-#|                {spec.label.slice(0, 1)}
-#|              </span>
-#|            </div>
-#|            <div className="min-w-0">
-#|              <div className="text-2xl font-black leading-none tracking-tight text-ink tabular-nums">
-#|                <AnimatedValue value={spec.value} />
-#|              </div>
-#|              <div className="mt-1 truncate text-[0.7rem] font-medium uppercase tracking-wide text-ink-soft">
-#|                {spec.label}
-#|              </div>
-#|            </div>
-#|            <Maximize2 className="ml-auto h-4 w-4 shrink-0 text-ink-faint opacity-0 transition-opacity group-hover:opacity-100" />
-#|          </div>
-#|          <div className="flex items-center justify-between gap-2">
-#|            <TrendBadge delta={delta} unit={spec.unit} goodWhenUp={spec.goodWhenUp} suffix="" />
-#|            <Sparkline data={series} />
-#|          </div>
-#|        </motion.button>
-#|      </motion.div>
-#|
-#|      <KpiDetailModal
-#|        open={open}
-#|        onClose={() => setOpen(false)}
-#|        kpiKey={spec.key}
-#|        title={spec.label}
-#|        value={spec.value}
-#|        unit={spec.unit}
-#|        raw={raw}
-#|        help={spec.help}
-#|        goodWhenUp={spec.goodWhenUp}
-#|      />
-#|    </>
-#|  );
-#|}
-#@ archivo src/components/MeshBackground.tsx ef13eee5135dba338b66bdd68e4035e2f22bb7b4
-#|/**
-#| * El entorno «aurora» detrás del vidrio.
-#| *
-#| * Cuatro manchas de color que derivan muy despacio, una cortina de aurora en
-#| * diagonal que se mece, una viñeta que calma los bordes y un grano finísimo
-#| * que evita las bandas de los degradados. Como todo se mueve, las superficies
-#| * Liquid Glass de encima tienen color cambiante que refractar: es lo que vende
-#| * la ilusión de vidrio real.
-#| *
-#| * Optimización: antes eran círculos sólidos con `blur(120–140px)`, el filtro
-#| * más caro que puede pedirse a una GPU sobre capas de 700 px en movimiento.
-#| * Ahora cada mancha es un degradado radial que se funde en transparente —la
-#| * misma forma suave sin ningún filtro— y solo se anima `transform`, que corre
-#| * en el compositor. Si el motor WebGL está pintando encima, estas animaciones
-#| * se congelan (ver `html[data-webgl]` en index.css).
-#| *
-#| * Todos los colores salen de variables del tema, así que la misma escena es un
-#| * «Midnight» profundo en oscuro y un cielo luminoso en claro.
-#| */
-#|export function MeshBackground() {
-#|  return (
-#|    <div
-#|      aria-hidden
-#|      className="aurora-root pointer-events-none fixed inset-0 -z-10 overflow-hidden no-print"
-#|    >
-#|      <div className="aurora-blob aurora-blob-1" />
-#|      <div className="aurora-blob aurora-blob-2" />
-#|      <div className="aurora-blob aurora-blob-3" />
-#|      <div className="aurora-blob aurora-blob-4" />
-#|      <div className="aurora-ribbon" />
-#|      <div className="aurora-vignette" />
-#|      <div className="aurora-grain" />
-#|    </div>
-#|  );
-#|}
-#@ archivo src/components/States.tsx 41c33b17adb0fdcb16ce015e4f92357399f81141
-#|import { AlertTriangle, Inbox, RefreshCw } from "lucide-react";
-#|import { GlassCard } from "./GlassCard";
-#|
-#|/*
-#| * Estados de carga, error y vacío.
-#| *
-#| * El movimiento es SOLO CSS (`state-rise`, `state-shake`, `state-float`, el
-#| * orbe líquido): sin hooks ni estilos en línea, el texto está en el DOM y
-#| * visible desde el primer render, y las animaciones se apagan solas con
-#| * «Reducir movimiento» y `prefers-reduced-motion` (ver index.css).
-#| */
-#|
-#|/** Orbe de vidrio líquido mientras carga el contenido. */
-#|export function LoadingState({ label = "Cargando datos…" }: { label?: string }) {
-#|  return (
-#|    <GlassCard className="state-rise mx-auto flex max-w-md flex-col items-center gap-4 rounded-3xl px-8 py-12 text-center">
-#|      <div className="liquid-loader" aria-hidden>
-#|        <span className="liquid-loader-ring" />
-#|        <span className="liquid-loader-core" />
-#|      </div>
-#|      <p className="text-sm font-semibold text-ink">{label}</p>
-#|      <span className="liquid-loader-dots" aria-hidden>
-#|        <span />
-#|        <span />
-#|        <span />
-#|      </span>
-#|    </GlassCard>
-#|  );
-#|}
-#|
-#|/** Error surface with a retry action. */
-#|export function ErrorState({
-#|  message,
-#|  onRetry,
-#|}: {
-#|  message: string;
-#|  onRetry: () => void;
-#|}) {
-#|  return (
-#|    <GlassCard className="state-rise mx-auto flex max-w-md flex-col items-center gap-4 rounded-3xl px-8 py-12 text-center">
-#|      <div className="state-shake grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-rose-500 to-red-600 shadow-glass ring-1 ring-white/30">
-#|        <AlertTriangle className="h-7 w-7 text-white drop-shadow-md" />
-#|      </div>
-#|      <div>
-#|        <h3 className="text-lg font-bold text-ink">
-#|          No se pudieron cargar los datos
-#|        </h3>
-#|        <p className="mt-1 text-sm text-ink-soft">{message}</p>
-#|      </div>
-#|      <button
-#|        type="button"
-#|        onClick={onRetry}
-#|        className="group inline-flex items-center gap-2 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] px-5 py-2.5 text-sm font-bold text-white shadow-glass ring-1 ring-white/30 transition-[transform,box-shadow] duration-500 ease-spring hover:-translate-y-1 hover:shadow-glow-cyan active:scale-95"
-#|      >
-#|        <RefreshCw className="h-4 w-4 transition-transform duration-700 ease-spring group-hover:rotate-180" />
-#|        Reintentar
-#|      </button>
-#|    </GlassCard>
-#|  );
-#|}
-#|
-#|/** Empty-data placeholder. */
-#|export function EmptyState({
-#|  title = "Sin resultados",
-#|  message,
-#|}: {
-#|  title?: string;
-#|  message: string;
-#|}) {
-#|  return (
-#|    <GlassCard className="state-rise mx-auto flex max-w-md flex-col items-center gap-3 rounded-3xl px-8 py-12 text-center">
-#|      <div className="state-float grid h-14 w-14 place-items-center rounded-2xl fill-softer ring-1 ring-[color:var(--hairline)]">
-#|        <Inbox className="h-7 w-7 text-ink-soft" />
-#|      </div>
-#|      <h3 className="text-lg font-bold text-ink">{title}</h3>
-#|      <p className="text-sm text-ink-soft">{message}</p>
-#|    </GlassCard>
-#|  );
-#|}
+#|    gl_FragColor = vec4(clamp(col, 0.0, 1.0), uAlpha);
+#|  }
+#|`;
 #@ parche
-#|diff --git a/src/components/FilterBar.tsx b/src/components/FilterBar.tsx
-#|index b5d696a..02ebef1 100644
-#|--- a/src/components/FilterBar.tsx
-#|+++ b/src/components/FilterBar.tsx
-#|@@ -1,4 +1,5 @@
-#| import { Filter, X, CalendarRange } from "lucide-react";
-#|+import { motion } from "framer-motion";
-#| import {
-#|   resetFilters,
-#|   setFilters,
-#|@@ -50,13 +51,23 @@ export function FilterBar() {
-#|             <button
-#|               key={p.id}
-#|               type="button"
-#|+              aria-pressed={on}
-#|               onClick={() => setFilters({ periodMode: p.id })}
-#|               className={[
-#|-                "rounded-full px-2.5 py-1 text-xs font-semibold transition-all",
-#|-                on ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glow-cyan" : "text-ink-soft hover:fill-soft",
-#|+                "relative rounded-full px-2.5 py-1 text-xs font-semibold outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-cyan-400/70",
-#|+                on ? "text-white" : "text-ink-soft hover:fill-soft",
-#|               ].join(" ")}
-#|             >
-#|-              {p.label}
-#|+              {/* Una sola píldora que se desliza entre periodos (layoutId) en
-#|+                  lugar de apagarse en un botón y encenderse en otro. */}
-#|+              {on && (
-#|+                <motion.span
-#|+                  layoutId="filtro-periodo-activo"
-#|+                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
-#|+                  className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan"
-#|+                />
-#|+              )}
-#|+              <span className="relative">{p.label}</span>
-#|             </button>
-#|           );
-#|         })}
-#|diff --git a/src/components/Modal.tsx b/src/components/Modal.tsx
-#|index ad9038b..cab2e17 100644
-#|--- a/src/components/Modal.tsx
-#|+++ b/src/components/Modal.tsx
-#|@@ -56,24 +56,33 @@ export function Modal({
-#|         >
-#|           {/* Backdrop */}
-#|           <div
-#|-            className="fixed inset-0 bg-slate-950/55 backdrop-blur-md"
-#|+            className="modal-backdrop fixed inset-0 bg-slate-950/55 backdrop-blur-md"
-#|             onClick={onRequestClose}
-#|           />
+#|diff --git a/src/App.tsx b/src/App.tsx
+#|index ac55f01..bca21af 100644
+#|--- a/src/App.tsx
+#|+++ b/src/App.tsx
+#|@@ -1,8 +1,12 @@
+#| import { useEffect, useRef, useState, lazy, Suspense } from "react";
+#|-import { AnimatePresence, motion } from "framer-motion";
+#|+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+#| import { MeshBackground } from "./components/MeshBackground";
+#| import { ThreeBackground } from "./components/ThreeBackground";
+#| import { CursorSpotlight } from "./components/CursorSpotlight";
+#|+import { LiquidPointer } from "./components/LiquidPointer";
+#|+import { ScrollProgress } from "./components/ScrollProgress";
+#|+import { ModuleTransition } from "./components/ModuleTransition";
+#|+import { AnimatedTitle } from "./components/AnimatedTitle";
+#| import { FloatingDock } from "./components/FloatingDock";
+#| import { BrandHeader } from "./components/BrandHeader";
+#| import { KpiBar } from "./components/KpiBar";
+#|@@ -122,12 +126,16 @@ function AppShell() {
+#|   }, [active]);
 #|
-#|+          {/* Entra con un resorte que se asienta con un leve rebote y sale más
-#|+              rápido de lo que entra: al cerrar, la persona ya decidió. En reposo
-#|+              el panel no conserva ningún `transform`, así que los elementos
-#|+              `fixed` de su interior siguen anclados a la ventana. */}
-#|           <motion.div
-#|             className={`glass-heavy relative z-10 my-2 w-full ${size} rounded-3xl`}
-#|-            initial={{ opacity: 0, y: 24, scale: 0.97 }}
-#|+            initial={{ opacity: 0, y: 40, scale: 0.92 }}
-#|             animate={{ opacity: 1, y: 0, scale: 1 }}
-#|-            exit={{ opacity: 0, y: 12, scale: 0.98 }}
-#|-            transition={{ type: "spring", stiffness: 240, damping: 26 }}
-#|+            exit={{
-#|+              opacity: 0,
-#|+              y: 16,
-#|+              scale: 0.97,
-#|+              transition: { duration: 0.18, ease: [0.4, 0, 1, 1] },
-#|+            }}
-#|+            transition={{ type: "spring", stiffness: 280, damping: 24, mass: 0.9 }}
+#|   const meta = DOCK_ITEMS.find((d) => d.id === active)!;
+#|+  const numeroModulo = String(DOCK_ITEMS.findIndex((d) => d.id === active) + 1).padStart(2, "0");
+#|+  const totalModulos = String(DOCK_ITEMS.length).padStart(2, "0");
+#|
+#|   return (
+#|     <div className="relative min-h-screen">
+#|       <MeshBackground />
+#|       <ThreeBackground />
+#|       <CursorSpotlight />
+#|+      <ScrollProgress />
+#|+      <ModuleTransition moduleKey={active} />
+#|       <FloatingDock active={active} onSelect={setActive} synced={synced} offline={offline} />
+#|       <RefreshButton />
+#|
+#|@@ -149,21 +157,40 @@ function AppShell() {
+#|           </div>
+#|         )}
+#|
+#|+        {/* Encabezado del módulo: el título se materializa letra a letra, el
+#|+            subtítulo llega detrás y una línea de luz se dibuja debajo. Todo se
+#|+            vuelve a reproducir al cambiar de módulo (las piezas van con `key`). */}
+#|         <header className="print-scope-hide mb-5 mt-8">
+#|-          <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-cyan-400 no-print">
+#|-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-glow-cyan" />
+#|+          <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-accent no-print">
+#|+            <span className="relative flex h-1.5 w-1.5">
+#|+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-60" />
+#|+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-glow-cyan" />
+#|+            </span>
+#|             Módulo
+#|+            <span className="tabular-nums text-ink-faint">
+#|+              {numeroModulo} / {totalModulos}
+#|+            </span>
+#|           </p>
+#|-          <motion.h2
+#|-            key={active}
+#|-            initial={{ opacity: 0, y: 8 }}
+#|+          <h2 className="text-2xl font-black tracking-tight text-ink sm:text-3xl">
+#|+            <AnimatedTitle key={active} text={meta.label} />
+#|+          </h2>
+#|+          <motion.p
+#|+            key={`subtitulo-${active}`}
+#|+            initial={{ opacity: 0, y: 6 }}
+#|             animate={{ opacity: 1, y: 0 }}
+#|-            transition={{ duration: 0.4, ease: [0.175, 0.885, 0.32, 1.275] }}
+#|-            className="text-2xl font-black tracking-tight text-ink sm:text-3xl"
+#|+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], delay: 0.18 }}
+#|+            className="mt-1 text-sm text-ink-soft"
 #|           >
-#|             <button
-#|               type="button"
-#|               aria-label="Cerrar"
-#|               onClick={onRequestClose}
-#|-              className="absolute right-4 top-4 z-40 grid h-9 w-9 place-items-center rounded-full bg-[color:var(--glass-bg-heavy)] text-ink ring-1 ring-[color:var(--hairline)] backdrop-blur-xl transition-all duration-300 hover:bg-rose-500/80 hover:text-white active:scale-90"
-#|+              className="group absolute right-4 top-4 z-40 grid h-9 w-9 place-items-center rounded-full bg-[color:var(--glass-bg-heavy)] text-ink ring-1 ring-[color:var(--hairline)] backdrop-blur-xl transition-all duration-300 hover:bg-rose-500/80 hover:text-white active:scale-90"
-#|             >
-#|-              <X className="h-5 w-5" />
-#|+              <X className="h-5 w-5 transition-transform duration-300 group-hover:rotate-90" />
-#|             </button>
-#|             {children}
-#|           </motion.div>
-#@ huella src/components/Modal.tsx cab2e17f1c0d78623a2b108ba4ca84ac8e2fd547
-#@ huella src/components/FilterBar.tsx 02ebef106b7b4c3c725b5a331cbf8608c2728d16
+#|-            {meta.label}
+#|-          </motion.h2>
+#|-          <p className="mt-1 text-sm text-ink-soft">{SUBTITLES[active]}</p>
+#|+            {SUBTITLES[active]}
+#|+          </motion.p>
+#|+          <motion.span
+#|+            key={`linea-${active}`}
+#|+            aria-hidden
+#|+            initial={{ scaleX: 0 }}
+#|+            animate={{ scaleX: 1 }}
+#|+            transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
+#|+            className="aurora-line mt-3 block h-px w-full max-w-md origin-left no-print"
+#|+          />
+#|         </header>
+#|
+#|         {/* A keyed entrance animation — NOT wrapped in <AnimatePresence
+#|@@ -176,9 +203,9 @@ function AppShell() {
+#|         <ErrorBoundary key={active}>
+#|           <motion.section
+#|             key={active}
+#|-            initial={{ opacity: 0, y: 16 }}
+#|-            animate={{ opacity: 1, y: 0 }}
+#|-            transition={{ duration: 0.35, ease: [0.175, 0.885, 0.32, 1.275] }}
+#|+            initial={{ opacity: 0, y: 22, scale: 0.985 }}
+#|+            animate={{ opacity: 1, y: 0, scale: 1 }}
+#|+            transition={{ type: "spring", stiffness: 210, damping: 26, mass: 0.9 }}
+#|           >
+#|             {active === "dashboard" && <Dashboard />}
+#|             {active === "tablero" && <Tablero />}
+#|@@ -244,28 +271,38 @@ function useCodigoEvaluacion(): string {
+#|
+#| export default function App() {
+#|   const codigoEvaluacion = useCodigoEvaluacion();
+#|+  // «Reducir movimiento» (Configuración) manda sobre Framer Motion en toda la
+#|+  // aplicación; sin él, se respeta la preferencia del sistema operativo.
+#|+  const { reduceMotion } = useConfig();
+#|+  const politicaMovimiento = reduceMotion ? "always" : "user";
+#|
+#|   // El runner vive fuera del acceso al ATS y sin el dock ni los paneles internos:
+#|   // es una página para alguien de fuera de la organización.
+#|   if (codigoEvaluacion) {
+#|     return (
+#|-      <ThemeProvider>
+#|-        <div className="relative min-h-screen">
+#|-          <MeshBackground />
+#|-          <Suspense fallback={<LoadingState />}>
+#|-            <EvaluacionRunner codigo={codigoEvaluacion} />
+#|-          </Suspense>
+#|-          <ToastViewport />
+#|-        </div>
+#|-      </ThemeProvider>
+#|+      <MotionConfig reducedMotion={politicaMovimiento}>
+#|+        <ThemeProvider>
+#|+          <div className="relative min-h-screen">
+#|+            <MeshBackground />
+#|+            <LiquidPointer />
+#|+            <Suspense fallback={<LoadingState />}>
+#|+              <EvaluacionRunner codigo={codigoEvaluacion} />
+#|+            </Suspense>
+#|+            <ToastViewport />
+#|+          </div>
+#|+        </ThemeProvider>
+#|+      </MotionConfig>
+#|     );
+#|   }
+#|
+#|   return (
+#|-    <ThemeProvider>
+#|-      <TalentDataProvider>
+#|-        <Shell />
+#|-      </TalentDataProvider>
+#|-    </ThemeProvider>
+#|+    <MotionConfig reducedMotion={politicaMovimiento}>
+#|+      <ThemeProvider>
+#|+        <LiquidPointer />
+#|+        <TalentDataProvider>
+#|+          <Shell />
+#|+        </TalentDataProvider>
+#|+      </ThemeProvider>
+#|+    </MotionConfig>
+#|   );
+#| }
+#|diff --git a/src/components/FloatingDock.tsx b/src/components/FloatingDock.tsx
+#|index 4c395c5..c85fe32 100644
+#|--- a/src/components/FloatingDock.tsx
+#|+++ b/src/components/FloatingDock.tsx
+#|@@ -1,5 +1,12 @@
+#|-import { Fragment, useEffect, useState } from "react";
+#|-import { AnimatePresence, motion } from "framer-motion";
+#|+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+#|+import {
+#|+  AnimatePresence,
+#|+  motion,
+#|+  useMotionValue,
+#|+  useSpring,
+#|+  useTransform,
+#|+  type MotionValue,
+#|+} from "framer-motion";
+#| import { Moon, Sun, ChevronRight, ChevronLeft, ChevronDown, ChevronUp } from "lucide-react";
+#| import { DOCK_ITEMS } from "../constants";
+#| import { useTheme } from "../context/ThemeContext";
+#|@@ -9,6 +16,8 @@ import { useToolsOpen, toggleTools } from "../lib/toolsStore";
+#| import { HerramientasIcon } from "./icons/CustomIcons";
+#| import { DrawIcon } from "./DrawIcon";
+#| import { DockProfileChip } from "./DockProfileChip";
+#|+import { cambiarTemaConRevelado } from "../lib/themeTransition";
+#|+import { useCalmMotion } from "../hooks/useCalmMotion";
+#| import type { ModuleId } from "../types";
+#|
+#| interface FloatingDockProps {
+#|@@ -81,6 +90,47 @@ function useViewport() {
+#|   return vp;
+#| }
+#|
+#|+/** Hasta dónde llega la magnificación del dock, en píxeles desde el centro de un icono. */
+#|+const ALCANCE_IMAN = 120;
+#|+
+#|+/**
+#|+ * Magnificación tipo dock de macOS, limitada al glifo: el icono crece cuanto
+#|+ * más cerca pasa el puntero por el eje del dock y vuelve con un resorte. Solo
+#|+ * escala el dibujo dentro de su placa —no la placa ni el botón—, así el dock no
+#|+ * cambia de tamaño, no se reflowea nada y no aparece desplazamiento interno.
+#|+ *
+#|+ * `puntero` es la coordenada del ratón sobre el eje del dock (x en horizontal,
+#|+ * y en vertical); `Infinity` significa «fuera del dock».
+#|+ */
+#|+function DockMagnet({
+#|+  puntero,
+#|+  vertical,
+#|+  disabled,
+#|+  children,
+#|+}: {
+#|+  puntero: MotionValue<number>;
+#|+  vertical: boolean;
+#|+  disabled: boolean;
+#|+  children: ReactNode;
+#|+}) {
+#|+  const ref = useRef<HTMLSpanElement>(null);
+#|+  const distancia = useTransform(puntero, (p: number) => {
+#|+    const el = ref.current;
+#|+    if (disabled || !el || !Number.isFinite(p)) return ALCANCE_IMAN;
+#|+    const r = el.getBoundingClientRect();
+#|+    const centro = vertical ? r.top + r.height / 2 : r.left + r.width / 2;
+#|+    return p - centro;
+#|+  });
+#|+  const objetivo = useTransform(distancia, [-ALCANCE_IMAN, 0, ALCANCE_IMAN], [1, 1.38, 1]);
+#|+  const scale = useSpring(objetivo, { stiffness: 320, damping: 22, mass: 0.35 });
+#|+
+#|+  return (
+#|+    <motion.span ref={ref} style={{ scale }} className="relative grid place-items-center">
+#|+      {children}
+#|+    </motion.span>
+#|+  );
+#|+}
+#|+
+#| /**
+#|  * iOS-style floating dock — fully adjustable, collapsible and context-aware.
+#|  *
+#|@@ -110,6 +160,9 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|   const override = useDockOverride();
+#|   const toolsOpen = useToolsOpen();
+#|   const vp = useViewport();
+#|+  const calm = useCalmMotion();
+#|+  // Coordenada del ratón sobre el eje del dock para la magnificación.
+#|+  const pointerAxis = useMotionValue(Number.POSITIVE_INFINITY);
+#|
+#|   // The override only takes effect if it differs from the user's own choice.
+#|   const position: DockPosition = override ?? dockPosition;
+#|@@ -117,6 +170,12 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|   const sz = SIZE[dockSize];
+#|   const showLabels = !vertical && vp.w >= 640;
+#|
+#|+  // Al plegar, desplegar o mover el dock (o al pedir calma) la magnificación
+#|+  // se apaga: un dock recién montado no hereda una posición vieja del puntero.
+#|+  useEffect(() => {
+#|+    pointerAxis.set(Number.POSITIVE_INFINITY);
+#|+  }, [pointerAxis, position, dockCollapsed, calm]);
+#|+
+#|   const setCollapsed = (v: boolean) => setConfig({ dockCollapsed: v });
+#|
+#|   const CollapseIcon = vertical
+#|@@ -151,7 +210,7 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|           key={`collapsed-${position}`}
+#|           {...navMotion}
+#|           className={[
+#|-            "glass-heavy no-print fixed z-[100] flex items-center gap-1.5 rounded-[1.5rem] p-2",
+#|+            "glass-heavy dock-glass no-print fixed z-[100] flex items-center gap-1.5 rounded-[1.5rem] p-2",
+#|             vertical ? "flex-col" : "flex-row",
+#|             ANCHOR[position],
+#|           ].join(" ")}
+#|@@ -175,8 +234,13 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|         <motion.nav
+#|           key={`expanded-${position}`}
+#|           {...navMotion}
+#|+          onPointerMove={(e) => {
+#|+            if (calm || e.pointerType !== "mouse") return;
+#|+            pointerAxis.set(vertical ? e.clientY : e.clientX);
+#|+          }}
+#|+          onPointerLeave={() => pointerAxis.set(Number.POSITIVE_INFINITY)}
+#|           className={[
+#|-            "glass-heavy no-print fixed z-[100] flex items-center rounded-[1.75rem]",
+#|+            "glass-heavy dock-glass no-print fixed z-[100] flex items-center rounded-[1.75rem]",
+#|             vertical ? "flex-col gap-1.5 overflow-y-auto px-2 py-2.5" : "flex-row gap-1.5 overflow-x-auto px-2.5 py-2 sm:gap-2 sm:px-3",
+#|             ANCHOR[position],
+#|           ].join(" ")}
+#|@@ -223,20 +287,22 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|                             <motion.span
+#|                               layoutId={`${orbId}-tools`}
+#|                               transition={{ type: "spring", stiffness: 360, damping: 28 }}
+#|-                              className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+#|+                              className="dock-orb absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+#|                             />
+#|                           )}
+#|-                          <DrawIcon
+#|-                            icon={HerramientasIcon}
+#|-                            active={toolsOpen}
+#|-                            redrawOnHover
+#|-                            className={[
+#|-                              sz.icon,
+#|-                              "relative transition-colors duration-300",
+#|-                              toolsOpen ? "text-white drop-shadow-md" : "text-ink-soft",
+#|-                            ].join(" ")}
+#|-                            strokeWidth={toolsOpen ? 2.4 : 2}
+#|-                          />
+#|+                          <DockMagnet puntero={pointerAxis} vertical={vertical} disabled={calm}>
+#|+                            <DrawIcon
+#|+                              icon={HerramientasIcon}
+#|+                              active={toolsOpen}
+#|+                              redrawOnHover
+#|+                              className={[
+#|+                                sz.icon,
+#|+                                "relative transition-colors duration-300",
+#|+                                toolsOpen ? "text-white drop-shadow-md" : "text-ink-soft",
+#|+                              ].join(" ")}
+#|+                              strokeWidth={toolsOpen ? 2.4 : 2}
+#|+                            />
+#|+                          </DockMagnet>
+#|                         </span>
+#|                         {showLabels && (
+#|                           <span
+#|@@ -282,7 +348,7 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|                             <motion.span
+#|                               layoutId={orbId}
+#|                               transition={{ type: "spring", stiffness: 360, damping: 28 }}
+#|-                              className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+#|+                              className="dock-orb absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan ring-1 ring-white/50"
+#|                             />
+#|                             <motion.span
+#|                               key={`burst-${active}`}
+#|@@ -294,16 +360,18 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|                             />
+#|                           </>
+#|                         )}
+#|-                        <DrawIcon
+#|-                          icon={Icon}
+#|-                          active={isActive}
+#|-                          className={[
+#|-                            sz.icon,
+#|-                            "relative transition-colors duration-300",
+#|-                            isActive ? "text-white drop-shadow-md" : "text-ink-soft",
+#|-                          ].join(" ")}
+#|-                          strokeWidth={isActive ? 2.4 : 2}
+#|-                        />
+#|+                        <DockMagnet puntero={pointerAxis} vertical={vertical} disabled={calm}>
+#|+                          <DrawIcon
+#|+                            icon={Icon}
+#|+                            active={isActive}
+#|+                            className={[
+#|+                              sz.icon,
+#|+                              "relative transition-colors duration-300",
+#|+                              isActive ? "text-white drop-shadow-md" : "text-ink-soft",
+#|+                            ].join(" ")}
+#|+                            strokeWidth={isActive ? 2.4 : 2}
+#|+                          />
+#|+                        </DockMagnet>
+#|                       </span>
+#|                       {showLabels && (
+#|                         <span
+#|@@ -325,10 +393,14 @@ export function FloatingDock({ active, onSelect, synced, offline }: FloatingDock
+#|
+#|           <Divider vertical={vertical} />
+#|
+#|-          {/* Theme toggle */}
+#|+          {/* Theme toggle: el tema nuevo se revela en círculo desde el botón
+#|+              (View Transitions; cambio directo donde no hay soporte). */}
+#|           <button
+#|             type="button"
+#|-            onClick={toggle}
+#|+            onClick={(e) => {
+#|+              const r = e.currentTarget.getBoundingClientRect();
+#|+              cambiarTemaConRevelado({ x: r.left + r.width / 2, y: r.top + r.height / 2 }, toggle);
+#|+            }}
+#|             aria-label={theme === "dark" ? "Activar modo claro" : "Activar modo oscuro"}
+#|             title={theme === "dark" ? "Modo claro" : "Modo oscuro"}
+#|             className={`grid ${sz.plate} shrink-0 place-items-center rounded-2xl fill-softer text-ink ring-1 ring-[color:var(--hairline)] transition-all duration-300 hover:fill-soft active:scale-95`}
+#@ huella src/components/FloatingDock.tsx c85fe329c2efb530b9675dbf5a32592530b0499a
+#@ huella src/App.tsx bca21af5de75bd97109beb5fef5af45b265e5029
 
 jobs:
   escribir:
-    name: Escribir, verificar, publicar y validar (entrega 1)
+    name: Escribir, verificar, publicar y validar (entrega 2)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -1139,9 +894,9 @@ jobs:
         run: |
           git config user.name "AlexD5427"
           git config user.email "63507763+AlexD5427@users.noreply.github.com"
-          git add -- src/hooks/useCalmMotion.ts src/lib/themeTransition.ts src/components/LiquidPointer.tsx src/components/ScrollProgress.tsx src/components/ModuleTransition.tsx src/components/AnimatedTitle.tsx src/components/AnimatedValue.tsx src/components/BrandHeader.tsx src/components/CursorSpotlight.tsx src/components/KpiBar.tsx src/components/MeshBackground.tsx src/components/States.tsx src/components/Modal.tsx src/components/FilterBar.tsx
+          git add -- src/components/ThreeBackground.tsx src/components/FloatingDock.tsx src/App.tsx
           git diff --cached --stat
-          git commit -m "Aurora: piezas de movimiento, cabecera, KPI con cifras animadas, foco de luz, estados líquidos, modal y filtros"
+          git commit -m "Aurora: fondo WebGL adaptativo, dock con magnificación y revelado de tema, encabezado de módulo animado"
           git push origin HEAD:refs/heads/ui/liquid-glass-aurora
 
       - name: Instalar dependencias
