@@ -56,24 +56,33 @@ export function Modal({
         >
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-slate-950/55 backdrop-blur-md"
+            className="modal-backdrop fixed inset-0 bg-slate-950/55 backdrop-blur-md"
             onClick={onRequestClose}
           />
 
+          {/* Entra con un resorte que se asienta con un leve rebote y sale más
+              rápido de lo que entra: al cerrar, la persona ya decidió. En reposo
+              el panel no conserva ningún `transform`, así que los elementos
+              `fixed` de su interior siguen anclados a la ventana. */}
           <motion.div
             className={`glass-heavy relative z-10 my-2 w-full ${size} rounded-3xl`}
-            initial={{ opacity: 0, y: 24, scale: 0.97 }}
+            initial={{ opacity: 0, y: 40, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 12, scale: 0.98 }}
-            transition={{ type: "spring", stiffness: 240, damping: 26 }}
+            exit={{
+              opacity: 0,
+              y: 16,
+              scale: 0.97,
+              transition: { duration: 0.18, ease: [0.4, 0, 1, 1] },
+            }}
+            transition={{ type: "spring", stiffness: 280, damping: 24, mass: 0.9 }}
           >
             <button
               type="button"
               aria-label="Cerrar"
               onClick={onRequestClose}
-              className="absolute right-4 top-4 z-40 grid h-9 w-9 place-items-center rounded-full bg-[color:var(--glass-bg-heavy)] text-ink ring-1 ring-[color:var(--hairline)] backdrop-blur-xl transition-all duration-300 hover:bg-rose-500/80 hover:text-white active:scale-90"
+              className="group absolute right-4 top-4 z-40 grid h-9 w-9 place-items-center rounded-full bg-[color:var(--glass-bg-heavy)] text-ink ring-1 ring-[color:var(--hairline)] backdrop-blur-xl transition-all duration-300 hover:bg-rose-500/80 hover:text-white active:scale-90"
             >
-              <X className="h-5 w-5" />
+              <X className="h-5 w-5 transition-transform duration-300 group-hover:rotate-90" />
             </button>
             {children}
           </motion.div>

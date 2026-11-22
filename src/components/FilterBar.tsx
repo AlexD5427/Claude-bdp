@@ -1,4 +1,5 @@
 import { Filter, X, CalendarRange } from "lucide-react";
+import { motion } from "framer-motion";
 import {
   resetFilters,
   setFilters,
@@ -50,13 +51,23 @@ export function FilterBar() {
             <button
               key={p.id}
               type="button"
+              aria-pressed={on}
               onClick={() => setFilters({ periodMode: p.id })}
               className={[
-                "rounded-full px-2.5 py-1 text-xs font-semibold transition-all",
-                on ? "bg-gradient-to-br from-[#00b0d8] to-[#005baa] text-white shadow-glow-cyan" : "text-ink-soft hover:fill-soft",
+                "relative rounded-full px-2.5 py-1 text-xs font-semibold outline-none transition-colors duration-300 focus-visible:ring-2 focus-visible:ring-cyan-400/70",
+                on ? "text-white" : "text-ink-soft hover:fill-soft",
               ].join(" ")}
             >
-              {p.label}
+              {/* Una sola píldora que se desliza entre periodos (layoutId) en
+                  lugar de apagarse en un botón y encenderse en otro. */}
+              {on && (
+                <motion.span
+                  layoutId="filtro-periodo-activo"
+                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  className="absolute inset-0 rounded-full bg-gradient-to-br from-[#00b0d8] to-[#005baa] shadow-glow-cyan"
+                />
+              )}
+              <span className="relative">{p.label}</span>
             </button>
           );
         })}

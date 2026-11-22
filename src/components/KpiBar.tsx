@@ -1,16 +1,17 @@
-import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { motion, useMotionValue, useSpring } from "framer-motion";
 import { Maximize2 } from "lucide-react";
 import { useTalentData } from "../context/TalentDataContext";
 import { useHiring } from "../lib/hiringStore";
 import { useDocStore } from "../lib/docStore";
 import { computeDocKpis } from "../lib/docReport";
-import { usePointerGlow } from "../hooks/usePointerGlow";
+import { useCalmMotion } from "../hooks/useCalmMotion";
 import { computeAllKpiValues, getModuleKpis, type KpiSpec } from "../lib/kpis";
 import { useFilteredData } from "../lib/useFilteredData";
 import { deltaVsPrev, history, useKpiRecorder } from "../lib/kpiHistory";
 import { Sparkline, TrendBadge } from "./charts";
 import { KpiDetailModal } from "./KpiDetailModal";
+import { AnimatedValue } from "./AnimatedValue";
 import type { ModuleId } from "../types";
 
 /**
@@ -69,44 +70,86 @@ export function KpiBar({ module }: { module: ModuleId }) {
   );
 }
 
+/** Inclinación máxima de una tarjeta bajo el puntero, en grados. */
+const INCLINACION_MAX = 7;
+const RESORTE_INCLINACION = { stiffness: 220, damping: 18, mass: 0.6 };
+
+/**
+ * Tarjeta KPI de vidrio.
+ *
+ * - Entra en cascada (resorte) y su cifra cuenta hasta el valor.
+ * - Con ratón, se inclina hacia el puntero como una lámina de vidrio
+ *   (perspectiva en el contenedor, `rotateX`/`rotateY` con resorte) y la luz
+ *   líquida del vidrio la sigue (ver LiquidPointer). En reposo no conserva
+ *   ningún `transform`.
+ * - Con movimiento reducido no hay inclinación ni elevación: solo el clic.
+ */
 function KpiWidget({ spec, raw, index }: { spec: KpiSpec; raw: number | null; index: number }) {
-  const { onMouseMove } = usePointerGlow();
+  const calm = useCalmMotion();
   const [open, setOpen] = useState(false);
   const series = history(spec.key, raw, 6).map((p) => p.value);
   const delta = deltaVsPrev(spec.key, raw);
 
+  const inclinacionX = useMotionValue(0);
+  const inclinacionY = useMotionValue(0);
+  const rotateX = useSpring(inclinacionX, RESORTE_INCLINACION);
+  const rotateY = useSpring(inclinacionY, RESORTE_INCLINACION);
+
+  const inclinar = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (calm || e.pointerType !== "mouse") return;
+    const r = e.currentTarget.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    const px = (e.clientX - r.left) / r.width - 0.5;
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    inclinacionX.set(-py * 2 * INCLINACION_MAX);
+    inclinacionY.set(px * 2 * INCLINACION_MAX);
+  };
+  const enderezar = () => {
+    inclinacionX.set(0);
+    inclinacionY.set(0);
+  };
+
   return (
     <>
-      <motion.button
-        type="button"
-        onMouseMove={onMouseMove}
-        onClick={() => setOpen(true)}
+      <motion.div
+        className="h-full [perspective:900px]"
         initial={{ y: 24, opacity: 0, scale: 0.92 }}
         animate={{ y: 0, opacity: 1, scale: 1 }}
         transition={{ type: "spring", stiffness: 240, damping: 20, delay: 0.05 + index * 0.07 }}
-        className="glass glow liquid-streak magnetic group relative flex flex-col gap-2 rounded-3xl px-4 py-3 text-left"
       >
-        <div className="flex items-center gap-3">
-          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${spec.accent} shadow-glass ring-1 ring-white/30`}>
-            <span className="text-sm font-black text-white drop-shadow-md">
-              {spec.label.slice(0, 1)}
-            </span>
-          </div>
-          <div className="min-w-0">
-            <div className="text-2xl font-black leading-none tracking-tight text-ink">
-              {spec.value}
+        <motion.button
+          type="button"
+          onClick={() => setOpen(true)}
+          onPointerMove={inclinar}
+          onPointerLeave={enderezar}
+          whileHover={calm ? undefined : { y: -4 }}
+          whileTap={{ scale: 0.97 }}
+          transition={{ type: "spring", stiffness: 380, damping: 26 }}
+          style={{ rotateX, rotateY }}
+          className="kpi-card glass liquid-streak group relative flex h-full w-full flex-col gap-2 rounded-3xl px-4 py-3 text-left"
+        >
+          <div className="flex items-center gap-3">
+            <div className={`kpi-orb relative grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${spec.accent} shadow-glass ring-1 ring-white/30`}>
+              <span className="relative text-sm font-black text-white drop-shadow-md">
+                {spec.label.slice(0, 1)}
+              </span>
             </div>
-            <div className="mt-1 truncate text-[0.7rem] font-medium uppercase tracking-wide text-ink-soft">
-              {spec.label}
+            <div className="min-w-0">
+              <div className="text-2xl font-black leading-none tracking-tight text-ink tabular-nums">
+                <AnimatedValue value={spec.value} />
+              </div>
+              <div className="mt-1 truncate text-[0.7rem] font-medium uppercase tracking-wide text-ink-soft">
+                {spec.label}
+              </div>
             </div>
+            <Maximize2 className="ml-auto h-4 w-4 shrink-0 text-ink-faint opacity-0 transition-opacity group-hover:opacity-100" />
           </div>
-          <Maximize2 className="ml-auto h-4 w-4 shrink-0 text-ink-faint opacity-0 transition-opacity group-hover:opacity-100" />
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <TrendBadge delta={delta} unit={spec.unit} goodWhenUp={spec.goodWhenUp} suffix="" />
-          <Sparkline data={series} />
-        </div>
-      </motion.button>
+          <div className="flex items-center justify-between gap-2">
+            <TrendBadge delta={delta} unit={spec.unit} goodWhenUp={spec.goodWhenUp} suffix="" />
+            <Sparkline data={series} />
+          </div>
+        </motion.button>
+      </motion.div>
 
       <KpiDetailModal
         open={open}
