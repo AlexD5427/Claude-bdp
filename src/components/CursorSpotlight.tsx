@@ -1,11 +1,31 @@
 import { useEffect, useRef } from "react";
 
+/** Superficies que reciben el reflejo especular del cursor. */
+const SUPERFICIES = ".glass, .glass-heavy, .glow";
+
+/**
+ * Por encima de esta fracción de la ventana, una superficie es un contenedor
+ * de página (un módulo entero, una tabla larga) y no una tarjeta: moverle la
+ * luz obligaría a recalcular el estilo de cientos de descendientes en cada
+ * fotograma, y el reflejo ni siquiera se apreciaría.
+ */
+const AREA_MAXIMA = 0.6;
+
 /**
  * A viewport-wide light that follows the pointer, lending the whole page a
- * sense of depth and "liquid" reactivity. A single passive listener updates
- * two CSS custom properties inside a `requestAnimationFrame` tick, so it stays
- * silky even on long pages. Pointer-events are disabled so it never blocks
- * clicks, and it bows out entirely for touch / reduced-motion users.
+ * sense of depth and "liquid" reactivity. Pointer-events are disabled so it
+ * never blocks clicks, and it bows out entirely for touch / reduced-motion
+ * users.
+ *
+ * Liquid Glass 2:
+ * - La luz es una capa de tamaño fijo que se desplaza con `transform` (la mueve
+ *   la GPU sin repintar). Antes se repintaba un degradado a pantalla completa
+ *   en cada movimiento del ratón.
+ * - Sigue al cursor con inercia, como una lámpara sobre un muelle, y el bucle
+ *   se detiene en cuanto llega a su sitio.
+ * - Además coloca el reflejo especular (`--gx` / `--gy`) de la superficie de
+ *   vidrio que está bajo el puntero, así toda la aplicación reacciona a la luz
+ *   sin que cada componente tenga que hacerlo por su cuenta.
  */
 export function CursorSpotlight() {
   const ref = useRef<HTMLDivElement>(null);
@@ -22,23 +42,60 @@ export function CursorSpotlight() {
     if (mq("(prefers-reduced-motion: reduce)") || mq("(pointer: coarse)")) return;
 
     let raf = 0;
-    let x = window.innerWidth / 2;
-    let y = window.innerHeight / 2;
+    let objetivoX = window.innerWidth / 2;
+    let objetivoY = window.innerHeight / 2;
+    let x = objetivoX;
+    let y = objetivoY;
+    let superficie: HTMLElement | null = null;
+    // Último reflejo escrito: sin cambios no se toca el estilo (cada escritura
+    // obliga a recalcular la tarjeta entera).
+    let ultimaSuperficie: HTMLElement | null = null;
+    let ultimoGx = "";
+    let ultimoGy = "";
 
-    const paint = () => {
+    const pintar = () => {
       raf = 0;
-      el.style.setProperty("--cursor-x", `${x}px`);
-      el.style.setProperty("--cursor-y", `${y}px`);
+      x += (objetivoX - x) * 0.2;
+      y += (objetivoY - y) * 0.2;
+      el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+
+      if (superficie) {
+        const r = superficie.getBoundingClientRect();
+        const pequena = r.width * r.height <= window.innerWidth * window.innerHeight * AREA_MAXIMA;
+        if (pequena && r.width > 0 && r.height > 0) {
+          const gx = `${(((objetivoX - r.left) / r.width) * 100).toFixed(1)}%`;
+          const gy = `${(((objetivoY - r.top) / r.height) * 100).toFixed(1)}%`;
+          if (superficie !== ultimaSuperficie || gx !== ultimoGx || gy !== ultimoGy) {
+            superficie.style.setProperty("--gx", gx);
+            superficie.style.setProperty("--gy", gy);
+            ultimaSuperficie = superficie;
+            ultimoGx = gx;
+            ultimoGy = gy;
+          }
+        }
+      }
+
+      if (Math.abs(objetivoX - x) > 0.4 || Math.abs(objetivoY - y) > 0.4) {
+        raf = requestAnimationFrame(pintar);
+      }
     };
 
     const onMove = (e: MouseEvent) => {
-      x = e.clientX;
-      y = e.clientY;
-      if (!raf) raf = requestAnimationFrame(paint);
-      el.style.opacity = "1";
+      objetivoX = e.clientX;
+      objetivoY = e.clientY;
+      // Al entrar en la ventana la luz aparece ya bajo el cursor, en vez de
+      // cruzar la pantalla desde donde se quedó.
+      if (!el.classList.contains("is-on")) {
+        x = objetivoX;
+        y = objetivoY;
+        el.classList.add("is-on");
+      }
+      superficie = e.target instanceof Element ? e.target.closest<HTMLElement>(SUPERFICIES) : null;
+      if (!raf) raf = requestAnimationFrame(pintar);
     };
     const onLeave = () => {
-      el.style.opacity = "0";
+      el.classList.remove("is-on");
+      superficie = null;
     };
 
     window.addEventListener("mousemove", onMove, { passive: true });
@@ -54,12 +111,7 @@ export function CursorSpotlight() {
     <div
       ref={ref}
       aria-hidden
-      className="pointer-events-none fixed inset-0 z-[60] opacity-0 transition-opacity duration-500 no-print"
-      style={{
-        background:
-          "radial-gradient(26rem 26rem at var(--cursor-x, 50%) var(--cursor-y, 50%), var(--spotlight), transparent 60%)",
-        mixBlendMode: "screen",
-      }}
+      className="lg-spotlight pointer-events-none fixed left-0 top-0 z-[60] no-print"
     />
   );
 }

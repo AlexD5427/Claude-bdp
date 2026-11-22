@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { MeshBackground } from "./components/MeshBackground";
 import { ThreeBackground } from "./components/ThreeBackground";
 import { CursorSpotlight } from "./components/CursorSpotlight";
@@ -149,21 +149,25 @@ function AppShell() {
           </div>
         )}
 
+        {/* Rótulo con el acento del tema (`text-accent`): el `text-cyan-400`
+            anterior daba 1.6:1 sobre el tema claro y apenas se leía. El punto
+            late al cambiar de módulo y la barra se dibuja bajo el título. */}
         <header className="print-scope-hide mb-5 mt-8">
-          <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-cyan-400 no-print">
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-glow-cyan" />
+          <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-accent no-print">
+            <span key={`pulso-${active}`} className="lg-pulse-dot h-1.5 w-1.5 rounded-full" />
             Módulo
           </p>
           <motion.h2
             key={active}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.175, 0.885, 0.32, 1.275] }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
             className="text-2xl font-black tracking-tight text-ink sm:text-3xl"
           >
             {meta.label}
           </motion.h2>
-          <p className="mt-1 text-sm text-ink-soft">{SUBTITLES[active]}</p>
+          <span key={`barra-${active}`} aria-hidden className="lg-title-bar no-print" />
+          <p className="mt-2 text-sm text-ink-soft">{SUBTITLES[active]}</p>
         </header>
 
         {/* A keyed entrance animation — NOT wrapped in <AnimatePresence
@@ -176,9 +180,9 @@ function AppShell() {
         <ErrorBoundary key={active}>
           <motion.section
             key={active}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: [0.175, 0.885, 0.32, 1.275] }}
+            initial={{ opacity: 0, y: 18, scale: 0.992 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           >
             {active === "dashboard" && <Dashboard />}
             {active === "tablero" && <Tablero />}
@@ -211,17 +215,21 @@ function AppShell() {
 function Shell() {
   const { current } = useProfiles();
   const { perfiles } = useTalentData();
+  const { reduceMotion } = useConfig();
 
   // Merge sheet-provided profiles (names, cargos, passwords) into the seed set.
   useEffect(() => {
     mergeBackendProfiles(perfiles);
   }, [perfiles]);
 
+  // «Reducir movimiento» (sistema o Configuración) también frena las
+  // animaciones de Framer Motion. Hasta ahora sólo apagaba las de CSS: con la
+  // opción activada, módulos, diálogos y el dock seguían deslizándose.
   return (
-    <>
+    <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
       {current && <AppShell />}
       <AnimatePresence>{!current && <LoginScreen key="login" />}</AnimatePresence>
-    </>
+    </MotionConfig>
   );
 }
 

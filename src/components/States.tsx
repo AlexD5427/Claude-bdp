@@ -1,11 +1,16 @@
-import { AlertTriangle, Loader2, Inbox, RefreshCw } from "lucide-react";
+import { AlertTriangle, Inbox, RefreshCw } from "lucide-react";
 import { GlassCard } from "./GlassCard";
 
-/** Centred glass spinner used while the payload loads. */
+/**
+ * Centred glass loader used while the payload loads: a ring of light spinning
+ * around a breathing drop (`.lg-loader`, in `index.css`). Uses the theme accent,
+ * so it stays visible in the light theme (the old `text-cyan-300` spinner was
+ * almost invisible on white).
+ */
 export function LoadingState({ label = "Cargando datos…" }: { label?: string }) {
   return (
     <GlassCard className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-3xl px-8 py-12 text-center">
-      <Loader2 className="h-10 w-10 animate-spin text-cyan-300" />
+      <span aria-hidden className="lg-loader" />
       <p className="text-sm font-semibold text-ink">{label}</p>
     </GlassCard>
   );
