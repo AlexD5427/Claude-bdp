@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, lazy, Suspense } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, useReducedMotion } from "framer-motion";
+import { ArrowUpRight, CircleCheck, RefreshCw, WifiOff } from "lucide-react";
 import { MeshBackground } from "./components/MeshBackground";
 import { ThreeBackground } from "./components/ThreeBackground";
-import { CursorSpotlight } from "./components/CursorSpotlight";
 import { FloatingDock } from "./components/FloatingDock";
 import { BrandHeader } from "./components/BrandHeader";
 import { KpiBar } from "./components/KpiBar";
@@ -14,96 +14,72 @@ import { CandidateEditModal } from "./components/CandidateEditModal";
 import { LoginScreen } from "./components/login/LoginScreen";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
 import { TalentDataProvider, useTalentData } from "./context/TalentDataContext";
-import { useConfig, type DockPosition } from "./lib/configStore";
+import { useConfig } from "./lib/configStore";
 import { reiniciarBloqueoScroll } from "./lib/scrollLock";
-import {
-  getBundle,
-  logActivity,
-  mergeBackendProfiles,
-  useProfiles,
-} from "./lib/profilesStore";
-import { Dashboard } from "./modules/Dashboard";
-import { Tablero } from "./modules/Tablero";
-import { CaraACara } from "./modules/CaraACara";
-import { NuevoComparador } from "./modules/NuevoComparador";
+import { getBundle, logActivity, mergeBackendProfiles, useProfiles } from "./lib/profilesStore";
+import { useToolsOpen } from "./lib/toolsStore";
 import { ToastViewport } from "./design-system/liquid-glass/toast";
 import { LoadingState } from "./components/States";
-import { ListaPostulantes } from "./modules/ListaPostulantes";
-import { Perfiles } from "./modules/Perfiles";
-import { Configuracion } from "./modules/Configuracion";
 import { HerramientasPanel } from "./components/tools/HerramientasPanel";
 import { DOCK_ITEMS } from "./constants";
 import { codigoDesdeHash } from "./features/evaluaciones";
 import type { ModuleId } from "./types";
+import "./workspace.css";
 
-// Route-level code splitting: the heavy ProcessOS/AssessmentOS bundles (builder,
-// import parsers, zod schemas) load only when their module is opened.
-const ProcesosModule = lazy(() =>
-  import("./features/processes").then((m) => ({ default: m.ProcesosModule })),
-);
-const EvaluacionesModule = lazy(() =>
-  import("./features/evaluaciones").then((m) => ({ default: m.EvaluacionesModule })),
-);
+// El acceso no necesita cargar la interfaz de cada módulo interno.
+const MODULES = {
+  dashboard: lazy(() => import("./modules/Dashboard").then((m) => ({ default: m.Dashboard }))),
+  tablero: lazy(() => import("./modules/Tablero").then((m) => ({ default: m.Tablero }))),
+  "cara-a-cara": lazy(() => import("./modules/CaraACara").then((m) => ({ default: m.CaraACara }))),
+  comparador: lazy(() => import("./modules/NuevoComparador").then((m) => ({ default: m.NuevoComparador }))),
+  procesos: lazy(() => import("./features/processes").then((m) => ({ default: m.ProcesosModule }))),
+  evaluaciones: lazy(() => import("./features/evaluaciones").then((m) => ({ default: m.EvaluacionesModule }))),
+  postulantes: lazy(() => import("./modules/ListaPostulantes").then((m) => ({ default: m.ListaPostulantes }))),
+  perfiles: lazy(() => import("./modules/Perfiles").then((m) => ({ default: m.Perfiles }))),
+  documentacion: lazy(() => import("./modules/Documentacion").then((m) => ({ default: m.Documentacion }))),
+  configuracion: lazy(() => import("./modules/Configuracion").then((m) => ({ default: m.Configuracion }))),
+};
 
-/**
- * Documentación.
- *
- * También se carga aparte. La consola documental arrastra el cliente del backend,
- * el vocabulario del modelo, el exportador a Excel y trece pantallas: es el módulo
- * más grande de la aplicación y estaba en el paquete inicial, así que alguien que
- * solo entra a ver el tablero pagaba su descarga sin abrirlo nunca.
- */
-const Documentacion = lazy(() =>
-  import("./modules/Documentacion").then((m) => ({ default: m.Documentacion })),
-);
-
-/**
- * Runner del candidato.
- *
- * Se carga aparte y, sobre todo, se monta ANTES del acceso al ATS: el enlace
- * público de una evaluación no puede exigir cuenta, y el candidato no tiene una.
- */
+// El enlace de un candidato se resuelve antes de montar el acceso interno.
 const EvaluacionRunner = lazy(() =>
   import("./features/evaluaciones").then((m) => ({ default: m.Runner })),
 );
 
 const SUBTITLES: Record<ModuleId, string> = {
-  dashboard: "Panel ejecutivo de selección y reclutamiento.",
-  tablero: "Visión general del talento y métricas clave.",
-  "cara-a-cara": "Duelo 1 vs 1 entre dos postulantes.",
-  comparador: "Auditoría comparativa de competencias.",
-  procesos: "Operación completa de reclutamiento y selección.",
-  evaluaciones: "Plataforma de autoría de evaluaciones estructuradas.",
-  postulantes: "Listado y registro de postulantes.",
-  perfiles: "Creación y gestión de perfiles de cargo del banco.",
-  documentacion: "Expedientes de documentación de incorporación.",
-  configuracion: "Preferencias del sistema, integraciones y formatos de correo.",
+  dashboard: "Revisa los indicadores de selección y entra a las tareas del día desde un solo lugar.",
+  tablero: "Consulta las métricas y la distribución de tu banco de talento.",
+  "cara-a-cara": "Contrasta las fortalezas de dos postulantes, lado a lado.",
+  comparador: "Compara perfiles, competencias y resultados en una sola vista.",
+  procesos: "Da seguimiento a las vacantes y a cada etapa del proceso de selección.",
+  evaluaciones: "Diseña, revisa y administra las evaluaciones de selección.",
+  postulantes: "Busca, registra y consulta a las personas de tu banco de talento.",
+  perfiles: "Define y consulta los perfiles de cargo del banco.",
+  documentacion: "Revisa el avance de los expedientes de incorporación.",
+  configuracion: "Ajusta tu espacio de trabajo, las integraciones y los formatos de correo.",
 };
 
-/** Content padding that keeps the layout clear of the dock, wherever it sits. */
-const MAIN_PAD: Record<DockPosition, string> = {
-  top: "pt-28 pb-16 sm:pt-32",
-  bottom: "pt-16 pb-28 sm:pb-32",
-  left: "pt-16 pb-16 pl-24 sm:pl-28",
-  right: "pt-16 pb-16 pr-24 sm:pr-28",
-};
+const QUICK_LINKS: { id: ModuleId; label: string; detail: string }[] = [
+  { id: "postulantes", label: "Buscar postulantes", detail: "Abre el banco de talento" },
+  { id: "comparador", label: "Comparar perfiles", detail: "Consulta competencias y resultados" },
+  { id: "procesos", label: "Revisar procesos", detail: "Continúa el seguimiento de vacantes" },
+];
 
 function AppShell() {
   const [active, setActive] = useState<ModuleId>("dashboard");
-  const { status, connection } = useTalentData();
-  const { reduceMotion, dockPosition } = useConfig();
+  const { status, connection, syncing } = useTalentData();
+  const { dockPosition, reduceMotion } = useConfig();
   const { current } = useProfiles();
   const { setTheme } = useTheme();
-  const synced = status === "success";
-  const offline = connection === "sin-conexion";
+  const toolsOpen = useToolsOpen();
+  const systemReduced = useReducedMotion();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const navigationRequested = useRef(false);
+  const offline = connection === "sin-conexion" || status === "error";
+  const synced = status === "success" && !syncing && !offline;
+  const syncState = offline ? "offline" : synced ? "online" : "busy";
+  const SyncIcon = offline ? WifiOff : synced ? CircleCheck : RefreshCw;
+  const syncLabel = offline ? "Sin conexión" : synced ? "Base sincronizada" : "Sincronizando datos";
 
-  // Let the "Reducir movimiento" preference dampen animations app-wide.
-  useEffect(() => {
-    document.documentElement.classList.toggle("reduce-motion", reduceMotion);
-  }, [reduceMotion]);
-
-  // Apply the logged-in profile's saved theme (the rest of the bundle —
-  // appConfig + dashboard layout — is applied by the store on login).
   const appliedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!current || appliedFor.current === current.id) return;
@@ -112,93 +88,83 @@ function AppShell() {
     if (bundle.theme) setTheme(bundle.theme);
   }, [current, setTheme]);
 
-  // Trace navigation into the per-profile activity log (best-effort).
   useEffect(() => {
     logActivity({ modulo: active, accion: "Abrió módulo" });
-    // Red de seguridad: cambiar de módulo nunca debe dejar el scroll bloqueado.
-    // Si un overlay se cerró de forma anómala y dejó el `body` en «hidden», esto
-    // devuelve la interfaz a un estado usable sin recargar la página.
+    // Un overlay cerrado al navegar no debe dejar el documento inmóvil.
     reiniciarBloqueoScroll();
+    if (!navigationRequested.current) return;
+    navigationRequested.current = false;
+    window.scrollTo({ top: 0, behavior: "instant" });
+    heading.current?.focus({ preventScroll: true });
   }, [active]);
 
-  const meta = DOCK_ITEMS.find((d) => d.id === active)!;
+  function selectModule(id: ModuleId) {
+    if (id === active || toolsOpen) return;
+    navigationRequested.current = true;
+    setActive(id);
+  }
+
+  const position = DOCK_ITEMS.findIndex((item) => item.id === active);
+  const meta = DOCK_ITEMS[position];
+  const ModuleIcon = meta.icon;
+  const ActiveModule = MODULES[active];
+  const showKpis = active !== "dashboard" && active !== "comparador" && active !== "procesos" && active !== "evaluaciones";
 
   return (
-    <div className="relative min-h-screen">
-      <MeshBackground />
-      <ThreeBackground />
-      <CursorSpotlight />
-      <FloatingDock active={active} onSelect={setActive} synced={synced} offline={offline} />
+    <div className="bdp-workspace relative min-h-screen">
+      <div className="bdp-atmosphere no-print" aria-hidden="true" />
+      {!reduceMotion && !systemReduced && <ThreeBackground />}
+      <FloatingDock active={active} onSelect={selectModule} synced={synced} offline={offline} />
       <RefreshButton />
 
-      <main className={`mx-auto w-full max-w-[1640px] px-4 sm:px-6 lg:px-8 ${MAIN_PAD[dockPosition]}`}>
-        <div className="print-scope-hide">
-          <BrandHeader />
+      <main className="bdp-stage" data-dock={dockPosition}>
+        <div className="bdp-masthead print-scope-hide">
+          <div className="bdp-masthead__brand"><BrandHeader /></div>
+          <span className="bdp-state no-print" data-state={syncState} role="status">
+            <SyncIcon aria-hidden="true" />
+            {syncLabel}
+          </span>
         </div>
 
-        <div className="print-scope-hide">
-          <FilterBar />
-        </div>
+        <header className="bdp-hero print-scope-hide" key={active}>
+          <div className="bdp-prism no-print" aria-hidden="true"><span /></div>
+          <div className="bdp-hero__copy">
+            <div className="bdp-hero__meta no-print">
+              <span className="bdp-mark"><ModuleIcon aria-hidden="true" /></span>
+              <span className="bdp-eyebrow">{active === "dashboard" ? "Panel ejecutivo" : "Reclutamiento · BDP"}</span>
+              <span className="bdp-position" aria-hidden="true">{String(position + 1).padStart(2, "0")} / {DOCK_ITEMS.length}</span>
+            </div>
+            <h2 id="bdp-module-title" ref={heading} tabIndex={-1}>{meta.label}</h2>
+            <p>{SUBTITLES[active]}</p>
+          </div>
+        </header>
 
-        {/* The comparator and the new ProcessOS/AssessmentOS modules provide
-            their own summaries, so the generic four-KPI row is hidden there to
-            avoid disconnected or duplicated metrics. */}
-        {active !== "comparador" && active !== "procesos" && active !== "evaluaciones" && (
-          <div className="print-scope-hide">
-            <KpiBar module={active} />
+        {active === "dashboard" && (
+          <div className="bdp-quick-links no-print" role="group" aria-label="Accesos rápidos del panel">
+            {QUICK_LINKS.map(({ id, label, detail }) => {
+              const Icon = DOCK_ITEMS.find((item) => item.id === id)!.icon;
+              return (
+                <button key={id} type="button" className="bdp-quick-link" disabled={toolsOpen} onClick={() => selectModule(id)}>
+                  <span className="bdp-mark"><Icon aria-hidden="true" /></span>
+                  <span><strong>{label}</strong><small>{detail}</small></span>
+                  <ArrowUpRight aria-hidden="true" />
+                </button>
+              );
+            })}
           </div>
         )}
 
-        <header className="print-scope-hide mb-5 mt-8">
-          <p className="mb-1 inline-flex items-center gap-2 text-[0.7rem] font-bold uppercase tracking-[0.2em] text-cyan-400 no-print">
-            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-glow-cyan" />
-            Módulo
-          </p>
-          <motion.h2
-            key={active}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.175, 0.885, 0.32, 1.275] }}
-            className="text-2xl font-black tracking-tight text-ink sm:text-3xl"
-          >
-            {meta.label}
-          </motion.h2>
-          <p className="mt-1 text-sm text-ink-soft">{SUBTITLES[active]}</p>
-        </header>
+        <div className="print-scope-hide"><FilterBar /></div>
+        {showKpis && <div className="print-scope-hide"><KpiBar module={active} /></div>}
 
-        {/* A keyed entrance animation — NOT wrapped in <AnimatePresence
-            mode="wait">. The old exit-then-enter handshake could deadlock: if an
-            exiting module's animation never reported completion (common with
-            long-lived infinite/layout animations), the incoming module was never
-            mounted and the page went blank until a full reload. Keying a plain
-            motion.section makes React swap modules immediately while still
-            playing a smooth enter transition. */}
+        {/* Monta el destino de inmediato: jamás espera la salida de otro módulo. */}
         <ErrorBoundary key={active}>
-          <motion.section
-            key={active}
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: [0.175, 0.885, 0.32, 1.275] }}
-          >
-            {active === "dashboard" && <Dashboard />}
-            {active === "tablero" && <Tablero />}
-            {active === "cara-a-cara" && <CaraACara />}
-            {active === "comparador" && <NuevoComparador />}
-            {(active === "procesos" || active === "evaluaciones" || active === "documentacion") && (
-              <Suspense fallback={<LoadingState />}>
-                {active === "procesos" && <ProcesosModule />}
-                {active === "evaluaciones" && <EvaluacionesModule />}
-                {active === "documentacion" && <Documentacion />}
-              </Suspense>
-            )}
-            {active === "postulantes" && <ListaPostulantes />}
-            {active === "perfiles" && <Perfiles />}
-            {active === "configuracion" && <Configuracion />}
-          </motion.section>
+          <section className="bdp-module" data-module={active} aria-labelledby="bdp-module-title">
+            <Suspense fallback={<LoadingState />}><ActiveModule /></Suspense>
+          </section>
         </ErrorBoundary>
       </main>
 
-      {/* Global overlays — reachable from every module. */}
       <CandidateProfileViewer />
       <CandidateEditModal />
       <HerramientasPanel />
@@ -207,12 +173,10 @@ function AppShell() {
   );
 }
 
-/** Gate the app behind the profile login while keeping data syncing behind it. */
 function Shell() {
   const { current } = useProfiles();
   const { perfiles } = useTalentData();
 
-  // Merge sheet-provided profiles (names, cargos, passwords) into the seed set.
   useEffect(() => {
     mergeBackendProfiles(perfiles);
   }, [perfiles]);
@@ -225,13 +189,6 @@ function Shell() {
   );
 }
 
-/**
- * Ruta pública del candidato: `#/evaluacion/EV-XXXX-1234`.
- *
- * Se resuelve con el hash y no con un router porque la aplicación no tiene ninguno
- * (ver docs/evaluaciones/ARQUITECTURA.md). Escuchar `hashchange` basta y no añade
- * dependencias.
- */
 function useCodigoEvaluacion(): string {
   const [codigo, setCodigo] = useState(() => codigoDesdeHash(window.location.hash));
   useEffect(() => {
@@ -244,28 +201,26 @@ function useCodigoEvaluacion(): string {
 
 export default function App() {
   const codigoEvaluacion = useCodigoEvaluacion();
+  const { reduceMotion } = useConfig();
 
-  // El runner vive fuera del acceso al ATS y sin el dock ni los paneles internos:
-  // es una página para alguien de fuera de la organización.
-  if (codigoEvaluacion) {
-    return (
-      <ThemeProvider>
-        <div className="relative min-h-screen">
-          <MeshBackground />
-          <Suspense fallback={<LoadingState />}>
-            <EvaluacionRunner codigo={codigoEvaluacion} />
-          </Suspense>
-          <ToastViewport />
-        </div>
-      </ThemeProvider>
-    );
-  }
+  useEffect(() => {
+    document.documentElement.classList.toggle("reduce-motion", reduceMotion);
+    return () => document.documentElement.classList.remove("reduce-motion");
+  }, [reduceMotion]);
 
   return (
-    <ThemeProvider>
-      <TalentDataProvider>
-        <Shell />
-      </TalentDataProvider>
-    </ThemeProvider>
+    <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
+      <ThemeProvider>
+        {codigoEvaluacion ? (
+          <div className="relative min-h-screen">
+            <MeshBackground />
+            <Suspense fallback={<LoadingState />}><EvaluacionRunner codigo={codigoEvaluacion} /></Suspense>
+            <ToastViewport />
+          </div>
+        ) : (
+          <TalentDataProvider><Shell /></TalentDataProvider>
+        )}
+      </ThemeProvider>
+    </MotionConfig>
   );
 }
